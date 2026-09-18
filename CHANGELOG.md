@@ -1,3 +1,35 @@
+# ProxPanel 1.7.1-beta.8
+
+## Français
+- Refonte complète du Mode TV.
+- Nouvelle vue Synthèse avec six KPI principaux : CPU, mémoire, stockage, réseau, température et santé.
+- Nouveau mur de supervision avec alertes, nœuds, sauvegardes, mises à jour et prévision de capacité.
+- Nouvelle hiérarchie visuelle pensée pour les écrans muraux et la lecture à distance.
+- Refonte du header TV avec état LIVE, source/cluster, horloge, actualisation et sélecteur Synthèse / Analytique / Studio.
+- Responsive réellement recomposé selon l'écran : desktop, tablette et mobile/PWA ont des layouts dédiés.
+- Sur mobile, les KPI passent en grille compacte et les panneaux sont réorganisés verticalement ; ce n'est plus un simple desktop réduit.
+- Les vues Analytique et Studio utilisent désormais la nouvelle identité TV.
+- Refonte complète de la page Administration > Supervision : seuils présentés sous forme de réglages structurés avec libellés, descriptions et unités.
+- Refonte de Administration > Avancé : modules présentés en cartes compactes, disparition du champ d'ordre brut visible et meilleure organisation du temps réel.
+- Refonte de l'installation automatique OTA : créneaux plus lisibles, jours sous forme de sélecteurs, horaires mieux structurés.
+- Réduction importante des espaces vides dans les pages Administration concernées.
+- Les nouveaux composants utilisent les variables de thème et restent cohérents en Light et Dark.
+
+## English
+- Complete TV Mode redesign.
+- New Summary view with six primary KPIs: CPU, memory, storage, network, temperature and health.
+- New wallboard supervision layout with alerts, nodes, backups, updates and capacity forecast.
+- New visual hierarchy optimized for wall displays and distance readability.
+- Redesigned TV header with LIVE state, cluster/source, clock, refresh status and Summary / Analytics / Studio switcher.
+- True responsive recomposition: desktop, tablet and mobile/PWA use dedicated layouts.
+- On mobile, KPIs use a compact grid and panels are vertically reorganized instead of shrinking desktop layout.
+- Analytics and Studio views inherit the new TV visual identity.
+- Complete Administration > Monitoring redesign with structured settings, descriptions and units.
+- Administration > Advanced redesign with compact module cards and a cleaner real-time refresh control.
+- OTA automatic-install scheduling redesigned with clearer windows, day selectors and time range layout.
+- Significantly reduces unused empty space in the affected Administration pages.
+- New components use theme variables and remain consistent across Light and Dark modes.
+
 # ProxPanel 1.7.1-beta.7
 
 ## Français
