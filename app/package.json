@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.0-beta.15",
+  "version": "1.7.0-beta.16",
   "private": true,
-  "description": "ProxPanel 1.7.0-beta.15 - Authentication & Mobile UX.",
+  "description": "ProxPanel 1.7.0-beta.16 - Individual node temperature fix.",
   "scripts": {
     "start": "node server.js"
   },
