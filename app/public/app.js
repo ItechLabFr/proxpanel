@@ -687,10 +687,12 @@ function dockerContainerTone(c){
 }
 function dockerContainerActions(c){
   const id=encodeURIComponent(c.id),running=c.state==='running',paused=c.state==='paused';
+  const readOnly=`${button('Détails',`docker-container-detail:${id}`,'tiny')}${button('Logs',`docker-container-logs:${id}`,'tiny')}`;
+  if(!can('machines.control'))return `<div class="row-actions docker-row-actions">${readOnly}</div>`;
   const primary=running
     ? `${button('Redémarrer',`docker-container-action:${id}:restart`,'tiny')}${button(paused?'Reprendre':'Pause',`docker-container-action:${id}:${paused?'resume':'pause'}`,'tiny')}${button('Arrêter',`docker-container-action:${id}:stop`,'tiny danger')}`
     : button('Démarrer',`docker-container-action:${id}:start`,'tiny primary');
-  return `<div class="row-actions docker-row-actions">${button('Détails',`docker-container-detail:${id}`,'tiny')}${button('Logs',`docker-container-logs:${id}`,'tiny')}${running?button('Exec',`docker-container-exec:${id}`,'tiny'):''}${primary}</div>`;
+  return `<div class="row-actions docker-row-actions">${readOnly}${running?button('Exec',`docker-container-exec:${id}`,'tiny'):''}${primary}</div>`;
 }
 function dockerContainersView(){
   const rows=state.dockerContainers||[];
@@ -707,7 +709,7 @@ function dockerStacksView(){
   return `<div class="docker-stack-list">${rows.map(s=>`<article class="panel docker-stack-card">
     <div class="docker-stack-head"><div><strong>${esc(s.name||`Stack ${s.id}`)}</strong><small>${esc(s.entryPoint||'docker-compose.yml')} · ${s.containerCount||0} conteneur(s)${s.createdBy?` · ${esc(s.createdBy)}`:''}</small></div>${badge(s.active?'Active':'Arrêtée',s.active?'ok':'neutral')}</div>
     <div class="docker-stack-meta"><span>Source<b>${s.git?'Git':'Compose'}</b></span><span>Variables<b>${s.envNames?.length||0} nom(s) masqué(s)</b></span><span>Auto-update<b>${s.autoUpdate?'Oui':'Non'}</b></span><span>Créée<b>${s.creationDate?fmtDate(s.creationDate):'—'}</b></span></div>
-    <div class="row-actions docker-row-actions">${s.active?button('Arrêter',`docker-stack-action:${s.id}:stop`,'tiny danger'):button('Démarrer',`docker-stack-action:${s.id}:start`,'tiny primary')}${button('Redeploy',`docker-stack-action:${s.id}:redeploy`,'tiny')}</div>
+    ${can('machines.control')?`<div class="row-actions docker-row-actions">${s.active?button('Arrêter',`docker-stack-action:${s.id}:stop`,'tiny danger'):button('Démarrer',`docker-stack-action:${s.id}:start`,'tiny primary')}${button('Redeploy',`docker-stack-action:${s.id}:redeploy`,'tiny')}</div>`:''}
   </article>`).join('')}</div>`;
 }
 function dockerWorkspacePage(){
