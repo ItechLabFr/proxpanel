@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 const { URL } = require('url');
 const QRCode = require('./vendor/QRCode');
 const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
+const { backupAlertDecision, summarizeDockerContainers, classifyPortainerEnvironment } = require('./lib/reliability');
 
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
@@ -93,6 +94,8 @@ const PVE_AUTH_CACHE = new Map();
 const PVE_AUTH_CACHE_MS = 20 * 60 * 1000;
 const BACKUP_INVENTORY_CACHE = new Map();
 const BACKUP_INVENTORY_CACHE_MS = 60 * 1000;
+const PORTAINER_OVERVIEW_CACHE = new Map();
+const PORTAINER_OVERVIEW_CACHE_MS = 20 * 1000;
 const NODE_TEMPERATURE_CACHE = new Map();
 const NODE_TEMPERATURE_CACHE_MS = 30 * 1000;
 const NODE_ADDRESS_CACHE = new Map();
@@ -117,12 +120,12 @@ function defaultSettings() {
   return {
     branding: { name: 'ProxPanel', subtitle: 'PROXMOX CONSOLE', accent: '#ff7a00', logoText: '◇' },
     thresholds: { cpuWarning: 85, memoryWarning: 85, storageWarning: 85, storageCritical: 95, temperatureWarning: 75, temperatureCritical: 85, backupMaxAgeHours: 36 },
-    modules: { overview: true, machines: true, nodes: true, monitoring: true, storage: true, backups: true, tasks: true, create: false, templates: true, firewall: false, problems: true, dependencies: true, changes: true, maintenance: true, pveupdates: true, automations: true, energy: false, audit: true, integrations: false, notifications: true, users: true, admin: true },
+    modules: { overview: true, machines: true, nodes: true, monitoring: true, storage: true, docker: true, backups: true, tasks: true, create: false, templates: true, firewall: false, problems: true, dependencies: true, changes: true, maintenance: true, pveupdates: true, automations: true, energy: false, audit: true, integrations: false, notifications: true, users: true, admin: true },
     dashboardWidgets: ['cpu','memory','storage','temperature','network','machines','health','problems','capacity','backups'],
     homePage: 'overview',
     language: 'fr',
     timezone: 'UTC',
-    menuOrder: ['overview','machines','nodes','monitoring','storage','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'],
+    menuOrder: ['overview','machines','nodes','monitoring','storage','docker','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'],
     electricity: { pricePerKwh: 0.25, currency: 'EUR', nodes: {} },
     alerts: {
       enabled: true, pollMinutes: 5, discordWebhook: '', discordChannels: [], genericWebhook: '', telegramBotToken: '', telegramChatId: '',
@@ -200,7 +203,7 @@ function autoInstallWindowMatch(settings=new Date(), maybeDate=null) {
 }
 function normalizeSettings(settings) {
   const out = settings && typeof settings === 'object' ? settings : defaultSettings();
-  out.modules = { ...(out.modules || {}), energy: false, create: false, firewall: false, integrations: false, notifications: out.modules?.notifications !== false, users: out.modules?.users !== false };
+  out.modules = { ...(out.modules || {}), energy: false, create: false, firewall: false, integrations: false, docker: out.modules?.docker !== false, notifications: out.modules?.notifications !== false, users: out.modules?.users !== false };
   out.dashboardWidgets = (Array.isArray(out.dashboardWidgets) ? out.dashboardWidgets : defaultSettings().dashboardWidgets).filter(x => x !== 'energy');
   if (!out.dashboardWidgets.includes('temperature')) {
     const networkIndex = out.dashboardWidgets.indexOf('network');
@@ -208,6 +211,10 @@ function normalizeSettings(settings) {
   }
   const hidden = new Set(['energy','create','firewall','integrations']);
   out.menuOrder = (Array.isArray(out.menuOrder) ? out.menuOrder : defaultSettings().menuOrder).filter(x => !hidden.has(x));
+  if (!out.menuOrder.includes('docker')) {
+    const storageIndex=out.menuOrder.indexOf('storage');
+    out.menuOrder.splice(storageIndex>=0?storageIndex+1:Math.min(5,out.menuOrder.length),0,'docker');
+  }
   for (const key of ['notifications','users','admin']) if (!out.menuOrder.includes(key)) out.menuOrder.push(key);
   if (hidden.has(out.homePage)) out.homePage = 'overview';
   out.language = ['fr','en'].includes(String(out.language || '').toLowerCase()) ? String(out.language).toLowerCase() : 'fr';
@@ -1651,11 +1658,12 @@ function computeProblems(dashboard, settings) {
   for (const g of dashboard?.backup?.machines || []) {
     if (!g.protectedByJob) continue;
     const ctime = Number(g.lastBackup?.ctime || 0);
-    if (!ctime) {
+    const backupDecision=backupAlertDecision({ctime,maxAgeHours,absenceReliable:!!g.backupAbsenceReliable,nowSec});
+    if (backupDecision.kind==='absent') {
       // Never turn a temporary/partial inventory failure into "no backup found".
       // Missing-backup alerts are only valid when every backup storage query
       // completed successfully and there is no successful vzdump task evidence.
-      if (g.backupAbsenceReliable) add('warning','backup-absent','Sauvegarde attendue absente', `${g.name} (${g.vmid}) est protégée par un job mais aucun backup confirmé n’a été trouvé`, String(g.vmid), {
+      add('warning','backup-absent','Sauvegarde attendue absente', `${g.name} (${g.vmid}) est protégée par un job mais aucun backup confirmé n’a été trouvé`, String(g.vmid), {
         route:'backups', recommendation:'Vérifie le job, le stockage de destination et les logs de la dernière exécution.',
         facts:[
           {label:'Machine',value:`${g.name} (${g.vmid})`},
@@ -1666,8 +1674,9 @@ function computeProblems(dashboard, settings) {
       });
       continue;
     }
-    const ageHours = Math.max(0,(nowSec - ctime) / 3600);
-    if (ageHours > maxAgeHours) add('warning','backup-stale','Sauvegarde en retard', `${g.name} (${g.vmid}) : dernière sauvegarde il y a ${ageHours.toFixed(1)} h`, String(g.vmid), {
+    if (backupDecision.kind==='unknown'||backupDecision.kind==='ok') continue;
+    const ageHours = Number(backupDecision.ageHours||0);
+    if (backupDecision.kind==='stale') add('warning','backup-stale','Sauvegarde en retard', `${g.name} (${g.vmid}) : dernière sauvegarde il y a ${ageHours.toFixed(1)} h`, String(g.vmid), {
       route:'backups', recommendation:'Ouvre la page Sauvegardes pour vérifier le dernier job et relancer une sauvegarde si nécessaire.',
       facts:[
         {label:'Machine',value:`${g.name} (${g.vmid})`},
@@ -1876,13 +1885,110 @@ async function integrationJson(baseUrl, reqPath, options = {}) {
   const r = await rawRequest(baseUrl.replace(/\/$/,''), reqPath, { method: options.method || 'GET', body, headers, rejectUnauthorized: options.rejectUnauthorized !== false });
   return r.data?.data ?? r.data;
 }
+function portainerApiKey(item) {
+  if (item?.apiKeyEnc) return decryptText(item.apiKeyEnc);
+  if (item?.tokenEnc) return decryptText(item.tokenEnc);
+  return '';
+}
+function portainerHeaders(item) {
+  const key=portainerApiKey(item);
+  if(!key)throw new Error('Clé API Portainer requise.');
+  return {'X-API-Key':key};
+}
+function validateIntegrationUrl(value) {
+  const raw=String(value||'').trim().replace(/\/$/,'');
+  let parsed;try{parsed=new URL(raw);}catch{throw new Error('URL invalide.');}
+  if(!['http:','https:'].includes(parsed.protocol))throw new Error('Portainer doit utiliser une URL HTTP ou HTTPS.');
+  return raw;
+}
+async function portainerSystemInfo(item) {
+  const headers=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
+  for(const path of ['/api/system/status','/api/status']){
+    try{
+      const status=await integrationJson(item.url,path,{headers,rejectUnauthorized});
+      if(status&&typeof status==='object'){
+        return {
+          version:String(status.Version||status.version||status.ServerVersion||''),
+          edition:String(status.Edition||status.edition||status.License?.Edition||''),
+          instanceId:String(status.InstanceID||status.instanceId||'')
+        };
+      }
+    }catch{}
+  }
+  return {version:'',edition:'',instanceId:''};
+}
+async function portainerEnvironmentOverview(item, endpoint) {
+  const headers=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned,id=Number(endpoint?.Id||endpoint?.id||0);
+  const base={
+    id,name:String(endpoint?.Name||endpoint?.name||`Environment ${id}`),url:String(endpoint?.URL||endpoint?.url||''),
+    type:Number(endpoint?.Type??endpoint?.type??0),portainerStatus:Number(endpoint?.Status??endpoint?.status??0),
+    groupId:Number(endpoint?.GroupId??endpoint?.groupId??0),reachable:false,supported:false,kind:'unknown',
+    kindLabel:'Docker',dockerVersion:'',hostName:'',os:'',architecture:'',cpus:0,memoryTotal:0,
+    containers:{total:0,running:0,stopped:0,healthy:0,unhealthy:0,restarting:0,paused:0},error:''
+  };
+  if(!id){base.error='Identifiant d’environnement Portainer invalide.';return base;}
+  try{
+    const info=await integrationJson(item.url,`/api/endpoints/${encodeURIComponent(id)}/docker/info`,{headers,rejectUnauthorized});
+    const classification=classifyPortainerEnvironment(info);
+    const containers=await integrationJson(item.url,`/api/endpoints/${encodeURIComponent(id)}/docker/containers/json?all=1`,{headers,rejectUnauthorized});
+    return {
+      ...base,reachable:true,supported:classification.supported,kind:classification.kind,kindLabel:classification.label,
+      dockerVersion:String(info?.ServerVersion||info?.serverVersion||''),hostName:String(info?.Name||info?.name||''),
+      os:String(info?.OperatingSystem||info?.OSType||''),architecture:String(info?.Architecture||''),
+      cpus:Number(info?.NCPU||0),memoryTotal:Number(info?.MemTotal||0),containers:summarizeDockerContainers(containers)
+    };
+  }catch(error){
+    return {...base,error:String(error?.message||error||'Environnement Docker inaccessible.')};
+  }
+}
+async function portainerOverview(item) {
+  const headers=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
+  const [system,endpoints]=await Promise.all([
+    portainerSystemInfo(item),
+    integrationJson(item.url,'/api/endpoints',{headers,rejectUnauthorized})
+  ]);
+  const rows=Array.isArray(endpoints)?endpoints:[];
+  const environments=[];
+  for(let i=0;i<rows.length;i+=4){
+    environments.push(...await Promise.all(rows.slice(i,i+4).map(row=>portainerEnvironmentOverview(item,row))));
+  }
+  const supported=environments.filter(x=>x.supported),reachable=environments.filter(x=>x.reachable);
+  const totals=environments.reduce((acc,row)=>{
+    for(const key of ['total','running','stopped','healthy','unhealthy','restarting','paused'])acc[key]+=Number(row.containers?.[key]||0);
+    return acc;
+  },{total:0,running:0,stopped:0,healthy:0,unhealthy:0,restarting:0,paused:0});
+  return {
+    id:item.id,name:item.name||'Portainer',url:item.url,type:'portainer',
+    version:system.version,edition:system.edition,environmentCount:environments.length,
+    reachableCount:reachable.length,supportedDockerCount:supported.length,containers:totals,environments
+  };
+}
+async function cachedPortainerOverview(item,force=false) {
+  const key=String(item.id||item.url||'portainer'),cached=PORTAINER_OVERVIEW_CACHE.get(key);
+  if(!force&&cached?.value&&cached.expiresAt>Date.now())return cached.value;
+  if(!force&&cached?.promise)return cached.promise;
+  const promise=portainerOverview(item);
+  PORTAINER_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+PORTAINER_OVERVIEW_CACHE_MS});
+  try{
+    const value=await promise;
+    PORTAINER_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+PORTAINER_OVERVIEW_CACHE_MS});
+    return value;
+  }catch(error){
+    PORTAINER_OVERVIEW_CACHE.delete(key);
+    throw error;
+  }
+}
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
   if (item.type === 'portainer') {
-    const key = item.apiKeyEnc ? decryptText(item.apiKeyEnc) : '';
-    const r = await integrationJson(url, '/api/endpoints', { headers: { 'X-API-Key': key }, rejectUnauthorized: !item.allowSelfSigned });
-    return { ok: true, detail: `${Array.isArray(r) ? r.length : 0} endpoint(s)` };
+    const r=await cachedPortainerOverview(item,true);
+    return {
+      ok:true,
+      detail:`${r.environmentCount} environnement(s) · ${r.supportedDockerCount} Docker Standalone compatible(s)`,
+      version:r.version||'',edition:r.edition||'',environmentCount:r.environmentCount,
+      supportedDockerCount:r.supportedDockerCount,reachableCount:r.reachableCount,containers:r.containers
+    };
   }
   if (item.type === 'grafana') {
     const r = await integrationJson(url, '/api/health', { rejectUnauthorized: !item.allowSelfSigned });
