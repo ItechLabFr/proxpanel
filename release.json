@@ -1,43 +1,63 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.0-beta.16",
-  "title": "ProxPanel 1.7.0-beta.16 — Individual Node Temperature Fix",
-  "title_en": "ProxPanel 1.7.0-beta.16 — Individual Node Temperature Fix",
-  "summary": "Corrige l’absence de température CPU dans les vues individuelles des nœuds alors qu’elle était disponible dans la vue regroupée.",
-  "summary_en": "Fixes missing CPU temperature data in individual node views while the same temperatures were already available in grouped views.",
+  "version": "1.7.1-beta.1",
+  "title": "ProxPanel 1.7.1-beta.1 — Console Reliability & Fast Mobile PWA Startup",
+  "title_en": "ProxPanel 1.7.1-beta.1 — Console Reliability & Fast Mobile PWA Startup",
+  "summary": "Première beta de la série 1.7.1 : améliore la fiabilité des consoles noVNC/terminal et accélère fortement le premier affichage de la PWA, notamment sur iPhone et tablette.",
+  "summary_en": "First beta of the 1.7.1 series: improves noVNC/terminal console reliability and significantly speeds up initial PWA rendering, especially on iPhone and tablets.",
   "improvements": [
-    "Aligne la collecte de température des vues individuelles sur celle utilisée par les vues regroupées.",
-    "La route live d’un serveur individuel enrichit maintenant les nœuds avec les données lm-sensors.",
-    "La route dashboard d’un serveur individuel expose maintenant les mêmes champs de température et de diagnostic que la vue regroupée."
+    "Ajout d’un diagnostic console par étapes : authentification Proxmox, proxy, réseau, WebSocket et client noVNC/terminal.",
+    "Ajout d’une reconnexion automatique jusqu’à deux tentatives avec création d’une nouvelle session console.",
+    "Ajout d’un bouton Réessayer lorsque la reconnexion automatique échoue.",
+    "Durée de vie des sessions console portée à 5 minutes afin de mieux tolérer les connexions mobiles lentes.",
+    "Interface console revue pour téléphone et tablette avec zones tactiles plus grandes.",
+    "Affichage immédiat d’un écran de démarrage PWA avant le chargement JavaScript complet.",
+    "Chargement initial progressif : seules les données indispensables bloquent le premier rendu.",
+    "Audit, mises à jour, automatisations et données secondaires sont chargés en arrière-plan.",
+    "Le dashboard est affiché d’abord sans historique, puis les graphiques historiques sont chargés après le premier rendu.",
+    "Service Worker optimisé en cache-first/stale-while-revalidate pour les ressources versionnées.",
+    "Enregistrement du Service Worker différé afin de ne plus concurrencer les requêtes critiques au lancement.",
+    "Les fichiers CSS/JS versionnés reçoivent désormais un cache HTTP immutable longue durée."
   ],
   "improvements_en": [
-    "Aligns temperature collection in individual views with the implementation already used by grouped views.",
-    "The individual server live route now enriches nodes with lm-sensors temperature data.",
-    "The individual server dashboard route now exposes the same temperature and diagnostic fields as the grouped view."
+    "Adds step-by-step console diagnostics for Proxmox authentication, proxy creation, network connection, WebSocket handshake and noVNC/terminal client.",
+    "Adds up to two automatic reconnect attempts using a fresh console session.",
+    "Adds a manual Retry button when automatic reconnection fails.",
+    "Extends console session lifetime to 5 minutes to better tolerate slow mobile connections.",
+    "Improves the console layout on phones and tablets with larger touch targets.",
+    "Displays an immediate PWA startup screen before the full JavaScript bundle is ready.",
+    "Introduces progressive startup loading so only essential data blocks the first render.",
+    "Audit data, updates, automations and other secondary data now load in the background.",
+    "The dashboard first loads without history, then historical charts are fetched after the initial render.",
+    "Optimizes the Service Worker with cache-first/stale-while-revalidate behavior for versioned assets.",
+    "Defers Service Worker registration so it no longer competes with critical startup requests.",
+    "Versioned CSS and JavaScript assets now use long-lived immutable HTTP caching."
   ],
   "fixes": [
-    "Corrige la température absente dans la vue individuelle d’un nœud.",
-    "Corrige la disparition de la température pendant le rafraîchissement live d’une vue individuelle.",
-    "Corrige l’incohérence entre les vues regroupées et individuelles concernant temperatureC, le statut de lecture et les diagnostics lm-sensors."
+    "Réduit le temps pendant lequel la PWA reste vide au démarrage sur iPhone.",
+    "Corrige le démarrage inutilement bloqué par de nombreux appels API non critiques.",
+    "Améliore les erreurs de console trop génériques en indiquant précisément l’étape en échec.",
+    "Améliore la récupération après une coupure WebSocket avant l’affichage de la console."
   ],
   "fixes_en": [
-    "Fixes missing temperature values in individual node views.",
-    "Fixes temperature values disappearing during live refresh in individual views.",
-    "Fixes the inconsistency between grouped and individual views for temperatureC, collection status and lm-sensors diagnostics."
+    "Reduces the time the PWA remains blank during startup on iPhone.",
+    "Fixes startup being unnecessarily blocked by multiple non-critical API calls.",
+    "Replaces generic console failures with diagnostics that identify the failing stage.",
+    "Improves recovery from WebSocket interruptions before the console is displayed."
   ],
   "notes": [
-    "Cette release clôt exceptionnellement la série 1.7.0-beta.x.",
-    "Les prochaines modifications commenceront en 1.7.1-beta.1.",
-    "À partir de 1.7.1, chaque version est limitée à 10 betas maximum."
+    "Cette beta doit être testée en priorité sur iPhone PWA, iPad/tablette, VM Windows, VM Linux et LXC.",
+    "Le chargement externe de noVNC reste utilisé dans cette beta ; sa mise en local pourra être étudiée dans une beta suivante si nécessaire.",
+    "Série 1.7.1 : 10 betas maximum."
   ],
   "notes_en": [
-    "This release exceptionally closes the 1.7.0-beta.x series.",
-    "The next changes will start with 1.7.1-beta.1.",
-    "Starting with 1.7.1, each version series is limited to a maximum of 10 beta releases."
+    "This beta should primarily be tested on iPhone PWA, iPad/tablet, Windows VMs, Linux VMs and LXC containers.",
+    "This beta still loads noVNC externally; vendoring it locally can be evaluated in a later beta if needed.",
+    "1.7.1 series: maximum 10 beta releases."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
-  "min_supported_version": "1.7.0-beta.15",
+  "min_supported_version": "1.7.0-beta.16",
   "mandatory": false,
   "restart_required": true,
   "rollout": 100
