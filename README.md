@@ -191,6 +191,6 @@ ProxPanel is currently a beta personal project. APIs, UI elements and internal i
 
 ## License
 
-ProxPanel is currently published as **source available / proprietary**. See [`LICENSE`](LICENSE).
+ProxPanel is released under the **MIT License**. You may use, copy, modify, redistribute, sublicense and sell copies of the software, subject to the MIT License terms.
 
-If the project later moves to an open-source license, the repository license can be changed explicitly in a future release.
+See [`LICENSE`](LICENSE).
