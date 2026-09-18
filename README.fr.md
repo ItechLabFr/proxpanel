@@ -12,7 +12,8 @@
   <a href="https://proxpanel.fr">Site officiel</a> ·
   <a href="README.md">English</a> ·
   <a href="https://hub.docker.com/r/itechlab/proxpanel">Docker Hub</a> ·
-  <a href="ROADMAP.md">Roadmap</a> ·\n  <a href="HISTORY.md">Historique des versions</a>
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="HISTORY.md">Historique des versions</a>
 </p>
 
 > **Logiciel en bêta.** ProxPanel est encore en développement actif. Sauvegarde ta configuration avant de tester une nouvelle version.
@@ -57,7 +58,7 @@ docker run -d \
   -p 8080:8080 \
   -v proxpanel_data:/app/data \
   -v proxpanel_runtime:/opt/proxpanel-runtime \
-  itechlab/proxpanel:1.7.0-beta.15
+  itechlab/proxpanel:1.7.0-beta.14
 ```
 
 Puis ouvre :
@@ -123,9 +124,19 @@ Ne publie jamais de mots de passe, tokens Proxmox, secrets Microsoft 365, webhoo
 
 Les rapports de bugs, demandes de fonctions ciblées et pull requests revues sont les bienvenus. Voir [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Historique des versions et Releases
+
+L'historique public de la branche 1.7 est disponible dans [`HISTORY.md`](HISTORY.md).
+
+Les notes historiques sont disponibles depuis **1.7.0-beta.1**. **v1.7.0-beta.14** est la première GitHub Release reproductible avec tag exact et fichiers téléchargeables. **1.7.0-beta.15** est actuellement la version de développement en préparation et en test.
+
+Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), tandis que `updates.proxpanel.fr` reste responsable des canaux OTA, du rollout et des révocations.
+
 ## Statut
 
-Version actuelle : **1.7.0-beta.15**
+Version de développement actuelle : **1.7.0-beta.15**
+
+Dernière GitHub Release publiée : **1.7.0-beta.14**
 
 ProxPanel est actuellement un projet personnel en bêta.
 
