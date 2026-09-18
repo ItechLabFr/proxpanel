@@ -14,6 +14,10 @@ services:
       PORT: 8080
       PROXPANEL_RUNTIME_DIR: /opt/proxpanel-runtime
       PROXPANEL_DATA_DIR: /app/data
+      PROXPANEL_DEMO_MODE: "true"
+      PROXPANEL_DEMO_USER: "demo"
+      PROXPANEL_DEMO_PASSWORD: "ProxPanelDemo2026!"
+      PROXPANEL_DEMO_EMAIL: "demo@proxpanel.fr"
     volumes:
       - proxpanel_demo_data:/app/data
       - proxpanel_demo_runtime:/opt/proxpanel-runtime
