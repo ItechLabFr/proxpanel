@@ -1,5 +1,15 @@
 # Security Policy
 
+## Deployment exposure
+
+ProxPanel is primarily intended for **HomeLab environments** and controlled administration networks.
+
+The administration interface is **not designed to be exposed directly to the Internet**. For remote access, use a **VPN**, a **private network**, or another secure access mechanism.
+
+Enable **multi-factor authentication (2FA/MFA)** whenever possible.
+
+ProxPanel is provided **without warranty** under the terms of the **MIT License**.
+
 ## Reporting a vulnerability
 
 Please do **not** publish sensitive security vulnerabilities in a public issue.
