@@ -21,6 +21,7 @@ Cet historique couvre la branche **1.7.0-beta.x** à partir de **1.7.0-beta.1**.
 | [1.7.0-beta.11](docs/releases/1.7.0-beta.11.md) | Beta | Historique documenté | Diagnostic des températures |
 | [1.7.0-beta.12](docs/releases/1.7.0-beta.12.md) | Beta | Historique documenté | Fondation Français / English |
 | [1.7.0-beta.13](docs/releases/1.7.0-beta.13.md) | Beta | Historique documenté | Extension des traductions |
+| [1.7.0-beta.15](docs/releases/1.7.0-beta.15.md) | Beta | Préparée pour Release | Authentication & Mobile UX |
 | [1.7.0-beta.14](docs/releases/1.7.0-beta.14.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.0-beta.14) | Traduction FR/EN exhaustive |
 
 ## Politique d'archivage
