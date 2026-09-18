@@ -178,6 +178,14 @@ DOCKERHUB_IMAGE=itechlab/proxpanel ./docker-publish.sh
 
 ## Security
 
+ProxPanel is an open-source project primarily intended for **HomeLab environments** and controlled administration networks.
+
+The administration interface is **not designed to be exposed directly to the Internet**. For remote access, using a **VPN**, a **private network**, or another secure access mechanism is recommended.
+
+**Multi-factor authentication (2FA/MFA)** should be enabled whenever possible.
+
+The software is provided **without warranty**, in accordance with the **MIT License**.
+
 See [`SECURITY.md`](SECURITY.md) for vulnerability reporting and [`SECURITY-IMAGE.md`](SECURITY-IMAGE.md) for Docker image hardening notes.
 
 Never post credentials, Proxmox tokens, Microsoft 365 secrets, Discord webhooks or private infrastructure details in a public GitHub issue.
