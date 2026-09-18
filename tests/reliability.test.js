@@ -4,7 +4,8 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const {
   backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
-  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect
+  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,
+  parseDockerSizeBytes,dockerDiskPressureFromInfo,dockerIncidentTransition
 }=require('../app/lib/reliability');
 
 test('daily backup around 24h stays healthy with a 36h threshold',()=>{
@@ -77,4 +78,30 @@ test('Docker inspect redaction hides environment and secret-like fields',()=>{
   assert.deepEqual(row.Config.Env,['TOKEN=[redacted]','TZ=[redacted]']);
   assert.equal(row.Config.Labels.apiKey,'[redacted]');
   assert.equal(row.Password,'[redacted]');
+});
+
+
+test('Docker driver storage pressure is only reported when reliable capacity data exists',()=>{
+  assert.equal(parseDockerSizeBytes('12.5 GB'),12.5e9);
+  const pressure=dockerDiskPressureFromInfo({
+    DriverStatus:[['Data Space Used','92 GB'],['Data Space Total','100 GB']]
+  },85,95);
+  assert.equal(pressure.severity,'warning');
+  assert.equal(pressure.pct,92);
+  assert.equal(dockerDiskPressureFromInfo({DriverStatus:[['Backing Filesystem','extfs']]},85,95),null);
+});
+
+test('Docker incidents require confirmation and emit one recovery transition',()=>{
+  const now=1_000_000;
+  const first=dockerIncidentTransition({},true,now,{confirmations:2,cooldownMinutes:30});
+  assert.equal(first.active,false);
+  assert.equal(first.shouldNotify,false);
+  const second=dockerIncidentTransition(first,true,now+60_000,{confirmations:2,cooldownMinutes:30});
+  assert.equal(second.active,true);
+  assert.equal(second.shouldNotify,true);
+  const steady=dockerIncidentTransition({...second,lastNotifiedAt:now+60_000},true,now+120_000,{confirmations:2,cooldownMinutes:30});
+  assert.equal(steady.shouldNotify,false);
+  const recovered=dockerIncidentTransition(steady,false,now+180_000,{confirmations:2,cooldownMinutes:30});
+  assert.equal(recovered.active,false);
+  assert.equal(recovered.shouldRecover,true);
 });
