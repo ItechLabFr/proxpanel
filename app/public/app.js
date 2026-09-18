@@ -710,7 +710,7 @@ function adminHomePage(){
   const s=state.settings||{},remote=state.remoteUpdate||{},u=state.updates||{},serverOnline=state.servers.filter(x=>x.status==='online').length;
   return`<div class="page-head"><div><h1>Administration</h1><p>Centre de configuration ProxPanel. Les réglages sont maintenant regroupés par usage.</p></div><div>${button('Se déconnecter','logout','danger')}</div></div>
   <div class="admin-summary-grid">
-    <div class="admin-summary"><span>Version</span><strong>${esc(u.currentVersion||'1.7.1-beta.5')}</strong><small>${remote.available?'Mise à jour disponible':'Version installée'}</small></div>
+    <div class="admin-summary"><span>Version</span><strong>${esc(u.currentVersion||'1.7.1-beta.6')}</strong><small>${remote.available?'Mise à jour disponible':'Version installée'}</small></div>
     <div class="admin-summary"><span>Canal OTA</span><strong>${esc(String(s.updates?.otaChannel||'beta').toUpperCase())}</strong><small>${remote.lastCheckAt?'Vérifié '+fmtDate(remote.lastCheckAt):'Vérification différée'}</small></div>
     <div class="admin-summary"><span>Serveurs</span><strong>${serverOnline}/${state.servers.length}</strong><small>connecté(s)</small></div>
     <div class="admin-summary"><span>2FA</span><strong>${state.me?.totpEnabled?'Active':'À vérifier'}</strong><small>Compte courant</small></div>
