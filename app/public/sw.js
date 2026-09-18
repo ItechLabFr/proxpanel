@@ -1,22 +1,96 @@
-const CACHE='proxpanel-v1.7.0-beta.16';
-const CORE=['/','/index.html','/styles.css?v=1.7.0-beta.16','/auth-v15.css?v=1.7.0-beta.16','/auth-v15.js?v=1.7.0-beta.16','/app.js?v=1.7.0-beta.16','/manifest.webmanifest','/proxpanel-logo-192.png','/proxpanel-logo-256.png','/proxpanel-logo-512.png','/apple-touch-icon.png'];
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
-self.addEventListener('fetch',e=>{
-  const u=new URL(e.request.url);
-  if(e.request.method!=='GET'||u.pathname.startsWith('/api/')||u.pathname.startsWith('/ws/')) return;
-  // Navigation remains network-first so a newly deployed release is discovered.
-  if(e.request.mode==='navigate'){
-    e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put('/index.html',copy));return r;}).catch(()=>caches.match('/index.html')));
+const CACHE='proxpanel-v1.7.1-beta.1';
+const CORE=[
+  '/',
+  '/index.html',
+  '/styles.css?v=1.7.1-beta.1',
+  '/auth-v15.css?v=1.7.1-beta.1',
+  '/auth-v15.js?v=1.7.1-beta.1',
+  '/app.js?v=1.7.1-beta.1',
+  '/manifest.webmanifest',
+  '/proxpanel-logo-192.png',
+  '/proxpanel-logo-256.png',
+  '/proxpanel-logo-512.png',
+  '/apple-touch-icon.png'
+];
+
+self.addEventListener('install',event=>{
+  event.waitUntil((async()=>{
+    const cache=await caches.open(CACHE);
+    await Promise.all(CORE.map(async url=>{
+      try{
+        const response=await fetch(url,{cache:'reload'});
+        if(response.ok)await cache.put(url,response);
+      }catch{}
+    }));
+    await self.skipWaiting();
+  })());
+});
+
+self.addEventListener('activate',event=>{
+  event.waitUntil((async()=>{
+    await Promise.all((await caches.keys()).filter(key=>key!==CACHE).map(key=>caches.delete(key)));
+    if(self.registration.navigationPreload)await self.registration.navigationPreload.enable().catch(()=>{});
+    await self.clients.claim();
+  })());
+});
+
+function refreshInBackground(request,cacheKey=request){
+  return fetch(request).then(async response=>{
+    if(response&&response.ok){
+      const cache=await caches.open(CACHE);
+      await cache.put(cacheKey,response.clone());
+    }
+    return response;
+  }).catch(()=>null);
+}
+
+self.addEventListener('fetch',event=>{
+  const request=event.request;
+  const url=new URL(request.url);
+  if(request.method!=='GET'||url.pathname.startsWith('/api/')||url.pathname.startsWith('/ws/'))return;
+
+  if(request.mode==='navigate'){
+    event.respondWith((async()=>{
+      const cached=await caches.match('/index.html');
+      const networkPromise=(async()=>{
+        try{
+          const preloaded=await event.preloadResponse;
+          if(preloaded&&preloaded.ok){
+            const cache=await caches.open(CACHE);
+            await cache.put('/index.html',preloaded.clone());
+            return preloaded;
+          }
+        }catch{}
+        return refreshInBackground(request,'/index.html');
+      })();
+      if(cached){
+        event.waitUntil(networkPromise);
+        return cached;
+      }
+      return (await networkPromise)||new Response('ProxPanel indisponible hors ligne.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}});
+    })());
     return;
   }
-  const isAppAsset=u.pathname==='/styles.css'||u.pathname==='/auth-v15.css'||u.pathname==='/auth-v15.js'||u.pathname==='/app.js'||u.pathname==='/sw.js';
-  if(isAppAsset){
-    e.respondWith(fetch(e.request,{cache:'no-store'}).then(r=>{if(r&&r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));}return r;}).catch(()=>caches.match(e.request)));
+
+  const isVersionedAppAsset=['/styles.css','/auth-v15.css','/auth-v15.js','/app.js'].includes(url.pathname);
+  if(isVersionedAppAsset){
+    event.respondWith((async()=>{
+      const cached=await caches.match(request);
+      if(cached){
+        event.waitUntil(refreshInBackground(request));
+        return cached;
+      }
+      return (await refreshInBackground(request))||Response.error();
+    })());
     return;
   }
-  e.respondWith(caches.match(e.request).then(cached=>{
-    const network=fetch(e.request).then(r=>{if(r&&r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));}return r;}).catch(()=>cached);
-    return cached||network;
-  }));
+
+  event.respondWith((async()=>{
+    const cached=await caches.match(request);
+    if(cached){
+      event.waitUntil(refreshInBackground(request));
+      return cached;
+    }
+    return (await refreshInBackground(request))||Response.error();
+  })());
 });
