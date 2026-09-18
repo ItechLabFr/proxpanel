@@ -34,6 +34,49 @@ function classifyPortainerEnvironment(dockerInfo=null) {
   return {kind:'docker-standalone',supported:true,label:'Docker Standalone'};
 }
 
+function parseDockerSizeBytes(value='') {
+  const m=String(value||'').trim().match(/([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)?/i);
+  if(!m)return null;
+  const n=Number(m[1]);if(!Number.isFinite(n))return null;
+  const unit=String(m[2]||'B').toUpperCase();
+  const decimal={B:1,KB:1e3,MB:1e6,GB:1e9,TB:1e12};
+  const binary={KIB:1024,MIB:1024**2,GIB:1024**3,TIB:1024**4};
+  return n*(decimal[unit]||binary[unit]||1);
+}
+
+function dockerDiskPressureFromInfo(info={},warningPct=85,criticalPct=95) {
+  const rows=Array.isArray(info?.DriverStatus)?info.DriverStatus:[];
+  const map={};
+  for(const row of rows){
+    if(!Array.isArray(row)||row.length<2)continue;
+    map[String(row[0]||'').trim().toLowerCase()]=String(row[1]||'').trim();
+  }
+  const used=parseDockerSizeBytes(map['data space used']);
+  const total=parseDockerSizeBytes(map['data space total']);
+  if(!Number.isFinite(used)||!Number.isFinite(total)||total<=0||used<0)return null;
+  const pct=Math.max(0,Math.min(100,(used/total)*100));
+  const severity=pct>=Number(criticalPct||95)?'critical':pct>=Number(warningPct||85)?'warning':'ok';
+  return {used,total,pct:Number(pct.toFixed(1)),severity,source:'Docker DriverStatus'};
+}
+
+function dockerIncidentTransition(previous={},observed=false,now=Date.now(),options={}) {
+  const required=Math.max(1,Number(options.confirmations||2));
+  const cooldownMs=Math.max(0,Number(options.cooldownMinutes||30))*60000;
+  const prev=previous&&typeof previous==='object'?previous:{};
+  if(observed){
+    const confirmations=Math.min(100,Number(prev.confirmations||0)+1);
+    const wasActive=prev.active===true;
+    const active=wasActive||confirmations>=required;
+    const lastNotifiedAt=Number(prev.lastNotifiedAt||0);
+    const shouldNotify=!wasActive&&active&&(!lastNotifiedAt||now-lastNotifiedAt>=cooldownMs);
+    return {...prev,active,confirmations,firstSeen:prev.firstSeen||new Date(now).toISOString(),lastSeen:new Date(now).toISOString(),resolvedAt:'',shouldNotify};
+  }
+  if(prev.active===true){
+    return {...prev,active:false,confirmations:0,resolvedAt:new Date(now).toISOString(),shouldNotify:false,shouldRecover:true};
+  }
+  return {...prev,active:false,confirmations:0,shouldNotify:false,shouldRecover:false};
+}
+
 function firstContainerName(row={}) {
   const raw=Array.isArray(row.Names)?row.Names[0]:row.Name||row.name||'';
   return String(raw||'').replace(/^\//,'');
@@ -128,5 +171,6 @@ function redactDockerInspect(value,depth=0) {
 
 module.exports={
   backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
-  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,normalizeDockerPorts,normalizeDockerNetworks
+  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,normalizeDockerPorts,normalizeDockerNetworks,
+  parseDockerSizeBytes,dockerDiskPressureFromInfo,dockerIncidentTransition
 };
