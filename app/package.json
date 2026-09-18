@@ -1,0 +1,12 @@
+{
+  "name": "proxpanel",
+  "version": "1.7.0-beta.14",
+  "private": true,
+  "description": "ProxPanel 1.7.0-beta.14 - traduction FR/EN exhaustive et audit renforcé des textes UI.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

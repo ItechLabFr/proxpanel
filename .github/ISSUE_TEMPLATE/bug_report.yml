@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible ProxPanel problem
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Please remove passwords, tokens, webhooks, private IPs and other sensitive data before submitting."
+  - type: input
+    id: proxpanel_version
+    attributes:
+      label: ProxPanel version
+      placeholder: 1.7.0-beta.14
+    validations:
+      required: true
+  - type: input
+    id: pve_version
+    attributes:
+      label: Proxmox VE version
+      placeholder: 8.x / 9.x
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - Docker Hub
+        - Docker Compose
+        - OTA update
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the issue and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open...\n2. Click...\n3. See..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste sanitized logs only. Do not include secrets.
+      render: shell
