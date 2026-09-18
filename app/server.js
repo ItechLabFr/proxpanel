@@ -799,6 +799,17 @@ function validateExtractedRelease(dir, manifest) {
   for (const file of jsFiles) {
     try { execFileSync(process.execPath, ['--check', file], { stdio: 'pipe', timeout: 15000 }); }
     catch (e) { throw new Error(`JavaScript invalide dans ${path.relative(dir, file)} : ${String(e.stderr || e.message).trim()}`); }
+
+    // Syntax validation alone does not detect a missing local require().
+    // Verify every static relative dependency before switching the runtime symlink.
+    const source=fs.readFileSync(file,'utf8');
+    for(const match of source.matchAll(/require\((['"])(\.\.?\/[^'"]+)\1\)/g)){
+      const request=match[2],base=path.resolve(path.dirname(file),request);
+      const candidates=[base,`${base}.js`,`${base}.json`,path.join(base,'index.js')];
+      if(!candidates.some(candidate=>fs.existsSync(candidate))){
+        throw new Error(`Package incomplet : dépendance locale ${request} manquante pour ${path.relative(dir,file)}.`);
+      }
+    }
   }
 }
 function createConfigBackup(label) {
