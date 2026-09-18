@@ -21,7 +21,7 @@ Cet historique couvre la branche **1.7.0-beta.x** à partir de **1.7.0-beta.1**.
 | [1.7.0-beta.11](docs/releases/1.7.0-beta.11.md) | Beta | Historique documenté | Diagnostic des températures |
 | [1.7.0-beta.12](docs/releases/1.7.0-beta.12.md) | Beta | Historique documenté | Fondation Français / English |
 | [1.7.0-beta.13](docs/releases/1.7.0-beta.13.md) | Beta | Historique documenté | Extension des traductions |
-| [1.7.0-beta.14](docs/releases/1.7.0-beta.14.md) | Beta | Release reproductible | Traduction FR/EN exhaustive |
+| [1.7.0-beta.14](docs/releases/1.7.0-beta.14.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.0-beta.14) | Traduction FR/EN exhaustive |
 
 ## Politique d'archivage
 
@@ -35,3 +35,15 @@ Pour chaque nouvelle version, la GitHub Release doit contenir :
 - `SHA256SUMS.txt`.
 
 Les images Docker restent distribuées via Docker Hub. GitHub conserve l'historique public et les artefacts de release, tandis que `updates.proxpanel.fr` reste responsable des canaux OTA, du rollout et des révocations.
+
+
+## Première release archivée sur GitHub
+
+La version [v1.7.0-beta.14](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.0-beta.14) est la première release de la branche 1.7 archivée de façon reproductible sur GitHub avec :
+
+- `proxpanel-v1.7.0-beta.14.zip`
+- `proxpanel-update-v1.7.0-beta.14.zip`
+- `release.json`
+- `SHA256SUMS.txt`
+
+Les versions suivantes utiliseront le même format.
