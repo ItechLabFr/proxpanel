@@ -636,8 +636,125 @@ function openBookmark(){modal('Ajouter un raccourci',`${field('Nom','bookmarkNam
 function openIntegration(){modal('Ajouter une intégration',`${selectField('Type','intType',['pbs','uptimekuma','portainer','npm','grafana'])}${field('Nom','intName','')}${field('URL','intUrl','https://')}${field('Utilisateur','intUser','')}${field('Mot de passe','intPassword','','password')}${field('API key / token','intKey','','password')}${field('Slug status page Kuma','intSlug','')}<label class="check"><input id="intSelf" type="checkbox" checked> Certificat auto-signé</label>`,`<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="save-integration">Ajouter</button>`)}
 function openDependency(){modal('Dépendance manuelle',`${field('Source','depFrom','app.mondomaine.fr')}${selectField('Type source','depFromType',['domain','service','machine'])}${field('Destination','depTo','VM / service')}${selectField('Type destination','depToType',['service','machine','node','storage'])}${field('Libellé','depLabel','dépend de')}`,`<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="save-dependency">Ajouter</button>`)}
 
-async function openConsole(serverId,type,vmid,node,kind='auto'){try{const sid=serverId||state.selectedServer;toast('Création de la session console…');const c=await api(`/api/servers/${sid}/console/session`,{method:'POST',body:JSON.stringify({type,vmid:Number(vmid)||0,node,kind})});c.serverId=sid;const wrap=modal(type==='node'?`Shell ${esc(node)}`:`Console ${vmid}`,`<div class="console-toolbar"><button class="btn tiny" data-action="console-fullscreen">Plein écran</button>${c.kind==='vnc'?'<button class="btn tiny" data-action="console-cad">Ctrl+Alt+Del</button><input id="consoleClipboard" placeholder="Texte à envoyer"><button class="btn tiny" data-action="console-paste">Envoyer</button>':''}<span id="consoleStatus" class="console-status">Connexion…</span></div><div id="consoleHost" class="console-host"></div>`);const host=qs('#consoleHost',wrap);wrap.dataset.consoleKind=c.kind;wrap.dataset.consoleServer=sid;if(c.kind==='vnc')await startVnc(host,c,wrap);else await startTerminal(host,c,wrap)}catch(e){toast(e.message,'error')}}
-async function startVnc(host,c,wrap){try{const mod=await import('https://cdn.jsdelivr.net/npm/@novnc/novnc@1.7.0/core/rfb.js');const RFB=mod.default;const status=qs('#consoleStatus',wrap);const rfb=new RFB(host,wsUrl(c.websocketPath),{credentials:{password:c.password||''},wsProtocols:['binary']});rfb.scaleViewport=true;rfb.resizeSession=true;rfb.background='#050609';rfb.addEventListener('connect',()=>{status.textContent='Connecté';status.className='console-status ok'});rfb.addEventListener('credentialsrequired',()=>{status.textContent='Authentification VNC…';try{rfb.sendCredentials({password:c.password||''})}catch{}});rfb.addEventListener('securityfailure',e=>{status.textContent=`Échec d’authentification VNC${e.detail?.reason?` : ${e.detail.reason}`:''}`;status.className='console-status error'});rfb.addEventListener('disconnect',async e=>{if(e.detail?.clean){status.textContent='Déconnecté';return}let detail='';try{const r=await api(`/api/servers/${encodeURIComponent(c.serverId||state.selectedServer||'')}/console/status?token=${encodeURIComponent(c.token)}`);detail=r.error||''}catch{}status.textContent=detail||'Connexion VNC interrompue avant l’affichage. Vérifie VM.Console et l’authentification Proxmox.';status.className='console-status error';if(c.authMode==='api-token'&&!detail)status.textContent='Console QEMU refusée avec API Token — ouvre une session Proxmox utilisateur ou configure un mot de passe persistant.'});wrap._rfb=rfb}catch(e){qs('#consoleStatus',wrap).textContent=`noVNC indisponible : ${e.message}`}}
+function consoleDiagMarkup(items=[]){
+  const en=currentLanguage()==='en';
+  const statusLabel={ok:en?'OK':'OK',pending:en?'Pending':'En attente',error:en?'Error':'Erreur'};
+  return `<div class="console-diagnostics-list">${(items||[]).map(item=>`<div class="console-diag ${esc(item.status||'pending')}" data-console-diag="${esc(item.key||'')}"><span class="console-diag-dot"></span><div><strong>${esc(item.label||item.key||'Diagnostic')}</strong><small>${esc(item.detail||statusLabel[item.status]||'')}</small></div><b>${esc(statusLabel[item.status]||item.status||'')}</b></div>`).join('')}</div>`;
+}
+function updateConsoleDiagnostics(wrap,items=[]){
+  const host=qs('#consoleDiagnostics',wrap);if(!host)return;
+  const merged=(items||[]).map(item=>item.key==='client'&&wrap._consoleClientDiag?{...item,...wrap._consoleClientDiag}:item);
+  if(wrap._consoleClientDiag&&!merged.some(item=>item.key==='client'))merged.push(wrap._consoleClientDiag);
+  host.innerHTML=consoleDiagMarkup(merged);
+}
+async function fetchConsoleDiagnostics(wrap,c){
+  try{
+    const r=await api(`/api/servers/${encodeURIComponent(c.serverId||state.selectedServer||'')}/console/status?token=${encodeURIComponent(c.token)}`);
+    updateConsoleDiagnostics(wrap,r.diagnostics||c.diagnostics||[]);
+    return r;
+  }catch{return null}
+}
+async function createConsoleForTarget(target){
+  const sid=target.serverId||state.selectedServer;
+  const session=await api(`/api/servers/${sid}/console/session`,{method:'POST',body:JSON.stringify({type:target.type,vmid:Number(target.vmid)||0,node:target.node,kind:target.kind||'auto'})});
+  session.serverId=sid;
+  return session;
+}
+async function retryConsole(wrap,automatic=false){
+  if(!wrap||wrap._consoleRetrying||!document.body.contains(wrap))return;
+  const target=wrap._consoleTarget;if(!target)return;
+  wrap._consoleRetrying=true;
+  const status=qs('#consoleStatus',wrap),host=qs('#consoleHost',wrap),retryButton=qs('#consoleRetry',wrap);
+  if(retryButton)retryButton.hidden=true;
+  if(status){status.textContent=automatic?(currentLanguage()==='en'?'Reconnecting…':'Reconnexion…'):(currentLanguage()==='en'?'New console session…':'Nouvelle session console…');status.className='console-status'}
+  try{
+    if(wrap._rfb){wrap._consoleIntentionalDisconnect=true;try{wrap._rfb.disconnect()}catch{}wrap._rfb=null}
+    if(wrap._term){clearInterval(wrap._term.keep);wrap._term.ro?.disconnect();wrap._term.ws?.close();wrap._term.term?.dispose();wrap._term=null}
+    if(host)host.innerHTML='';
+    const session=await createConsoleForTarget(target);
+    wrap._consoleSession=session;
+    wrap._consoleClientDiag={key:'client',label:session.kind==='vnc'?'noVNC navigateur':'Terminal navigateur',status:'pending',detail:currentLanguage()==='en'?'Starting client…':'Démarrage du client…'};
+    updateConsoleDiagnostics(wrap,session.diagnostics||[]);
+    if(session.kind==='vnc')await startVnc(host,session,wrap);else await startTerminal(host,session,wrap);
+  }catch(e){
+    if(status){status.textContent=e.message;status.className='console-status error'}
+    wrap._consoleClientDiag={key:'client',label:'Client console',status:'error',detail:e.message};
+    updateConsoleDiagnostics(wrap,wrap._consoleSession?.diagnostics||[]);
+    if(retryButton)retryButton.hidden=false;
+  }finally{
+    wrap._consoleRetrying=false;
+    wrap._consoleIntentionalDisconnect=false;
+  }
+}
+async function openConsole(serverId,type,vmid,node,kind='auto'){
+  try{
+    const sid=serverId||state.selectedServer;
+    const target={serverId:sid,type,vmid:Number(vmid)||0,node,kind};
+    toast(currentLanguage()==='en'?'Creating console session…':'Création de la session console…');
+    const session=await createConsoleForTarget(target);
+    const wrap=modal(type==='node'?`${currentLanguage()==='en'?'Shell':'Shell'} ${esc(node)}`:`Console ${vmid}`,`<div class="console-toolbar"><button class="btn tiny" data-action="console-fullscreen">${currentLanguage()==='en'?'Full screen':'Plein écran'}</button>${session.kind==='vnc'?`<button class="btn tiny" data-action="console-cad">Ctrl+Alt+Del</button><input id="consoleClipboard" placeholder="${currentLanguage()==='en'?'Text to send':'Texte à envoyer'}"><button class="btn tiny" data-action="console-paste">${currentLanguage()==='en'?'Send':'Envoyer'}</button>`:''}<button class="btn tiny secondary" id="consoleRetry" data-action="console-retry" hidden>${currentLanguage()==='en'?'Retry':'Réessayer'}</button><span id="consoleStatus" class="console-status">${currentLanguage()==='en'?'Connecting…':'Connexion…'}</span></div><details class="console-diagnostics" open><summary>${currentLanguage()==='en'?'Console diagnostics':'Diagnostic console'}</summary><div id="consoleDiagnostics">${consoleDiagMarkup(session.diagnostics||[])}</div></details><div id="consoleHost" class="console-host"></div>`);
+    const host=qs('#consoleHost',wrap);
+    wrap.dataset.consoleKind=session.kind;wrap.dataset.consoleServer=sid;
+    wrap._consoleTarget=target;wrap._consoleSession=session;wrap._consoleRetryCount=0;
+    wrap._consoleClientDiag={key:'client',label:session.kind==='vnc'?'noVNC navigateur':'Terminal navigateur',status:'pending',detail:currentLanguage()==='en'?'Starting client…':'Démarrage du client…'};
+    updateConsoleDiagnostics(wrap,session.diagnostics||[]);
+    if(session.kind==='vnc')await startVnc(host,session,wrap);else await startTerminal(host,session,wrap);
+  }catch(e){toast(e.message,'error')}
+}
+async function startVnc(host,c,wrap){
+  try{
+    const mod=await import('https://cdn.jsdelivr.net/npm/@novnc/novnc@1.7.0/core/rfb.js');
+    const RFB=mod.default,status=qs('#consoleStatus',wrap),retryButton=qs('#consoleRetry',wrap);
+    wrap._consoleIntentionalDisconnect=false;
+    const rfb=new RFB(host,wsUrl(c.websocketPath),{credentials:{password:c.password||''},wsProtocols:['binary']});
+    rfb.scaleViewport=true;rfb.resizeSession=true;rfb.background='#050609';
+    rfb.addEventListener('connect',async()=>{
+      wrap._consoleRetryCount=0;
+      wrap._consoleClientDiag={key:'client',label:'noVNC navigateur',status:'ok',detail:currentLanguage()==='en'?'Display connected':'Affichage connecté'};
+      if(status){status.textContent=currentLanguage()==='en'?'Connected':'Connecté';status.className='console-status ok'}
+      if(retryButton)retryButton.hidden=true;
+      const diag=await fetchConsoleDiagnostics(wrap,c);updateConsoleDiagnostics(wrap,diag?.diagnostics||c.diagnostics||[]);
+    });
+    rfb.addEventListener('credentialsrequired',()=>{
+      if(status)status.textContent=currentLanguage()==='en'?'VNC authentication…':'Authentification VNC…';
+      try{rfb.sendCredentials({password:c.password||''})}catch{}
+    });
+    rfb.addEventListener('securityfailure',async e=>{
+      const reason=e.detail?.reason?` : ${e.detail.reason}`:'';
+      wrap._consoleClientDiag={key:'client',label:'noVNC navigateur',status:'error',detail:`VNC${reason}`};
+      if(status){status.textContent=`${currentLanguage()==='en'?'VNC authentication failed':'Échec d’authentification VNC'}${reason}`;status.className='console-status error'}
+      if(retryButton)retryButton.hidden=false;
+      const diag=await fetchConsoleDiagnostics(wrap,c);updateConsoleDiagnostics(wrap,diag?.diagnostics||c.diagnostics||[]);
+    });
+    rfb.addEventListener('disconnect',async e=>{
+      if(wrap._consoleIntentionalDisconnect||!document.body.contains(wrap))return;
+      if(e.detail?.clean){
+        if(status)status.textContent=currentLanguage()==='en'?'Disconnected':'Déconnecté';
+        return;
+      }
+      const diag=await fetchConsoleDiagnostics(wrap,c);
+      const detail=diag?.error||'';
+      wrap._consoleClientDiag={key:'client',label:'noVNC navigateur',status:'error',detail:detail||(currentLanguage()==='en'?'Connection interrupted before display':'Connexion interrompue avant l’affichage')};
+      updateConsoleDiagnostics(wrap,diag?.diagnostics||c.diagnostics||[]);
+      if(status){status.textContent=detail||(currentLanguage()==='en'?'VNC connection interrupted before display.':'Connexion VNC interrompue avant l’affichage.');status.className='console-status error'}
+      if(c.authMode==='api-token'&&!detail&&status)status.textContent=currentLanguage()==='en'?'QEMU console rejected with API Token — use an interactive Proxmox user session.':'Console QEMU refusée avec API Token — utilise une session utilisateur Proxmox interactive.';
+      if(wrap._consoleRetryCount<2){
+        wrap._consoleRetryCount++;
+        const delay=800*wrap._consoleRetryCount;
+        if(status)status.textContent=`${currentLanguage()==='en'?'Connection interrupted. Automatic retry':'Connexion interrompue. Reconnexion automatique'} ${wrap._consoleRetryCount}/2…`;
+        setTimeout(()=>retryConsole(wrap,true),delay);
+      }else if(retryButton)retryButton.hidden=false;
+    });
+    wrap._rfb=rfb;
+  }catch(e){
+    const status=qs('#consoleStatus',wrap),retryButton=qs('#consoleRetry',wrap);
+    wrap._consoleClientDiag={key:'client',label:'noVNC navigateur',status:'error',detail:e.message};
+    updateConsoleDiagnostics(wrap,c.diagnostics||[]);
+    if(status){status.textContent=`noVNC ${currentLanguage()==='en'?'unavailable':'indisponible'} : ${e.message}`;status.className='console-status error'}
+    if(retryButton)retryButton.hidden=false;
+  }
+}
+
 async function startTerminal(host,c,wrap){try{if(!qs('#xtermCss')){const l=document.createElement('link');l.id='xtermCss';l.rel='stylesheet';l.href='https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css';document.head.appendChild(l)}const[{Terminal},{FitAddon}]=await Promise.all([import('https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/+esm'),import('https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/+esm')]);const term=new Terminal({cursorBlink:true,fontSize:14,fontFamily:'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',theme:{background:'#06080b',foreground:'#d8dee8'}});const fit=new FitAddon();term.loadAddon(fit);term.open(host);fit.fit();const ws=new WebSocket(wsUrl(c.websocketPath),['binary']);ws.binaryType='arraybuffer';let ready=false;const dec=new TextDecoder();ws.onopen=()=>ws.send(`${c.user}:${c.termTicket}\n`);ws.onmessage=e=>{const text=typeof e.data==='string'?e.data:dec.decode(e.data);if(!ready&&text.startsWith('OK')){ready=true;qs('#consoleStatus',wrap).textContent='Connecté';ws.send(`1:${term.cols}:${term.rows}:`);return}term.write(text)};ws.onclose=()=>qs('#consoleStatus',wrap).textContent='Déconnecté';term.onData(data=>{if(ready&&ws.readyState===1)ws.send(`0:${new TextEncoder().encode(data).length}:${data}`)});term.onResize(({cols,rows})=>{if(ready&&ws.readyState===1)ws.send(`1:${cols}:${rows}:`)});const ro=new ResizeObserver(()=>fit.fit());ro.observe(host);const keep=setInterval(()=>{if(ws.readyState===1&&ready)ws.send('2')},30000);wrap._term={term,ws,ro,keep}}catch(e){qs('#consoleStatus',wrap).textContent=`xterm.js indisponible : ${e.message}`}}
 
 function firewallPath(){const f=state.firewall;if(f.scope==='cluster')return`/api/servers/${state.selectedServer}/firewall/cluster/rules`;if(f.scope==='node')return`/api/servers/${state.selectedServer}/firewall/node/${encodeURIComponent(f.node)}/rules`;return`/api/servers/${state.selectedServer}/firewall/machine/${encodeURIComponent(f.node)}/${f.type}/${f.vmid}/rules`}
@@ -764,7 +881,7 @@ async function handleAction(action,el){try{
   if(action.startsWith('server-delete:')){const id=action.split(':')[1];if(!confirmUi('Supprimer ce serveur de ProxPanel ?'))return;await api(`/api/servers/${id}`,{method:'DELETE'});state.servers=await api('/api/servers');state.selectedServer=state.servers[0]?.id||null;await refreshDashboard();return}if(action.startsWith('wol:')){await api(`/api/servers/${action.split(':')[1]}/wol`,{method:'POST',body:'{}'});toast('Magic packet envoyé.');return}
   if(action.startsWith('machine-details:')){const p=action.split(':'),serverId=p[1]||state.selectedServer,type=p[2],vmid=p[3],node=decodeURIComponent(p.slice(4).join(':')||'');await openMachineDetail(serverId,type,vmid,node);return}if(action.startsWith('machine-menu:')){const p=action.split(':'),serverId=p[1]||state.selectedServer,type=p[2],vmid=p[3],node=decodeURIComponent(p.slice(4).join(':')||'');openMachineMenu(serverId,type,vmid,node);return}
   if(action.startsWith('machine-action:')){const[,serverId,type,vmid,act]=action.split(':');if(['stop','reset'].includes(act)&&!confirmUi(`Confirmer ${act} sur ${vmid} ?`))return;await api(`/api/servers/${serverId||state.selectedServer}/machines/${type}/${vmid}/action`,{method:'POST',body:JSON.stringify({action:act})});closeModal();toast(`Action ${act} envoyée.`);setTimeout(()=>refreshDashboard(false),1000);return}
-  if(action.startsWith('console:')){const p=action.split(':');if(['node','qemu','lxc'].includes(p[1]))await openConsole(state.selectedServer,p[1],p[2],p[3],p[4]||'auto');else await openConsole(p[1]||state.selectedServer,p[2],p[3],p[4],p[5]||'auto');return}if(action==='console-fullscreen'){qs('#consoleHost')?.requestFullscreen?.();return}if(action==='console-cad'){qs('#modalRoot')?._rfb?.sendCtrlAltDel();return}if(action==='console-paste'){qs('#modalRoot')?._rfb?.clipboardPasteFrom(qs('#consoleClipboard')?.value||'');return}
+  if(action.startsWith('console:')){const p=action.split(':');if(['node','qemu','lxc'].includes(p[1]))await openConsole(state.selectedServer,p[1],p[2],p[3],p[4]||'auto');else await openConsole(p[1]||state.selectedServer,p[2],p[3],p[4],p[5]||'auto');return}if(action==='console-fullscreen'){qs('#consoleHost')?.requestFullscreen?.();return}if(action==='console-cad'){qs('#modalRoot')?._rfb?.sendCtrlAltDel();return}if(action==='console-paste'){qs('#modalRoot')?._rfb?.clipboardPasteFrom(qs('#consoleClipboard')?.value||'');return}if(action==='console-retry'){await retryConsole(qs('#modalRoot'));return}
   if(action.startsWith('spice:')){const p=action.split(':'),serverId=p.length>2?p[1]:state.selectedServer,vmid=p.length>2?p[2]:p[1],r=await api(`/api/servers/${serverId}/machines/qemu/${vmid}/spice`,{method:'POST',body:'{}'});const blob=new Blob([r.vv],{type:'application/x-virt-viewer'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`proxpanel-${vmid}.vv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Fichier SPICE .vv généré.');return}
   if(action==='bulk-selected'||action==='bulk-tag'){const vmids=action==='bulk-selected'?qsa('.machine-check:checked').map(x=>Number(x.value)):[],tag=action==='bulk-tag'?qs('#bulkTag').value:'';if(!vmids.length&&!tag)throw new Error('Sélectionne des machines ou un tag.');const act=qs('#bulkAction').value;if(!confirmUi(`Appliquer ${act} ?`))return;const r=await api(`/api/servers/${state.selectedServer}/bulk-action`,{method:'POST',body:JSON.stringify({action:act,vmids,tag})});toast(`${r.results.filter(x=>x.ok).length}/${r.results.length} action(s) envoyée(s).`);setTimeout(()=>refreshDashboard(false),1000);return}
   if(action==='bulk-group'){const g=state.groups.find(x=>x.id===qs('#bulkGroup').value);if(!g)throw new Error('Choisis un groupe.');const act=qs('#bulkAction').value;if(!confirmUi(`Appliquer ${act} au groupe ${g.name} ?`))return;const r=await api(`/api/servers/${state.selectedServer}/bulk-action`,{method:'POST',body:JSON.stringify({action:act,vmids:g.vmids||[]})});toast(`${r.results.filter(x=>x.ok).length}/${r.results.length} action(s) envoyée(s).`);return}
