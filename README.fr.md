@@ -134,11 +134,11 @@ Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechl
 
 ## Statut
 
-Version de développement actuelle : **1.7.0-beta.16**
+Version de développement actuelle : **1.7.1-beta.1**
 
 Dernière GitHub Release publiée : **1.7.0-beta.16**
 
-Prochaine série de développement : **1.7.1-beta.1** — 10 betas maximum par version.
+Série de développement actuelle : **1.7.1-beta.x** — 10 betas maximum par version.
 
 Docker Hub reste pour l’instant sur l’image publiée précédente tant que l’image beta.15 n’a pas été poussée.
 
