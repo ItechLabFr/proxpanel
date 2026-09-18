@@ -23,9 +23,13 @@ jobs:
         run: |
           node --check launcher.js
           node --check app/server.js
+          node --check app/lib/reliability.js
           node --check app/public/app.js
           node --check app/public/auth-v15.js
           node --check app/public/sw.js
+
+      - name: Run functional reliability tests
+        run: node --test tests/*.test.js
 
       - name: Validate release metadata
         run: |
