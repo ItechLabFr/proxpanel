@@ -1,3 +1,31 @@
+# ProxPanel 1.7.1-beta.6
+
+## Français
+- Audit complet du thème clair : correction des surfaces encore sombres dans le dashboard, l'administration, les tableaux, formulaires, modales, notifications et menus.
+- La couleur de la barre navigateur/PWA suit désormais automatiquement le thème sélectionné.
+- Nouvelle recherche dans Administration pour retrouver rapidement un réglage (thème, Discord, 2FA, OTA, etc.).
+- Nouveau bouton de réinitialisation de l'apparence.
+- Nouveau diagnostic de connexion Proxmox accessible depuis l'état de connexion en cas d'erreur.
+- Conservation des dernières données valides si Proxmox devient temporairement indisponible, avec bandeau de données non actualisées.
+- Le Service Worker utilise désormais le réseau en priorité pour index.html, app.js, CSS et manifest afin d'éviter de rester bloqué sur un ancien JavaScript après une mise à jour.
+- Les fichiers critiques PWA sont servis avec une politique de cache plus stricte.
+- Détection d'une nouvelle version PWA prête avec bouton de rechargement.
+- Raccourcis clavier desktop : / pour la recherche, G puis O/M/N/S pour Vue d'ensemble, Machines, Nœuds et Stockage.
+- Les consoles noVNC/xterm restent volontairement sombres pour conserver leur lisibilité.
+
+## English
+- Full Light theme audit: fixes remaining dark surfaces across dashboard, administration, tables, forms, modals, notifications and menus.
+- Browser/PWA theme color now follows the selected theme automatically.
+- Adds Administration settings search for quickly finding theme, Discord, 2FA, OTA and other settings.
+- Adds an appearance reset button.
+- Adds Proxmox connection diagnostics accessible from the connection status when an error occurs.
+- Keeps the last valid data visible if Proxmox becomes temporarily unavailable, with a stale-data warning banner.
+- Service Worker now uses network-first behavior for index.html, app.js, CSS and manifest to avoid being stuck on old JavaScript after updates.
+- Critical PWA files now use stricter cache headers.
+- Detects when a new PWA version is ready and offers a reload action.
+- Adds desktop keyboard shortcuts: / for search and G then O/M/N/S for Overview, Machines, Nodes and Storage.
+- noVNC/xterm consoles intentionally remain dark for readability.
+
 # ProxPanel 1.7.1-beta.5
 
 ## Français
