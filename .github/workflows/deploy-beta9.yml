@@ -95,9 +95,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          repo="${GITHUB_REPOSITORY}"
+          repo="$GITHUB_REPOSITORY"
           current_tag="v$VERSION"
-          warning='⚠️ Cette version a été révoquée. Ne pas installer. Utilisez la version suivante.'
+          warning="⚠️ Cette version a été révoquée. Ne pas installer. Utilisez la version suivante."
 
           gh api "repos/$repo/releases?per_page=100" > /tmp/releases.json
 
@@ -108,40 +108,23 @@ jobs:
           ' /tmp/releases.json | while IFS= read -r release; do
             id="$(jq -r '.id' <<<"$release")"
             tag="$(jq -r '.tag_name' <<<"$release")"
-            version="${tag#v}"
+            version="$(sed 's/^v//' <<<"$tag")"
             old_body="$(jq -r '.body // ""' <<<"$release")"
             new_name="$version — REVOKED"
 
             if [[ "$old_body" == "$warning"* ]]; then
               new_body="$old_body"
             else
-              new_body="$warning"        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/setup-qemu-action@v3
-
-      - name: Setup Docker Buildx
-        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKERHUB_USERNAME }}
-          password: ${{ env.DOCKERHUB_TOKEN }}
-
-      - name: Publish Docker Hub beta
-        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker buildx build             --pull             --platform linux/amd64,linux/arm64             --build-arg VERSION="$VERSION"             -t "itechlab/proxpanel:$VERSION"             -t "itechlab/proxpanel:beta"             --provenance=true             --sbom=true             --push .
-\n\n'"$old_body"
+              printf -v new_body '%s\n\n%s' "$warning" "$old_body"
             fi
 
-            jq -n --arg name "$new_name" --arg body "$new_body"               '{name:$name,body:$body}'               | gh api --method PATCH "repos/$repo/releases/$id" --input - >/dev/null
+            jq -n --arg name "$new_name" --arg body "$new_body" '{name:$name,body:$body}' \
+              | gh api --method PATCH "repos/$repo/releases/$id" --input - >/dev/null
 
             jq -r '.assets[].id' <<<"$release" | while IFS= read -r asset_id; do
-              [[ -n "$asset_id" ]] && gh api --method DELETE "repos/$repo/releases/assets/$asset_id"
+              if [[ -n "$asset_id" ]]; then
+                gh api --method DELETE "repos/$repo/releases/assets/$asset_id"
+              fi
             done
 
             echo "Revoked: $tag"
