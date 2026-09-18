@@ -8,20 +8,14 @@ services:
     image: proxpanel-demo:local
     container_name: proxpanel-demo
     restart: unless-stopped
+    command: ["node", "/opt/proxpanel-seed/server.js"]
     ports:
       - "${PROXPANEL_DEMO_PORT:-8082}:8080"
     environment:
       PORT: 8080
-      PROXPANEL_RUNTIME_DIR: /opt/proxpanel-runtime
-      PROXPANEL_DATA_DIR: /app/data
+      PROXPANEL_RUNTIME_DIR: /tmp/proxpanel-runtime
+      PROXPANEL_DATA_DIR: /tmp/proxpanel-data
       PROXPANEL_DEMO_MODE: "true"
       PROXPANEL_DEMO_USER: "demo"
       PROXPANEL_DEMO_PASSWORD: "ProxPanelDemo2026!"
       PROXPANEL_DEMO_EMAIL: "demo@proxpanel.fr"
-    volumes:
-      - proxpanel_demo_data:/app/data
-    tmpfs:
-      - "/opt/proxpanel-runtime:uid=1000,gid=1000,mode=0770"
-
-volumes:
-  proxpanel_demo_data:
