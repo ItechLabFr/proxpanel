@@ -24,7 +24,7 @@ Cet historique couvre la branche **1.7.0-beta.x** à partir de **1.7.0-beta.1**.
 | [1.7.0-beta.14](docs/releases/1.7.0-beta.14.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.0-beta.14) | Traduction FR/EN exhaustive |
 | [1.7.0-beta.15](docs/releases/1.7.0-beta.15.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.0-beta.15) | Authentication & Mobile UX |
 | [1.7.0-beta.16](docs/releases/1.7.0-beta.16.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.0-beta.16) | Correctif température vue individuelle |
-| [1.7.1-beta.1](docs/releases/1.7.1-beta.1.md) | Beta | En préparation | Console & démarrage PWA mobile |
+| [1.7.1-beta.1](docs/releases/1.7.1-beta.1.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.1-beta.1) | Console & démarrage PWA mobile |
 
 ## Politique d'archivage
 
