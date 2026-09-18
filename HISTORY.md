@@ -26,6 +26,14 @@ Cet historique couvre la branche **1.7.0-beta.x** à partir de **1.7.0-beta.1**.
 | [1.7.0-beta.16](docs/releases/1.7.0-beta.16.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.0-beta.16) | Correctif température vue individuelle |
 | [1.7.1-beta.1](docs/releases/1.7.1-beta.1.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.1-beta.1) | Console & démarrage PWA mobile |
 | [1.7.1-beta.2](docs/releases/1.7.1-beta.2.md) | Beta | [GitHub Release](https://github.com/ItechLabFr/proxpanel/releases/tag/v1.7.1-beta.2) | Stockage VM · Multi-nœuds · Responsive · Monitoring |
+| [1.7.1-beta.3](docs/releases/1.7.1-beta.3.md) | Beta | Révoquée | Performance · Administration · Thèmes |
+| [1.7.1-beta.4](docs/releases/1.7.1-beta.4.md) | Beta | Révoquée | Hotfix connexion Proxmox |
+| [1.7.1-beta.5](docs/releases/1.7.1-beta.5.md) | Beta | Révoquée | Hotfix chargement dashboard |
+| [1.7.1-beta.6](docs/releases/1.7.1-beta.6.md) | Beta | Révoquée | Light theme · Productivité · PWA |
+| [1.7.1-beta.7](docs/releases/1.7.1-beta.7.md) | Beta | Révoquée | Light theme · Navigation Administration |
+| [1.7.1-beta.8](docs/releases/1.7.1-beta.8.md) | Beta | Révoquée | Mode TV · Administration |
+| [1.7.1-beta.9](docs/releases/1.7.1-beta.9.md) | Beta | Révoquée | UX mobile · Santé du cluster |
+| [1.7.1-beta.10](docs/releases/1.7.1-beta.10.md) | Beta | **Release active** | Fiabilité sauvegardes · Stabilisation |
 
 ## Politique d'archivage
 
@@ -38,7 +46,7 @@ Pour chaque nouvelle version, la GitHub Release doit contenir :
 - `release.json` ;
 - `SHA256SUMS.txt`.
 
-Les images Docker restent distribuées via Docker Hub. GitHub conserve l'historique public et les artefacts de release, tandis que `updates.proxpanel.fr` reste responsable des canaux OTA, du rollout et des révocations.
+Les images Docker restent distribuées via Docker Hub. GitHub conserve les tags et l'historique des Releases. Lorsqu'une nouvelle version est publiée, les Releases plus anciennes sont marquées **REVOKED** et leurs assets téléchargeables sont supprimés. `updates.proxpanel.fr` reste responsable des canaux OTA, du rollout et des révocations OTA.
 
 
 ## Première release archivée sur GitHub
@@ -51,3 +59,8 @@ La version [v1.7.0-beta.14](https://github.com/ItechLabFr/proxpanel/releases/tag
 - `SHA256SUMS.txt`
 
 Les versions suivantes utiliseront le même format.
+
+
+## Prochaine série — 1.7.2
+
+La série `1.7.1-beta.x` a atteint `beta.10`. Le prochain cycle de développement est **`1.7.2-beta.x`**, avec Portainer/Docker comme première intégration officielle, PBS optionnel, Automations 2.0, RBAC/Audit 2.0 et Health Center 2.0. Voir [`ROADMAP.md`](ROADMAP.md).
