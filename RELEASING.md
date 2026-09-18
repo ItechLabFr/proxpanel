@@ -45,6 +45,28 @@ Quand `release.json` contient des champs anglais, utiliser :
 
 Les champs français historiques restent inchangés pour conserver la compatibilité OTA.
 
+## Politique de numérotation Beta
+
+La série historique `1.7.0-beta.x` se termine exceptionnellement à `1.7.0-beta.16`.
+
+À partir de la prochaine série :
+
+- la prochaine version de développement est `1.7.1-beta.1` ;
+- une même version `X.Y.Z` peut contenir au maximum **10 betas** ;
+- les suffixes autorisés sont donc `beta.1` à `beta.10` ;
+- si des modifications supplémentaires sont nécessaires après `beta.10`, incrémenter le numéro de version avant de repartir à `beta.1`.
+
+Exemple :
+
+```text
+1.7.1-beta.1
+...
+1.7.1-beta.10
+1.7.2-beta.1
+```
+
+Le workflow de publication applique automatiquement cette limite. `1.7.0-beta.16` est conservée comme exception historique.
+
 ## Révoquer une version
 
 GitHub ne possède pas de statut natif « revoked ». Une version ProxPanel révoquée suit donc cette convention :
