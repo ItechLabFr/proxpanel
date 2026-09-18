@@ -1,3 +1,29 @@
+# ProxPanel 1.7.1-beta.3
+
+## Français
+- Refonte du chargement initial : seules les données indispensables bloquent désormais le premier écran.
+- Suppression du préchargement massif des données Audit, utilisateurs, automatisations, restaurations et administration ; ces données sont chargées à la demande.
+- Déduplication des requêtes GET simultanées et instrumentation des temps de réponse API dans Administration > Application.
+- Navigation perçue plus rapide : la page s'affiche immédiatement puis ses données sont complétées sans attendre le chargement réseau.
+- Refonte complète de l'Administration en centre de configuration avec sous-sections dédiées.
+- Nouveau menu latéral mieux hiérarchisé, sections repliables et état mémorisé.
+- Ajout de six thèmes complets : ProxPanel Dark, Graphite Blue, Light, Neon / Cyber, Purple Control et High Contrast.
+- Nouveaux réglages d'interface : mode sombre/clair/auto, accent optionnel, densité, largeur du menu et réduction des animations.
+- Prévisualisation immédiate des thèmes et réglages visuels sans rechargement complet.
+- Améliorations responsive de la nouvelle Administration et de la navigation sur mobile/PWA.
+
+## English
+- Reworks startup loading so only essential data blocks the first usable screen.
+- Removes eager loading of Audit, users, automations, restore tests and administration datasets; they now load on demand.
+- Deduplicates concurrent GET requests and records API timings in Administration > Application.
+- Makes navigation feel faster by rendering the target page immediately and completing network data afterwards.
+- Redesigns Administration as a structured configuration center with dedicated sections.
+- Adds a clearer hierarchical sidebar with collapsible sections and persisted state.
+- Adds six full themes: ProxPanel Dark, Graphite Blue, Light, Neon / Cyber, Purple Control and High Contrast.
+- Adds UI settings for dark/light/auto mode, optional accent, density, menu width and reduced motion.
+- Adds instant theme and appearance previews without a full page reload.
+- Improves responsive behavior for the new Administration and navigation on mobile/PWA.
+
 # ProxPanel 1.7.1-beta.2
 
 ## Français
