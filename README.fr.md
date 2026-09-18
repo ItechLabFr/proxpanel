@@ -118,6 +118,16 @@ Aucune IP Proxmox, hostname, liste VM/LXC, token, compte ou donnée d'infrastruc
 
 ## Sécurité
 
+ProxPanel est un projet open source principalement destiné aux environnements **HomeLab** et aux réseaux d’administration maîtrisés.
+
+L’interface d’administration **n’est pas conçue pour être exposée directement sur Internet**.
+
+Pour un accès distant, l’utilisation d’un **VPN**, d’un **réseau privé** ou d’un autre mécanisme d’accès sécurisé est recommandée.
+
+L’**authentification multifacteur (2FA/MFA)** doit être activée lorsque cela est possible.
+
+Le logiciel est fourni **sans garantie**, conformément aux conditions de la **licence MIT**.
+
 Consulte [`SECURITY.md`](SECURITY.md) et [`SECURITY-IMAGE.md`](SECURITY-IMAGE.md).
 
 Ne publie jamais de mots de passe, tokens Proxmox, secrets Microsoft 365, webhooks Discord ou informations d'infrastructure privées dans une issue GitHub.
