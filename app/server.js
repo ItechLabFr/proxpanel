@@ -15,7 +15,8 @@ const QRCode = require('./vendor/QRCode');
 const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
 const {
   backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
-  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect
+  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,
+  dockerDiskPressureFromInfo,dockerIncidentTransition
 } = require('./lib/reliability');
 const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
@@ -81,6 +82,7 @@ const DASHBOARD_GROUPS_FILE = path.join(DATA_DIR, 'dashboard-groups.json');
 const RESTORE_TESTS_FILE = path.join(DATA_DIR, 'restore-tests.json');
 const METRICS_FILE = path.join(DATA_DIR, 'metrics-history.json');
 const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
+const DOCKER_MONITOR_STATE_FILE = path.join(DATA_DIR, 'docker-monitor-state.json');
 const UPDATE_CHECK_STATE_FILE = path.join(DATA_DIR, 'update-check-state.json');
 const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
@@ -138,6 +140,7 @@ function defaultSettings() {
     electricity: { pricePerKwh: 0.25, currency: 'EUR', nodes: {} },
     alerts: {
       enabled: true, pollMinutes: 5, discordWebhook: '', discordChannels: [], genericWebhook: '', telegramBotToken: '', telegramChatId: '',
+      docker: { enabled:true, confirmations:2, cooldownMinutes:30, restartDeltaWarning:3, stoppedGraceMinutes:3, maxMetricContainers:50 },
       smtp: {
         enabled: false, mode: 'm365-graph', host: 'smtp.office365.com', port: 587, security: 'starttls', username: '', passwordEnc: '', from: '', to: '',
         tenantId: '', clientId: '', clientSecretEnc: '', sender: ''
