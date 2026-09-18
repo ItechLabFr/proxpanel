@@ -2,7 +2,10 @@
 
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment}=require('../app/lib/reliability');
+const {
+  backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
+  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect
+}=require('../app/lib/reliability');
 
 test('daily backup around 24h stays healthy with a 36h threshold',()=>{
   const now=2_000_000;
@@ -34,4 +37,44 @@ test('Portainer container summary counts running and unhealthy containers',()=>{
 test('Docker standalone is supported while Swarm is reported separately',()=>{
   assert.deepEqual(classifyPortainerEnvironment({Swarm:{LocalNodeState:'inactive'}}),{kind:'docker-standalone',supported:true,label:'Docker Standalone'});
   assert.deepEqual(classifyPortainerEnvironment({Swarm:{LocalNodeState:'active'}}),{kind:'swarm',supported:false,label:'Docker Swarm'});
+});
+
+
+test('Docker container normalization exposes operational metadata',()=>{
+  const row=normalizeDockerContainer({
+    Id:'abc123',
+    Names:['/vaultwarden'],
+    Image:'vaultwarden/server:latest',
+    State:'running',
+    Status:'Up 2 hours (healthy)',
+    Labels:{'com.docker.compose.project':'vaultwarden'},
+    Ports:[{PrivatePort:80,PublicPort:8080,Type:'tcp'}],
+    NetworkSettings:{Networks:{frontend:{IPAddress:'172.18.0.4',Gateway:'172.18.0.1'}}}
+  });
+  assert.equal(row.name,'vaultwarden');
+  assert.equal(row.health,'healthy');
+  assert.equal(row.stack,'vaultwarden');
+  assert.equal(row.ports[0].publicPort,8080);
+  assert.equal(row.networks[0].name,'frontend');
+});
+
+test('Portainer stack normalization never exposes environment values',()=>{
+  const row=normalizePortainerStack({
+    Id:12,Name:'uptime-kuma',EndpointId:3,Status:1,CreatedBy:'admin',
+    Env:[{name:'PASSWORD',value:'secret'},{name:'TZ',value:'Europe/Paris'}],
+    GitConfig:{URL:'https://example.invalid/repo'}
+  });
+  assert.equal(row.active,true);
+  assert.deepEqual(row.envNames,['PASSWORD','TZ']);
+  assert.equal(JSON.stringify(row).includes('secret'),false);
+});
+
+test('Docker inspect redaction hides environment and secret-like fields',()=>{
+  const row=redactDockerInspect({
+    Config:{Env:['TOKEN=abc123','TZ=Europe/Paris'],Labels:{normal:'ok',apiKey:'danger'}},
+    Password:'should-hide'
+  });
+  assert.deepEqual(row.Config.Env,['TOKEN=[redacted]','TZ=[redacted]']);
+  assert.equal(row.Config.Labels.apiKey,'[redacted]');
+  assert.equal(row.Password,'[redacted]');
 });
