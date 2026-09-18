@@ -20,8 +20,8 @@ services:
       PROXPANEL_DEMO_EMAIL: "demo@proxpanel.fr"
     volumes:
       - proxpanel_demo_data:/app/data
-      - proxpanel_demo_runtime:/opt/proxpanel-runtime
+    tmpfs:
+      - /opt/proxpanel-runtime
 
 volumes:
   proxpanel_demo_data:
-  proxpanel_demo_runtime:
