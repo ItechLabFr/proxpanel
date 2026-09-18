@@ -28,12 +28,18 @@ on:
         description: 'Type REVOKE to confirm'
         required: true
         type: string
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/revoke-release.yml'
 
 permissions:
   contents: write
 
 jobs:
   revoke:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -195,3 +201,60 @@ jobs:
           fi
           git commit -m "Mark ProxPanel ${{ inputs.version }} as revoked"
           git push
+
+
+  sweep_previous_releases:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Revoke every release except the latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          warning='⚠️ Cette version a été révoquée. Ne pas installer. Utilisez la version suivante.'
+
+          latest_tag="$(
+            gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 \
+              --json tagName,isDraft,publishedAt \
+              --jq '[.[] | select(.isDraft == false)] | sort_by(.publishedAt) | last | .tagName'
+          )"
+
+          test -n "$latest_tag" || {
+            echo "No published release found."
+            exit 0
+          }
+
+          echo "Latest release kept active: $latest_tag"
+
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 \
+            --json tagName,isDraft \
+            --jq '.[] | select(.isDraft == false) | .tagName' |
+          while IFS= read -r old_tag; do
+            [ -n "$old_tag" ] || continue
+            [ "$old_tag" != "$latest_tag" ] || continue
+
+            old_version="${old_tag#v}"
+            body="$(gh release view "$old_tag" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""')"
+
+            if [ "$(printf '%s\n' "$body" | head -n 1)" != "$warning" ]; then
+              {
+                printf '%s\n\n' "$warning"
+                printf '%s\n' "$body"
+              } > /tmp/revoked-notes.md
+            else
+              printf '%s\n' "$body" > /tmp/revoked-notes.md
+            fi
+
+            gh release edit "$old_tag" --repo "$GITHUB_REPOSITORY" \
+              --title "$old_version — REVOKED" \
+              --notes-file /tmp/revoked-notes.md
+
+            gh release view "$old_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+            while IFS= read -r asset; do
+              [ -n "$asset" ] || continue
+              gh release delete-asset "$old_tag" "$asset" --repo "$GITHUB_REPOSITORY" -y || \
+                echo "::warning::Could not delete asset $asset from $old_tag"
+            done
+          done
