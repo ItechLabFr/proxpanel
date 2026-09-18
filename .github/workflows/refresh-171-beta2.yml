@@ -1,0 +1,37 @@
+name: Refresh 1.7.1-beta.2 release notes
+
+on:
+  push:
+    paths:
+      - '.github/workflows/refresh-171-beta2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh bilingual release notes
+        shell: bash
+        run: |
+          cp docs/releases/1.7.1-beta.2.md /tmp/notes.md
+          cat >> /tmp/notes.md <<'EOF'
+
+          ## Téléchargements / Downloads
+
+          - `proxpanel-v1.7.1-beta.2.zip` — package complet / full package
+          - `proxpanel-update-v1.7.1-beta.2.zip` — mise à jour OTA / OTA update
+          - `release.json` — métadonnées / metadata
+          - `SHA256SUMS.txt` — sommes SHA-256 / SHA-256 checksums
+
+          **FR :** Docker Hub reste le canal de distribution des images conteneur. Le rollout et les révocations OTA restent gérés par `updates.proxpanel.fr`.
+
+          **EN:** Docker Hub remains the container image distribution channel. OTA rollout and revocation remain managed by `updates.proxpanel.fr`.
+          EOF
+          gh release edit v1.7.1-beta.2 --title "ProxPanel 1.7.1-beta.2" --notes-file /tmp/notes.md
