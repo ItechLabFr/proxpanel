@@ -1,0 +1,7 @@
+services:
+  proxpanel:
+    build:
+      context: .
+      args:
+        VERSION: 1.7.0-beta.14
+    image: itechlab/proxpanel:1.7.0-beta.14
