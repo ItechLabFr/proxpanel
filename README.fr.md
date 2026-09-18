@@ -131,4 +131,6 @@ ProxPanel est actuellement un projet personnel en bêta.
 
 ## Licence
 
-Le code est actuellement publié en **source available / propriétaire**. Voir [`LICENSE`](LICENSE).
+ProxPanel est publié sous **licence MIT**. La licence autorise notamment l'utilisation, la copie, la modification, la redistribution, la sous-licence et la vente de copies du logiciel, sous réserve de respecter les conditions de la licence MIT.
+
+Voir [`LICENSE`](LICENSE).
