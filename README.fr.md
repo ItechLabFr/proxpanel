@@ -151,7 +151,7 @@ Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechl
 
 La prochaine série **1.7.2-beta.x** est centrée sur l'exploitation HomeLab multi-plateforme :
 
-- **Portainer / Docker** comme première intégration officiellement supportée ;
+- **Portainer / Docker** comme première intégration officiellement supportée ; **Portainer CE est testé en priorité et Business Edition reste compatible lorsque les API utilisées sont identiques** ;
 - vue des environnements, conteneurs et stacks ;
 - monitoring et alertes Docker ;
 - topologie Proxmox ↔ Docker ;
