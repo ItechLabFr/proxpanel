@@ -1,10 +1,12 @@
 function renderAuth(setup){
   let secondFactorMode='totp',twoFactorInfo=null,emailExpiryTimer=null,emailResendTimer=null,submitting=false;
   const at=(fr,en)=>currentLanguage()==='en'?en:fr;
-  const authTitle=setup?at('Créer le compte administrateur','Create administrator account'):'ProxPanel';
+  const demoMode=!setup&&!!state.status?.demoMode;
+  const demoCredentials=state.status?.demoCredentials||{username:'demo',password:'ProxPanelDemo2026!'};
+  const authTitle=setup?at('Créer le compte administrateur','Create administrator account'):(demoMode?at('Démo ProxPanel','ProxPanel Demo'):'ProxPanel');
   const authSubtitle=setup
     ?at('Première installation · configure le compte principal et son adresse de secours.','First setup · configure the primary account and its recovery e-mail.')
-    :at('Connexion sécurisée à la console','Secure console sign-in');
+    :(demoMode?at('Démo publique · infrastructure et données fictives · lecture seule.','Public demo · simulated infrastructure and data · read only.'):at('Connexion sécurisée à la console','Secure console sign-in'));
 
   app.innerHTML=`<div class="auth-screen auth-v15">
     <div class="auth-language"><label><span aria-hidden="true">🌐</span><select id="authLanguage" aria-label="${esc(at('Langue de l’interface','Interface language'))}"><option value="fr" ${currentLanguage()==='fr'?'selected':''}>FR</option><option value="en" ${currentLanguage()==='en'?'selected':''}>EN</option></select></label></div>
@@ -15,7 +17,7 @@ function renderAuth(setup){
           <div class="auth-product"><strong>ProxPanel</strong><span class="beta-badge">BETA</span></div>
         </div>
         <div class="auth-heading">
-          <div class="auth-step" id="authStep">${setup?at('Configuration initiale','Initial setup'):at('Connexion','Sign in')}</div>
+          <div class="auth-step" id="authStep">${setup?at('Configuration initiale','Initial setup'):(demoMode?at('Démo publique','Public demo'):at('Connexion','Sign in'))}</div>
           <h1 id="authTitle">${esc(authTitle)}</h1>
           <p id="authSubtitle">${esc(authSubtitle)}</p>
         </div>
@@ -23,9 +25,9 @@ function renderAuth(setup){
 
         <div class="auth-primary" id="authPrimary">
           ${setup?`<div class="setup-progress" aria-label="${esc(at('Étape 1 sur 2','Step 1 of 2'))}"><span class="active"></span><span></span></div>`:''}
-          <label class="auth-field"><span>${at('Utilisateur','Username')}</span><input id="authUser" autocomplete="username" required value="" placeholder="admin" autocapitalize="none" spellcheck="false"></label>
+          <label class="auth-field"><span>${at('Utilisateur','Username')}</span><input id="authUser" autocomplete="username" required value="${demoMode?esc(demoCredentials.username):''}" placeholder="admin" autocapitalize="none" spellcheck="false"></label>
           ${setup?`<label class="auth-field"><span>${at('Adresse e-mail','E-mail address')}</span><input id="authEmail" type="email" autocomplete="email" required placeholder="admin@domaine.fr" inputmode="email"></label><small class="auth-security">${at('Utilisée pour la récupération 2FA et les alertes configurées.','Used for 2FA recovery and configured alerts.')}</small>`:''}
-          <label class="auth-field"><span>${at('Mot de passe','Password')}</span><div class="password-wrap"><input id="authPass" type="password" autocomplete="${setup?'new-password':'current-password'}" required ${setup?'minlength="12"':''}><button type="button" class="password-toggle" id="toggleAuthPass" aria-label="${esc(at('Afficher le mot de passe','Show password'))}" title="${esc(at('Afficher le mot de passe','Show password'))}">◉</button></div><small class="caps-warning" id="capsWarning" hidden>${at('Verr. Maj est activé','Caps Lock is on')}</small></label>
+          <label class="auth-field"><span>${at('Mot de passe','Password')}</span><div class="password-wrap"><input id="authPass" type="password" autocomplete="${setup?'new-password':'current-password'}" required ${setup?'minlength="12"':''} value="${demoMode?esc(demoCredentials.password):''}"><button type="button" class="password-toggle" id="toggleAuthPass" aria-label="${esc(at('Afficher le mot de passe','Show password'))}" title="${esc(at('Afficher le mot de passe','Show password'))}">◉</button></div><small class="caps-warning" id="capsWarning" hidden>${at('Verr. Maj est activé','Caps Lock is on')}</small></label>
           ${setup?`<label class="auth-field"><span>${at('Confirmer le mot de passe','Confirm password')}</span><div class="password-wrap"><input id="authPassConfirm" type="password" autocomplete="new-password" required minlength="12"><button type="button" class="password-toggle" id="toggleAuthPassConfirm" aria-label="${esc(at('Afficher le mot de passe','Show password'))}" title="${esc(at('Afficher le mot de passe','Show password'))}">◉</button></div></label><div class="password-strength" id="passwordStrength"><div class="password-strength-track"><i></i></div><div class="password-strength-copy"><span>${at('12 caractères minimum','12 characters minimum')}</span><strong>${at('À définir','Not set')}</strong></div></div>`:''}
           ${!setup?`<small class="auth-security auth-security-login">${at('Session signée · protection anti-bruteforce · Authenticator, récupération et secours e-mail','Signed session · brute-force protection · Authenticator, recovery codes and e-mail fallback')}</small>`:''}
           <button class="btn primary auth-submit" id="authSubmit" type="submit"><span>${setup?at('Créer le compte','Create account'):at('Se connecter','Sign in')}</span></button>
