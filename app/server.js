@@ -3396,7 +3396,7 @@ async function handleApi(req, res, url) {
   if(mutating && (/^\/api\/(settings|servers(?:\/[^/]+)?(?:\/test)?|discord-channels|mail|update(?:\/|$)|integrations)/.test(url.pathname)) && !isAdmin) return sendJson(res,403,{error:'Permission administrateur requise.'});
   if(/^\/api\/audit/.test(url.pathname) && !userHasPermission(currentPanelUser,'audit.view') && !isAdmin) return sendJson(res,403,{error:'Permission audit requise.'});
   if(/\/console\/session$/.test(url.pathname) && mutating && !userHasPermission(currentPanelUser,'console.use') && !isAdmin) return sendJson(res,403,{error:'Permission console requise.'});
-  if(mutating && /\/(machines\/[^/]+\/\d+\/(action|snapshots|clone|migrate)|bulk-action|backups\/run|maintenance\/)/.test(url.pathname) && !userHasPermission(currentPanelUser,'machines.control') && !isAdmin) return sendJson(res,403,{error:'Permission opérateur requise.'});
+  if(mutating && (/\/(machines\/[^/]+\/\d+\/(action|snapshots|clone|migrate)|bulk-action|backups\/run|maintenance\/)/.test(url.pathname)||/^\/api\/docker\//.test(url.pathname)) && !userHasPermission(currentPanelUser,'machines.control') && !isAdmin) return sendJson(res,403,{error:'Permission opérateur requise.'});
   if(mutating && /^\/api\/pve-updates/.test(url.pathname) && !userHasPermission(currentPanelUser,'pve.updates') && !isAdmin) return sendJson(res,403,{error:'Permission mises à jour PVE requise.'});
 
   // ----- Dynamic settings / branding / alerts / dashboard -----
@@ -4168,7 +4168,7 @@ async function handleApi(req, res, url) {
         const r=await portainerDockerBuffer(item,endpointId,`/exec/${encodeURIComponent(execId)}/start`,{
           method:'POST',body:JSON.stringify({Detach:false,Tty:false}),headers:{'Content-Type':'application/json'}
         });
-        audit(req,'docker.container.exec',containerId,{portainer:item.name,endpointId,command:command.slice(0,160)});
+        audit(req,'docker.container.exec',containerId,{portainer:item.name,endpointId,commandLength:command.length});
         return sendJson(res,200,{ok:true,output:dockerStreamText(r.data)});
       }
     }catch(e){return sendJson(res,502,{error:e.message});}
