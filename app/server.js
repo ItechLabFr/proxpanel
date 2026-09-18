@@ -14,6 +14,7 @@ const { URL } = require('url');
 const QRCode = require('./vendor/QRCode');
 const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
 const { backupAlertDecision, summarizeDockerContainers, classifyPortainerEnvironment } = require('./lib/reliability');
+const { DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL, demoProxmoxApi, demoTemperatureForNode } = require('./lib/demo-mode');
 
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
@@ -415,6 +416,22 @@ async function readLmSensorsOverSsh(server,node,host) {
 }
 async function enrichNodeTemperatures(server,auth,dashboard) {
   const nodes=dashboard?.nodes||[];if(!nodes.length)return dashboard;
+  if (DEMO_MODE && server?.demo) {
+    dashboard.nodes=nodes.map(n=>({
+      ...n,
+      temperatureC:demoTemperatureForNode(n.node),
+      temperatureDiagnosticCode:'ok',
+      temperatureDiagnosticTitle:'Température disponible',
+      temperatureDiagnosticDetail:'Valeur simulée pour la démonstration publique.',
+      temperatureDiagnosticAction:''
+    }));
+    const temps=dashboard.nodes.map(n=>Number(n.temperatureC)).filter(Number.isFinite);
+    dashboard.metrics=dashboard.metrics||{};
+    dashboard.metrics.temperatureMaxC=temps.length?Number(Math.max(...temps).toFixed(1)):null;
+    dashboard.metrics.temperatureAvgC=temps.length?Number((temps.reduce((a,b)=>a+b,0)/temps.length).toFixed(1)):null;
+    dashboard.metrics.temperatureAvailableNodes=temps.length;
+    return dashboard;
+  }
   const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
   const rows=await Promise.all(nodes.map(async n=>{
     const host=map.get(String(n.node))||(nodes.length===1?fallbackHost:'');
@@ -454,6 +471,30 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
   return { salt, hash };
 }
+
+function ensureDemoModeSeed() {
+  if (!DEMO_MODE) return;
+  const pw=hashPassword(DEMO_PASSWORD);
+  const createdAt='2026-09-18T00:00:00.000Z';
+  const user={
+    id:'demo-user',username:DEMO_USERNAME,displayName:'Compte Démo',email:DEMO_EMAIL,
+    role:'admin',permissions:['*'],active:true,salt:pw.salt,hash:pw.hash,createdAt,lastLoginAt:'',
+    totpEnabled:false,totpSecretEnc:'',recoveryCodeHashes:[]
+  };
+  jsonWrite(USERS_FILE,[user]);
+  jsonWrite(CONFIG_FILE,{admin:{username:DEMO_USERNAME,email:DEMO_EMAIL,salt:pw.salt,hash:pw.hash,createdAt}});
+  const settings=defaultSettings();
+  settings.branding={...(settings.branding||{}),subtitle:'PUBLIC DEMO'};
+  settings.modules={...(settings.modules||{}),create:false,firewall:false};
+  settings.language='fr';
+  jsonWrite(SETTINGS_FILE,settings);
+  jsonWrite(SERVERS_FILE,[{
+    id:'demo-pve',name:'Cluster ProxPanel Demo',url:'https://demo-pve.local:8006',
+    username:'demo@pve',authMode:'demo',demo:true,allowSelfSigned:false,certFingerprint:'',
+    createdAt,status:'online',lastSeen:new Date().toISOString(),lastError:null,pveVersion:'9.0.3',wol:null
+  }]);
+}
+ensureDemoModeSeed();
 function safeEqualHex(a, b) {
   try {
     const A = Buffer.from(a, 'hex');
@@ -898,7 +939,8 @@ function sanitizeServer(s) {
     status: s.status || 'unknown',
     lastError: s.lastError || null,
     pveVersion: s.pveVersion || '',
-    wol: s.wol || null
+    wol: s.wol || null,
+    demo: !!s.demo
   };
 }
 
@@ -1062,6 +1104,7 @@ async function proxmoxLogin(server) {
   }
 }
 async function resolveProxmoxAuth(server, session, preferUser = true) {
+  if (DEMO_MODE && server?.demo) return {authType:'demo',username:'demo@pve'};
   if (preferUser && session) {
     const direct = getPveUserSession(session, server.id);
     if (direct) return direct;
@@ -1110,6 +1153,7 @@ function proxmoxAuthHeaders(auth, method = 'GET') {
   return headers;
 }
 async function proxmoxApi(server, apiPath, options = {}) {
+  if (DEMO_MODE && server?.demo) return demoProxmoxApi(server,apiPath,options);
   await ensureCertificatePin(server);
   const auth = options.auth || await proxmoxLogin(server);
   const method = options.method || 'GET';
@@ -3155,7 +3199,7 @@ async function handleApi(req, res, url) {
   const setupDone = users.length > 0;
 
   if (url.pathname === '/api/status' && req.method === 'GET') {
-    return sendJson(res, 200, { ok: true, setupDone, authenticated: !!getSession(req), version: APP_VERSION, channel:APP_CHANNEL, beta:true, bootstrapVersion: BOOTSTRAP_VERSION, defaultLanguage:getSettings().language });
+    return sendJson(res, 200, { ok: true, setupDone, authenticated: !!getSession(req), version: APP_VERSION, channel:APP_CHANNEL, beta:true, bootstrapVersion: BOOTSTRAP_VERSION, defaultLanguage:getSettings().language, demoMode:DEMO_MODE, demoCredentials:DEMO_MODE?{username:DEMO_USERNAME,password:DEMO_PASSWORD}:null });
   }
   if (url.pathname === '/api/setup' && req.method === 'POST') {
     if (setupDone) return sendJson(res, 409, { error: 'Configuration initiale déjà effectuée.' });
@@ -3234,6 +3278,9 @@ async function handleApi(req, res, url) {
 
   const currentPanelUser=panelUsers(config).find(u=>u.id===session.userId||u.username===session.username);
   if (url.pathname === '/api/me' && req.method === 'GET') return sendJson(res, 200, publicPanelUser(currentPanelUser||session));
+  if (DEMO_MODE && !['GET','HEAD','OPTIONS'].includes(String(req.method||'GET').toUpperCase())) {
+    return sendJson(res,403,{error:'Mode démo public : les modifications et actions sont désactivées.'});
+  }
 
 
   // ----- ProxPanel users / RBAC / optional panel TOTP -----
@@ -3637,6 +3684,7 @@ async function handleApi(req, res, url) {
   if (pingMatch && req.method === 'GET') {
     const server = findServer(pingMatch[1]);
     if (!server) return sendJson(res, 404, { error: 'Serveur introuvable.' });
+    if (DEMO_MODE && server.demo) return sendJson(res,200,{ok:true,latencyMs:8,method:'demo',measuredAt:new Date().toISOString()});
     try {
       const latencyMs = await measureTcpLatency(server.url, 3000);
       return sendJson(res, 200, { ok: true, latencyMs, method: 'tcp-connect', measuredAt: new Date().toISOString() });
