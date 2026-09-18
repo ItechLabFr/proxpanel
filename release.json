@@ -1,0 +1,28 @@
+{
+  "product": "ProxPanel",
+  "version": "1.7.0-beta.14",
+  "title": "ProxPanel 1.7.0-beta.14 — Traduction FR/EN exhaustive",
+  "summary": "Passe i18n exhaustive : écrans, actions, confirmations, diagnostics, notifications et messages dynamiques basculent réellement entre Français et English.",
+  "improvements": [
+    "Couverture English fortement étendue sur Dashboard, TV, Machines, Nœuds, Monitoring, Backups, OTA, Notifications, Utilisateurs et Administration.",
+    "Traduction des boutons, champs et options directement au rendu, en plus de la traduction DOM.",
+    "Traduction des confirmations, prompts, toasts, notifications navigateur et messages dynamiques.",
+    "Fusion automatique des libellés de navigation dans le dictionnaire i18n afin d’éviter les oublis futurs.",
+    "Bascule FR/EN toujours instantanée, sans rebuild ni redémarrage."
+  ],
+  "fixes": [
+    "Corrige de nombreux textes restant en français dans la beta.13.",
+    "Corrige les libellés composés et dynamiques qui échappaient au dictionnaire exact.",
+    "Corrige les fragments certificat/signature et secours e-mail dans l’interface English."
+  ],
+  "notes": [
+    "Français reste la langue par défaut des nouvelles installations.",
+    "Le choix rapide FR/EN reste mémorisé par navigateur et ne modifie pas la langue globale.",
+    "La langue par défaut globale reste persistante dans /app/data/settings.json."
+  ],
+  "breaking_changes": [],
+  "min_supported_version": "1.7.0-beta.13",
+  "mandatory": false,
+  "restart_required": true,
+  "rollout": 100
+}
