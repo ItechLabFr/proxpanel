@@ -1407,3 +1407,231 @@ html[data-theme="light"] .tv8-shell{color-scheme:dark}
   .tv8-node-row{grid-template-columns:8px minmax(100px,1fr) auto}.tv8-node-row>span:nth-of-type(2){display:none}
   .tv8-capacity{grid-template-columns:1fr}
 }
+
+
+/* v1.7.1-beta.9 — Mobile UX & Cluster Health */
+
+/* Cluster health v3: compact score, no oversized ring */
+.health-v3{
+  position:relative;overflow:hidden;
+  background:linear-gradient(155deg,var(--panel),color-mix(in srgb,var(--panel) 92%,var(--green) 8%))
+}
+.health-v3:before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(420px circle at 10% 20%,color-mix(in srgb,var(--green) 7%,transparent),transparent 56%)
+}
+.health-v3-head,.health-v3-overview,.health-v3-grid,.health-v3-footer,.health-v3 .widget-tools{position:relative;z-index:1}
+.health-v3-overview{
+  display:grid;grid-template-columns:minmax(0,1.6fr) minmax(210px,.8fr);gap:12px;
+  padding:16px
+}
+.health-score-card{
+  padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)
+}
+.health-score-top{display:flex;align-items:end;justify-content:space-between;gap:12px}
+.health-score-top>span{
+  color:var(--muted);font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.08em
+}
+.health-score-top>strong{font-size:34px;line-height:1;letter-spacing:-.05em}
+.health-score-top>strong small{margin-left:3px;color:var(--muted2);font-size:12px;letter-spacing:0}
+.health-score-track{
+  height:8px;margin-top:12px;border-radius:999px;background:var(--panel3);overflow:hidden
+}
+.health-score-track>span{
+  display:block;height:100%;border-radius:inherit;background:var(--green);
+  box-shadow:0 0 16px color-mix(in srgb,var(--green) 28%,transparent)
+}
+.health-score-card.warning .health-score-track>span{background:var(--yellow)}
+.health-score-card.danger .health-score-track>span{background:var(--red)}
+.health-score-caption{margin-top:12px}
+.health-score-caption b,.health-score-caption small{display:block}
+.health-score-caption b{font-size:15px}
+.health-score-caption small{
+  margin-top:4px;color:var(--muted);font-size:10px;line-height:1.45;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden
+}
+.health-v3-statuses{display:grid;grid-template-columns:1fr;gap:8px}
+.health-v3-state{
+  min-height:72px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;
+  background:var(--panel2);display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:3px 10px
+}
+.health-v3-state span{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.07em;font-weight:800}
+.health-v3-state strong{font-size:19px;line-height:1}
+.health-v3-state small{grid-column:1/-1;color:var(--muted2);font-size:9px}
+.health-v3-state.ok{border-color:color-mix(in srgb,var(--green) 20%,var(--line))}
+.health-v3-state.warning{border-color:color-mix(in srgb,var(--yellow) 24%,var(--line))}
+.health-v3-state.danger{border-color:color-mix(in srgb,var(--red) 26%,var(--line))}
+.health-v3-grid{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0 16px 14px
+}
+.health-v3-grid>div{
+  min-width:0;padding:10px 11px;border:1px solid var(--line2);border-radius:10px;background:var(--panel2)
+}
+.health-v3-grid span,.health-v3-grid b,.health-v3-grid small{display:block}
+.health-v3-grid span{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.07em;font-weight:800}
+.health-v3-grid b{margin-top:4px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.health-v3-grid small{margin-top:2px;color:var(--muted2);font-size:9px}
+.health-v3-footer{
+  margin:0 16px 16px;padding:10px 11px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel2);display:grid;gap:3px
+}
+.health-v3-footer>span{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:800}
+.health-v3-footer>span i{width:7px;height:7px;border-radius:50%;background:var(--muted2)}
+.health-v3-footer>small{color:var(--muted);font-size:9px}
+.health-v3-footer.ok{border-color:color-mix(in srgb,var(--green) 20%,var(--line));background:color-mix(in srgb,var(--green) 4%,var(--panel2))}
+.health-v3-footer.ok>span{color:var(--green)}.health-v3-footer.ok>span i{background:var(--green)}
+.health-v3-footer.warning{border-color:color-mix(in srgb,var(--yellow) 24%,var(--line));background:color-mix(in srgb,var(--yellow) 4%,var(--panel2))}
+.health-v3-footer.warning>span{color:var(--yellow)}.health-v3-footer.warning>span i{background:var(--yellow)}
+.health-v3-footer.danger{border-color:color-mix(in srgb,var(--red) 24%,var(--line));background:color-mix(in srgb,var(--red) 4%,var(--panel2))}
+.health-v3-footer.danger>span{color:var(--red)}.health-v3-footer.danger>span i{background:var(--red)}
+
+/* Machine selection */
+.machine-selection-control{display:grid;place-items:center;width:28px;height:28px;cursor:pointer}
+.machine-selection-control input{position:absolute;opacity:0;pointer-events:none}
+.machine-selection-control span{
+  width:18px;height:18px;border:2px solid var(--muted2);border-radius:6px;background:var(--panel)
+}
+.machine-selection-control input:checked+span{
+  border-color:var(--accent);background:var(--accent);
+  box-shadow:inset 0 0 0 4px var(--panel)
+}
+.bulk-count{margin-left:8px;color:var(--accent);font-size:10px;font-weight:800}
+
+/* Sticky bulk action bar */
+.machine-bulk-sticky{
+  position:sticky;bottom:12px;z-index:20;display:none;grid-template-columns:minmax(170px,1fr) auto;
+  align-items:center;gap:12px;margin:12px;border:1px solid color-mix(in srgb,var(--accent) 24%,var(--line));
+  border-radius:13px;padding:10px 12px;background:color-mix(in srgb,var(--panel) 94%,var(--accent) 6%);
+  box-shadow:0 16px 42px rgba(0,0,0,.2)
+}
+.machine-bulk-sticky.show{display:grid}
+.machine-bulk-sticky strong,.machine-bulk-sticky small{display:block}
+.machine-bulk-sticky strong{font-size:12px}.machine-bulk-sticky small{margin-top:2px;color:var(--muted);font-size:9px}
+.machine-bulk-actions{display:flex;align-items:center;gap:7px}
+.machine-bulk-actions select{min-height:38px;padding:0 32px 0 10px}
+
+/* Light compatibility for new components */
+html[data-theme="light"] .health-v3,
+html[data-theme="light"] .health-score-card,
+html[data-theme="light"] .health-v3-state,
+html[data-theme="light"] .health-v3-grid>div,
+html[data-theme="light"] .health-v3-footer,
+html[data-theme="light"] .machine-bulk-sticky{
+  background:#fff!important;color:var(--text)!important;border-color:var(--line)!important
+}
+html[data-theme="light"] .health-score-track{background:#e6ebf1!important}
+html[data-theme="light"] .machine-selection-control span{background:#fff}
+html[data-theme="light"] .machine-selection-control input:checked+span{box-shadow:inset 0 0 0 4px #fff}
+
+/* Broad responsive pass */
+@media(max-width:900px){
+  .health-v3-overview{grid-template-columns:1fr}
+  .health-v3-statuses{grid-template-columns:1fr 1fr}
+  .health-v3-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cards-grid,.section-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stats-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media(max-width:620px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .content{overflow-x:hidden}
+  .page-head{gap:10px}.page-head>div:first-child{min-width:0}
+  .cards-grid,.section-grid,.stats-strip{grid-template-columns:1fr}
+  .v1-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .v1-toolbar>*{min-width:0;width:100%}
+  .v1-toolbar .btn{justify-content:center}
+
+  /* Machines: real mobile card composition */
+  .machine-panel{overflow:visible}
+  .machine-panel .table-scroll{overflow:visible}
+  .beta2-machine-table{display:block;width:100%;border-spacing:0}
+  .beta2-machine-table tbody{display:grid;gap:10px}
+  .beta2-machine-table tr{
+    position:relative!important;display:grid!important;grid-template-columns:1fr 1fr!important;
+    gap:0 14px;padding:14px!important;border:1px solid var(--line)!important;border-radius:14px!important;
+    background:var(--panel)!important;overflow:visible!important;box-shadow:0 8px 22px rgba(0,0,0,.04)
+  }
+  .beta2-machine-table td{
+    width:auto!important;min-width:0;display:grid!important;
+    grid-template-columns:72px minmax(0,1fr)!important;gap:8px!important;
+    align-items:center!important;padding:8px 0!important
+  }
+  .beta2-machine-table td:before{
+    margin:0!important;color:var(--muted)!important;font-size:9px!important;
+    text-transform:uppercase;letter-spacing:.07em;font-weight:850
+  }
+  .beta2-machine-table td[data-label="Machine"]{
+    grid-column:1/-1!important;display:block!important;padding:0 46px 11px 0!important;
+    margin-bottom:3px;border-bottom:1px solid var(--line2)!important
+  }
+  .beta2-machine-table td[data-label="Machine"]:before{display:none!important}
+  .beta2-machine-table .machine-name{width:100%;min-width:0}
+  .beta2-machine-table .machine-name>span:last-child{min-width:0}
+  .beta2-machine-table .machine-name strong,
+  .beta2-machine-table .machine-name small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .beta2-machine-table .machine-selection-cell{
+    position:absolute!important;top:12px!important;right:12px!important;z-index:2;
+    display:block!important;width:30px!important;height:30px!important;padding:0!important
+  }
+  .beta2-machine-table .machine-selection-cell:before{display:none!important}
+  .beta2-machine-table td[data-label="État"],
+  .beta2-machine-table td[data-label="CPU"],
+  .beta2-machine-table td[data-label="Mémoire"],
+  .beta2-machine-table td[data-label="Stockage"],
+  .beta2-machine-table td[data-label="Nœud"]{grid-column:auto!important}
+  .beta2-machine-table .machine-storage-cell{min-width:0;text-align:right}
+  .beta2-machine-table .machine-storage-cell strong,
+  .beta2-machine-table .machine-storage-cell small{white-space:normal;overflow-wrap:anywhere}
+  .beta2-machine-table .node-source{min-width:0;text-align:right;overflow-wrap:anywhere}
+  .beta2-machine-table td[data-label="Actions"]{
+    grid-column:1/-1!important;display:block!important;padding-top:11px!important;
+    margin-top:4px;border-top:1px solid var(--line2)!important
+  }
+  .beta2-machine-table td[data-label="Actions"]:before{display:none!important}
+  .beta2-machine-table .row-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important;width:100%}
+  .beta2-machine-table .row-actions .btn{width:100%;min-height:42px;justify-content:center}
+  .machine-filterbar{grid-template-columns:1fr!important}
+  .machine-filterbar select{width:100%}
+  .bulk-panel summary{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .bulk-panel .v1-toolbar{grid-template-columns:1fr}
+  .machine-bulk-sticky{
+    position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));
+    margin:0;grid-template-columns:1fr;padding:10px;max-height:42vh;overflow:auto
+  }
+  .machine-bulk-actions{display:grid;grid-template-columns:1fr 1fr}
+  .machine-bulk-actions select{grid-column:1/-1;width:100%}
+
+  /* Health v3 mobile */
+  .health-v3-overview{padding:12px}
+  .health-v3-statuses{grid-template-columns:1fr 1fr}
+  .health-score-top>strong{font-size:28px}
+  .health-v3-grid{grid-template-columns:1fr 1fr;padding:0 12px 12px}
+  .health-v3-footer{margin:0 12px 12px}
+
+  /* Mobile details/modals are real app sheets */
+  .modal{padding:0!important;place-items:stretch!important}
+  .modal>div,.modal-card{
+    width:100%!important;max-width:none!important;height:100dvh!important;max-height:100dvh!important;
+    border-radius:0!important;border-inline:0!important;border-bottom:0!important
+  }
+  .modal-card .modal-head{
+    position:sticky;top:0;z-index:5;padding-top:max(14px,env(safe-area-inset-top));
+  }
+  .modal-card .modal-footer{
+    position:sticky;bottom:0;z-index:5;padding-bottom:max(12px,env(safe-area-inset-bottom))
+  }
+  .modal-body{overflow:auto;-webkit-overflow-scrolling:touch}
+  .detail-grid,.two-col,.admin-form-grid{grid-template-columns:1fr!important}
+}
+
+@media(max-width:430px){
+  .beta2-machine-table tr{grid-template-columns:1fr!important}
+  .beta2-machine-table td[data-label="État"],
+  .beta2-machine-table td[data-label="CPU"],
+  .beta2-machine-table td[data-label="Mémoire"],
+  .beta2-machine-table td[data-label="Stockage"],
+  .beta2-machine-table td[data-label="Nœud"]{grid-column:1!important}
+  .health-v3-statuses,.health-v3-grid{grid-template-columns:1fr}
+  .machine-bulk-actions{grid-template-columns:1fr}
+  .machine-bulk-actions select{grid-column:auto}
+}

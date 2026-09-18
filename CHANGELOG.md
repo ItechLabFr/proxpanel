@@ -1,3 +1,41 @@
+# ProxPanel 1.7.1-beta.9
+
+## Français
+- Refonte mobile de la page Machines.
+- La case de sélection est désormais intégrée proprement dans la carte VM/LXC sur téléphone.
+- Correction des débordements et chevauchements sur CPU, mémoire, stockage et nœud.
+- Console et Actions sont désormais alignés proprement et tactiles sur mobile.
+- Nouvelle barre d’actions groupées mobile, fixe au bas de l’écran, avec compteur de sélection.
+- Conservation de la sélection des machines pendant les rafraîchissements/rendus.
+- Bouton de désélection globale ajouté.
+- Filtres Machines empilés proprement sur petit écran.
+- Modales détail VM/LXC transformées en plein écran mobile avec en-tête et actions accessibles.
+- Passe responsive globale sur grilles, toolbars, formulaires et cartes principales.
+- Refonte complète du widget Santé du cluster.
+- Suppression du gros cercle 100/100.
+- Nouveau score compact avec barre de progression, état global et résumé lisible.
+- Nœuds et stockages deviennent des états compacts séparés.
+- Alertes, sauvegardes, température et tâches restent visibles dans une grille plus propre.
+- Compatibilité Light/Dark des nouveaux composants.
+
+## English
+- Mobile redesign for the Machines page.
+- Selection checkbox is now properly integrated into each VM/LXC card on phones.
+- Fixes layout overflow and text collisions across CPU, memory, storage and node fields.
+- Console and Actions buttons are properly aligned and touch-friendly on mobile.
+- Adds a fixed mobile bulk-action bar with selected-machine count.
+- Keeps machine selection across refreshes/renders.
+- Adds a clear-all selection action.
+- Machine filters now stack cleanly on small screens.
+- VM/LXC detail modals become full-screen mobile sheets with accessible header/actions.
+- Broader responsive pass across grids, toolbars, forms and primary cards.
+- Complete Cluster Health widget redesign.
+- Removes the oversized 100/100 circular gauge.
+- Adds a compact health score with progress bar, global state and readable summary.
+- Nodes and storages use dedicated compact state cards.
+- Alerts, backups, temperature and tasks remain visible in a cleaner grid.
+- New components support both Light and Dark themes.
+
 # ProxPanel 1.7.1-beta.8
 
 ## Français
