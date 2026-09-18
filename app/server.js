@@ -3416,8 +3416,10 @@ async function handleApi(req, res, url) {
     try {
       const auth=await resolveProxmoxAuth(server,session); const resources=await proxmoxApi(server,'/cluster/resources',{auth});
       const live=calcDashboard(Array.isArray(resources)?resources:[],[],[],[]);
-      // Keep the single-server live dashboard aligned with grouped views:
-      // node temperatures are enriched before the response is sent.
+      // Keep the single-server live dashboard aligned with grouped views.
+      // Storage calls are cached, so live refresh can retain QEMU Guest Agent state
+      // without turning missing data into a fake zero.
+      await enrichMissingGuestStorage(server,auth,live);
       await enrichNodeTemperatures(server,auth,live);
       return sendJson(res,200,{collectedAt:live.collectedAt,metrics:live.metrics,nodes:live.nodes,machines:live.machines,storages:live.storages});
     } catch(e){return sendJson(res,502,{error:e.message});}
@@ -3439,6 +3441,7 @@ async function handleApi(req, res, url) {
         historyEnabled ? Promise.all(storagesForHistory.slice(0,80).map(async st => ({ node:st.node, storage:st.storage, points:await optional(`/nodes/${encodeURIComponent(st.node)}/storage/${encodeURIComponent(st.storage)}/rrddata?timeframe=${dashboardTimeframe}&cf=AVERAGE`,[]) }))) : Promise.resolve([])
       ]);
       let dashboard = calcDashboard(Array.isArray(resources) ? resources : [], Array.isArray(tasks) ? tasks : [], Array.isArray(backupJobs) ? backupJobs : [], rrdResults);
+      await enrichMissingGuestStorage(server,auth,dashboard);
       dashboard.history.storage = calcStorageRrdHistory(storageRrdResults);
       const inventory = await fetchBackupInventory(server, auth, dashboard);
       dashboard = enrichBackupState(dashboard, inventory);
@@ -3504,7 +3507,7 @@ async function handleApi(req, res, url) {
         machine.type==='qemu'?optional(`${base}/agent/get-host-name`,null):null,
         guestStorageInfo(server,auth,machine)
       ]);
-      return sendJson(res,200,{serverId:server.id,serverName:server.name,machine:{vmid:machine.vmid,name:machine.name||`${machine.type}-${machine.vmid}`,type:machine.type,node:machine.node,status:machine.status,uptime:machine.uptime||0,cpu:Number(machine.cpu||0)*100,mem:machine.mem||0,maxmem:machine.maxmem||0,disk:storageInfo?.used??machine.disk??0,maxdisk:storageInfo?.total??machine.maxdisk??0,diskSource:storageInfo?.source||'unknown',diskUsedKnown:!!storageInfo?.usedKnown,tags:machine.tags||''},status,config,snapshots:Array.isArray(snapshots)?snapshots:[],ips,guestAgent:{osinfo:osinfo?.result||osinfo||null,hostname:hostname?.result?.['host-name']||hostname?.['host-name']||null},storageInfo});
+      return sendJson(res,200,{serverId:server.id,serverName:server.name,machine:{vmid:machine.vmid,name:machine.name||`${machine.type}-${machine.vmid}`,type:machine.type,node:machine.node,status:machine.status,uptime:machine.uptime||0,cpu:Number(machine.cpu||0)*100,mem:machine.mem||0,maxmem:machine.maxmem||0,disk:storageInfo?.used??machine.disk??0,maxdisk:storageInfo?.total??machine.maxdisk??0,diskFree:storageInfo?.free??null,diskUsagePct:storageInfo?.usagePct??null,diskSource:storageInfo?.source||'unknown',diskUsedKnown:!!storageInfo?.usedKnown,guestAgentStorage:storageInfo?.guestAgentAvailable??null,storageState:storageInfo?.storageState||null,tags:machine.tags||''},status,config,snapshots:Array.isArray(snapshots)?snapshots:[],ips,guestAgent:{osinfo:osinfo?.result||osinfo||null,hostname:hostname?.result?.['host-name']||hostname?.['host-name']||null},storageInfo});
     }catch(e){return sendJson(res,502,{error:e.message});}
   }
 
