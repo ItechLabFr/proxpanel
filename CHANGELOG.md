@@ -1,3 +1,23 @@
+# ProxPanel 1.7.0-beta.15
+
+## Authentication & Mobile UX
+- Refonte complète de l’écran de connexion sur desktop, tablette et téléphone.
+- Nouveau parcours en deux étapes visuelles : identifiants puis MFA.
+- Champ Authenticator à 6 chiffres optimisé pour le clavier numérique mobile et l’autocomplétion OTP.
+- Validation automatique lorsque les 6 chiffres sont saisis.
+- Nouveaux écrans dédiés pour les codes de récupération et le secours par e-mail.
+- Secours e-mail avec expiration visible et délai avant renvoi.
+- Ajout de l’affichage/masquage du mot de passe et de la détection Verr. Maj.
+- Première installation avec confirmation du mot de passe et indicateur de robustesse.
+- Erreurs d’authentification affichées directement dans la carte.
+- Support 100dvh, safe-area iOS, clavier virtuel, petits écrans et prefers-reduced-motion.
+
+## Correctifs
+- Corrige le login et le MFA trop compacts sur téléphone et tablette.
+- Corrige les petites zones tactiles des méthodes de récupération.
+- Corrige plusieurs risques de débordement avec le clavier mobile.
+- Améliore la continuité visuelle après une erreur MFA.
+
 # ProxPanel 1.7.0-beta.14
 
 ## Traduction FR / EN exhaustive
