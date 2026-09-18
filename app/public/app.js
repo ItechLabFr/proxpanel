@@ -1315,6 +1315,7 @@ async function reloadSection(){
   try{
     if(page==='dependencies')await loadDependencies();
     if(page==='docker'){try{const [overview,alerts]=await Promise.all([api('/api/docker/overview'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false)}catch(e){state.dockerError=e.message}}
+    if(page==='notifications'){const da=await api('/api/docker/alerts').catch(()=>({alerts:[],checkedAt:''}));state.dockerAlerts=da.alerts||[];state.dockerAlertsCheckedAt=da.checkedAt||'';}
     if(page==='audit')state.audit=await api('/api/audit');
     if(page==='changes')state.changes=await api('/api/changes');
     if(page==='automations')[state.automations,state.automationRuns]=await Promise.all([api('/api/automations'),api('/api/automation-runs')]);
