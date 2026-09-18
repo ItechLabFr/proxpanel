@@ -9,7 +9,7 @@ Objectif Docker Scout : 0 Critical / 0 High lorsque l’image de base Alpine ne 
 Après publication :
 
 ```bash
-docker scout cves registry://itechlab/proxpanel:1.7.0-beta.14 --only-severity critical,high
-docker scout cves registry://itechlab/proxpanel:1.7.0-beta.14 --only-fixed
-docker scout cves registry://itechlab/proxpanel:1.7.0-beta.14 --only-cisa-kev
+docker scout cves registry://itechlab/proxpanel:1.7.0-beta.15 --only-severity critical,high
+docker scout cves registry://itechlab/proxpanel:1.7.0-beta.15 --only-fixed
+docker scout cves registry://itechlab/proxpanel:1.7.0-beta.15 --only-cisa-kev
 ```
