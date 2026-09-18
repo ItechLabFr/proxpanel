@@ -21,7 +21,7 @@ services:
     volumes:
       - proxpanel_demo_data:/app/data
     tmpfs:
-      - /opt/proxpanel-runtime
+      - "/opt/proxpanel-runtime:uid=1000,gid=1000,mode=0770"
 
 volumes:
   proxpanel_demo_data:
