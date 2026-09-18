@@ -2495,7 +2495,7 @@ function problemEventType(problem) {
   return 'system.test';
 }
 function discordEventColor(eventType, severity='info') {
-  if (eventType === 'backup.success' || eventType === 'node.recovered') return 0x22c55e;
+  if (eventType === 'backup.success' || eventType === 'node.recovered' || eventType === 'docker.recovered') return 0x22c55e;
   if (eventType === 'pve.update.security') return 0xef4444;
   if (eventType === 'system.update.available' || eventType === 'pve.update.available' || eventType === 'pve.update.manual-report') return 0x3b82f6;
   if (severity === 'critical' || eventType === 'backup.failed' || eventType === 'node.offline' || eventType === 'storage.critical') return 0xef4444;
@@ -2626,7 +2626,7 @@ function mailBrandLogoAttachment() {
 }
 function mailStatusTheme(event={}) {
   const type=String(event.type||'system.test'),severity=String(event.severity||'info');
-  if(type==='backup.success'||type==='node.recovered')return {accent:'#16d49a',soft:'#eafbf5',text:'#08745a',icon:'✓'};
+  if(type==='backup.success'||type==='node.recovered'||type==='docker.recovered')return {accent:'#16d49a',soft:'#eafbf5',text:'#08745a',icon:'✓'};
   if(severity==='critical'||type==='pve.update.security'||type==='temperature.critical')return {accent:'#ef4444',soft:'#fff0f0',text:'#b42318',icon:'!'};
   if(severity==='warning'||type==='temperature.warning')return {accent:'#f0a429',soft:'#fff7e7',text:'#9a6700',icon:'!'};
   return {accent:'#ff7a00',soft:'#fff4e8',text:'#a84700',icon:'i'};
