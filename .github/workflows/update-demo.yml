@@ -15,6 +15,11 @@ on:
         required: true
         default: false
         type: boolean
+      deploy_server:
+        description: "Deploy the new demo image to the configured demo server"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -25,8 +30,15 @@ concurrency:
 
 jobs:
   build-demo:
-    name: Validate and publish demo image
+    name: Validate, publish and deploy demo
     runs-on: ubuntu-latest
+    env:
+      DEMO_SSH_HOST: ${{ secrets.DEMO_SSH_HOST }}
+      DEMO_SSH_USER: ${{ secrets.DEMO_SSH_USER }}
+      DEMO_SSH_PRIVATE_KEY: ${{ secrets.DEMO_SSH_PRIVATE_KEY }}
+      DEMO_SSH_KNOWN_HOSTS: ${{ secrets.DEMO_SSH_KNOWN_HOSTS }}
+      DEMO_SSH_PORT: ${{ secrets.DEMO_SSH_PORT }}
+      DEMO_DEPLOY_PATH: ${{ secrets.DEMO_DEPLOY_PATH }}
 
     steps:
       - name: Checkout selected source
@@ -102,11 +114,84 @@ jobs:
           cache-from: type=gha,scope=proxpanel-demo
           cache-to: type=gha,mode=max,scope=proxpanel-demo
 
+      - name: Check demo server configuration
+        id: deploy_config
+        if: ${{ inputs.deploy_server }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$DEMO_SSH_HOST" ] \
+            && [ -n "$DEMO_SSH_USER" ] \
+            && [ -n "$DEMO_SSH_PRIVATE_KEY" ] \
+            && [ -n "$DEMO_SSH_KNOWN_HOSTS" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Demo image was published, but SSH deployment was skipped because one or more DEMO_SSH_* secrets are missing."
+          fi
+
+      - name: Configure SSH
+        if: ${{ inputs.deploy_server && steps.deploy_config.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEMO_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEMO_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy demo server
+        id: deploy
+        if: ${{ inputs.deploy_server && steps.deploy_config.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${DEMO_SSH_PORT:-22}"
+          deploy_path="${DEMO_DEPLOY_PATH:-/opt/proxpanel-demo}"
+          printf -v quoted_path '%q' "$deploy_path"
+
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -p "$port" \
+            -o BatchMode=yes \
+            "$DEMO_SSH_USER@$DEMO_SSH_HOST" \
+            "PROXPANEL_DEMO_DIR=$quoted_path bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          cd "$PROXPANEL_DEMO_DIR"
+
+          docker compose -f docker-compose.demo.yml pull proxpanel-demo
+          docker compose -f docker-compose.demo.yml up -d --remove-orphans proxpanel-demo
+
+          for attempt in $(seq 1 15); do
+            status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' proxpanel-demo 2>/dev/null || true)"
+            case "$status" in
+              healthy|running)
+                echo "ProxPanel demo is $status."
+                exit 0
+                ;;
+              unhealthy|exited|dead)
+                echo "ProxPanel demo entered state: $status" >&2
+                docker logs --tail 100 proxpanel-demo || true
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+
+          echo "Timed out waiting for the ProxPanel demo container." >&2
+          docker logs --tail 100 proxpanel-demo || true
+          exit 1
+          REMOTE
+
       - name: Deployment summary
+        if: always()
         shell: bash
         run: |
           {
-            echo "## ProxPanel demo image published"
+            echo "## ProxPanel demo"
             echo
             echo "- Source: \`${{ inputs.source_ref }}\`"
             echo "- Version: \`${{ steps.meta.outputs.version }}\`"
@@ -114,5 +199,15 @@ jobs:
             echo "- Moving tag: \`itechlab/proxpanel:demo\`"
             echo "- Immutable tag: \`itechlab/proxpanel:demo-${{ steps.meta.outputs.short_sha }}\`"
             echo
-            echo "No GitHub Release, OTA publication, beta/stable Docker tag or revocation was performed."
+            if [ "${{ inputs.deploy_server }}" != "true" ]; then
+              echo "- Server deployment: not requested"
+            elif [ "${{ steps.deploy_config.outputs.enabled }}" != "true" ]; then
+              echo "- Server deployment: skipped (SSH secrets not configured)"
+            elif [ "${{ steps.deploy.outcome }}" = "success" ]; then
+              echo "- Server deployment: success"
+            else
+              echo "- Server deployment: failed"
+            fi
+            echo
+            echo "No GitHub Release, OTA publication, beta/stable/latest Docker tag or release revocation was performed."
           } >> "$GITHUB_STEP_SUMMARY"
