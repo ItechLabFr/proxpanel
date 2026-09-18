@@ -206,7 +206,7 @@ Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/i
 
 The next **1.7.2-beta.x** series focuses on multi-platform HomeLab operations:
 
-- **Portainer / Docker** as the first officially supported external integration; **Portainer CE is tested first and Business Edition remains compatible when the APIs used are identical**;
+- **Portainer / Docker** as the first officially supported external integration; **Portainer CE is tested first and Business Edition remains compatible when the APIs used are identical**; **Portainer CE is tested first and Business Edition remains compatible when the APIs used are identical**;
 - Docker environments, containers and stacks;
 - Docker monitoring and alerts;
 - Proxmox ↔ Docker topology;
