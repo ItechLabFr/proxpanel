@@ -1,3 +1,37 @@
+# ProxPanel 1.7.1-beta.10
+
+## Français
+- Correction majeure des faux positifs de sauvegarde.
+- Un stockage de backup temporairement inaccessible n'est plus interprété comme « aucun backup trouvé ».
+- Conservation en mémoire du dernier inventaire backup valide pour servir de preuve pendant une indisponibilité temporaire.
+- Les absences ne sont jamais déduites d'un inventaire partiel ou périmé.
+- Le VMID est désormais récupéré depuis le volid quand Proxmox ne fournit pas directement le champ vmid.
+- Les tâches vzdump réussies servent de preuve complémentaire d'une sauvegarde récente.
+- Si une tâche vzdump réussie est plus récente que l'inventaire stockage, elle devient la référence de dernière sauvegarde.
+- Comptage des points de restauration détectés par VM/LXC, utile avec les rétentions multi-jours.
+- Le seuil par défaut reste de 36 h pour les sauvegardes quotidiennes.
+- « Sauvegarde attendue absente » nécessite désormais deux contrôles consécutifs fiables avant l'envoi d'une notification.
+- Une détection non fiable ou partielle remet le compteur de confirmation à zéro au lieu d'envoyer une alerte.
+- Le même incident n'est plus renvoyé en boucle tant qu'il n'y a pas eu une vraie récupération.
+- Ajout de l'état de l'inventaire backup dans l'état interne des alertes pour faciliter le diagnostic.
+- Cette beta.10 clôture la série 1.7.1 avec une passe de stabilisation orientée fiabilité des sauvegardes.
+
+## English
+- Major fix for backup false positives.
+- A temporarily unavailable backup storage is no longer interpreted as “no backup found”.
+- Keeps the last valid backup inventory in memory as evidence during temporary outages.
+- Backup absence is never inferred from partial or stale inventory data.
+- VMID can now be recovered from volid when Proxmox does not expose vmid directly.
+- Successful vzdump tasks are used as additional proof of a recent backup.
+- If a successful vzdump task is newer than storage inventory, it becomes the last-backup reference.
+- Counts detected restore points per VM/LXC, useful with multi-day retention policies.
+- Default stale threshold remains 36 hours for daily backup schedules.
+- “Expected backup missing” now requires two consecutive reliable checks before a notification is sent.
+- Unreliable/partial detection resets the confirmation counter instead of sending an alert.
+- The same incident is no longer repeatedly sent until a real recovery occurs.
+- Backup inventory status is persisted in alert state for easier diagnostics.
+- beta.10 closes the 1.7.1 series with a stabilization pass focused on backup reliability.
+
 # ProxPanel 1.7.1-beta.9
 
 ## Français
