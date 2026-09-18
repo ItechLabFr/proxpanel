@@ -1,0 +1,38 @@
+name: Refresh beta.15 bilingual release notes
+
+on:
+  push:
+    paths:
+      - '.github/workflows/refresh-beta15-release-notes.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update GitHub Release notes
+        shell: bash
+        run: |
+          cp docs/releases/1.7.0-beta.15.md /tmp/notes.md
+          cat >> /tmp/notes.md <<'EOF'
+
+          ## Téléchargements / Downloads
+
+          - \`proxpanel-v1.7.0-beta.15.zip\` — package complet / full source and deployment package
+          - \`proxpanel-update-v1.7.0-beta.15.zip\` — mise à jour OTA / OTA update package
+          - \`release.json\` — métadonnées de version / release metadata
+          - \`SHA256SUMS.txt\` — sommes SHA-256 / SHA-256 checksums
+
+          **FR :** Docker Hub reste le canal officiel de distribution des images conteneur. Le rollout et la révocation OTA restent gérés par \`updates.proxpanel.fr\`.
+
+          **EN:** Docker Hub remains the official container image distribution channel. OTA rollout and revocation remain managed by \`updates.proxpanel.fr\`.
+          EOF
+          gh release edit v1.7.0-beta.15 \
+            --title "ProxPanel 1.7.0-beta.15" \
+            --notes-file /tmp/notes.md
