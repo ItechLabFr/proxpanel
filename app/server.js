@@ -1270,10 +1270,31 @@ function parseConfiguredSize(value){
   const m=String(value||'').match(/(?:^|,)size=(\d+(?:\.\d+)?)([KMGTPE]?)(?:i?B)?(?:,|$)/i);if(!m)return 0;
   const pow={K:1,M:2,G:3,T:4,P:5,E:6}[String(m[2]||'').toUpperCase()]||0;return Number(m[1])*1024**pow;
 }
-function configuredGuestCapacity(config,type){let total=0;for(const [k,v] of Object.entries(config||{})){if(type==='qemu'&&!/^(scsi|sata|virtio|ide)\d+$/.test(k))continue;if(type==='lxc'&&k!=='rootfs'&&!/^mp\d+$/.test(k))continue;const text=String(v||'');if(/media=cdrom/.test(text)||/^none[,;]/.test(text)||k.startsWith('unused'))continue;total+=parseConfiguredSize(text);}return total;}
+function configuredGuestDisks(config,type){
+  const rows=[];
+  for(const [key,value] of Object.entries(config||{})){
+    const isDisk=type==='qemu'?/^(scsi|sata|virtio|ide)\d+$/.test(key):(key==='rootfs'||/^mp\d+$/.test(key));
+    if(!isDisk)continue;
+    const text=String(value||'');
+    if(/media=cdrom/i.test(text)||/^none(?:,|$)/i.test(text)||key.startsWith('unused'))continue;
+    const first=text.split(',')[0]||'';
+    const storage=first.includes(':')?first.split(':')[0]:'';
+    const volume=first.includes(':')?first.slice(first.indexOf(':')+1):first;
+    rows.push({
+      key,
+      bus:key.replace(/\d+$/,''),
+      storage,
+      volume,
+      total:parseConfiguredSize(text),
+      raw:text
+    });
+  }
+  return rows.sort((a,b)=>a.key.localeCompare(b.key,undefined,{numeric:true}));
+}
+function configuredGuestCapacity(config,type){return configuredGuestDisks(config,type).reduce((sum,row)=>sum+Number(row.total||0),0)}
 function unwrapGuestFsInfo(raw){
   let cur=raw;
-  for(let i=0;i<4;i++){
+  for(let i=0;i<5;i++){
     if(Array.isArray(cur)) return cur;
     if(cur && typeof cur==='object' && Array.isArray(cur.result)) return cur.result;
     if(cur && typeof cur==='object' && cur.data!==undefined){cur=cur.data;continue;}
@@ -1293,48 +1314,107 @@ function guestFsRows(raw){
     const sizeKnown=Number.isFinite(total)&&total>0;
     const safeTotal=sizeKnown?total:0;
     const safeUsed=sizeKnown&&Number.isFinite(used)?Math.max(0,Math.min(total,used)):0;
+    const free=sizeKnown?Math.max(0,safeTotal-safeUsed):0;
+    const usagePct=sizeKnown?Number((safeUsed/safeTotal*100).toFixed(1)):null;
+    const disks=(Array.isArray(r?.disk)?r.disk:[]).map(d=>({
+      dev:String(d?.dev||''),
+      busType:String(d?.['bus-type']||d?.bus_type||''),
+      serial:String(d?.serial||''),
+      target:Number.isFinite(Number(d?.target))?Number(d.target):null,
+      unit:Number.isFinite(Number(d?.unit))?Number(d.unit):null
+    }));
     const key=`${mountpoint}|${safeTotal}|${safeUsed}|${type}`;if(seen.has(key))continue;seen.add(key);
-    rows.push({mountpoint:mountpoint||'Volume',type,total:safeTotal,used:safeUsed,sizeKnown});
+    rows.push({mountpoint:mountpoint||'Volume',name:String(r?.name||''),type,total:safeTotal,used:safeUsed,free,usagePct,sizeKnown,disks});
   }
   return rows;
+}
+function classifyGuestAgentStorageError(message,status=''){
+  if(status && status!=='running')return {code:'vm-stopped',label:'VM arrêtée'};
+  const msg=String(message||'').toLowerCase();
+  if(!msg)return {code:'unavailable',label:'Données filesystem indisponibles'};
+  if(msg.includes('not running')||msg.includes('guest agent is not running')||msg.includes('qemu guest agent is not running'))return {code:'agent-stopped',label:'QEMU Guest Agent arrêté'};
+  if(msg.includes('not configured')||msg.includes('guest agent is not configured')||msg.includes('agent not configured'))return {code:'agent-missing',label:'QEMU Guest Agent non configuré'};
+  if(msg.includes('timeout')||msg.includes('timed out'))return {code:'timeout',label:'Timeout QEMU Guest Agent'};
+  if(msg.includes('permission')||msg.includes('403')||msg.includes('forbidden'))return {code:'permission',label:'Permissions insuffisantes'};
+  if(msg.includes('not supported')||msg.includes('unsupported')||msg.includes('501'))return {code:'unsupported',label:'Information non supportée'};
+  return {code:'agent-error',label:'QEMU Guest Agent indisponible'};
 }
 async function guestStorageInfo(server,auth,machine){
   const key=`${server.id}:${machine.node}:${machine.type}:${machine.vmid}`,cached=GUEST_STORAGE_CACHE.get(key);if(cached&&cached.expiresAt>Date.now())return cached.value;
   const base=`/nodes/${encodeURIComponent(machine.node)}/${machine.type}/${machine.vmid}`;
-  let status={},config={},fsraw=null,agentError='';
-  const [statusResult, configResult] = await Promise.all([
+  let status={},config={},fsraw=null,agentError='',agentResponded=false;
+  const [statusResult,configResult]=await Promise.all([
     proxmoxApi(server,`${base}/status/current`,{auth}).catch(()=>({})),
     proxmoxApi(server,`${base}/config`,{auth}).catch(()=>({}))
   ]);
   status=statusResult||{};config=configResult||{};
-  if(machine.type==='qemu' && String(status?.status||machine.status||'')==='running'){
-    try{fsraw=await proxmoxApi(server,`${base}/agent/get-fsinfo`,{auth});}
+  const effectiveStatus=String(status?.status||machine.status||'unknown');
+  if(machine.type==='qemu'&&effectiveStatus==='running'){
+    try{fsraw=await proxmoxApi(server,`${base}/agent/get-fsinfo`,{auth});agentResponded=true;}
     catch(e){agentError=String(e?.message||e||'QEMU Guest Agent indisponible');}
   }
+  const configuredDisks=configuredGuestDisks(config,machine.type);
+  const configuredCapacity=configuredDisks.reduce((sum,row)=>sum+Number(row.total||0),0);
   const statusUsed=Number(status?.disk??machine.disk??0),statusTotal=Number(status?.maxdisk??machine.maxdisk??0);
   let used=Number.isFinite(statusUsed)&&statusUsed>0?statusUsed:0,total=Number.isFinite(statusTotal)&&statusTotal>0?statusTotal:0;
   let source=used>0?'status':total>0?'capacity':'unknown';
   const filesystems=guestFsRows(fsraw);
   if(filesystems.length){
     const sized=filesystems.filter(r=>r.sizeKnown&&r.total>0);
-    const gu=sized.reduce((a,r)=>a+r.used,0),gt=sized.reduce((a,r)=>a+r.total,0);
+    const gu=sized.reduce((sum,row)=>sum+row.used,0),gt=sized.reduce((sum,row)=>sum+row.total,0);
     if(gt>0){used=gu;total=gt;source='guest-agent';agentError='';}
-    else if(machine.type==='qemu'){source='guest-agent-no-size';agentError='Le QEMU Guest Agent répond, mais cette version ne fournit pas total-bytes/used-bytes via get-fsinfo.';}
+    else if(machine.type==='qemu'){source='guest-agent-no-size';agentError='Le QEMU Guest Agent répond, mais ne fournit pas les compteurs de taille pour les filesystems détectés.';}
   }
-  if(!total || source==='guest-agent-no-size'){
-    const configured=configuredGuestCapacity(config,machine.type);
-    if(configured>0){total=configured;if(source!=='guest-agent-no-size')source=used>0?'status+config':'config';}
+  if((!total||source==='guest-agent-no-size')&&configuredCapacity>0){
+    total=configuredCapacity;
+    if(source!=='guest-agent-no-size')source=used>0?'status+config':'config';
   }
-  const value={used,total,source,usedKnown:source==='guest-agent'||used>0,guestAgentAvailable:machine.type!=='qemu'?null:filesystems.length>0,agentError,filesystems};
+  const usedKnown=source==='guest-agent'||used>0;
+  const free=usedKnown&&total>0?Math.max(0,total-used):null;
+  const usagePct=usedKnown&&total>0?Number((used/total*100).toFixed(1)):null;
+  let storageState={code:'available',label:'Disponible',tone:'ok'};
+  if(machine.type==='qemu'){
+    if(effectiveStatus!=='running')storageState={code:'vm-stopped',label:'VM arrêtée',tone:'neutral'};
+    else if(agentResponded&&filesystems.length&&filesystems.some(row=>row.sizeKnown))storageState={code:'available',label:'Données Guest Agent disponibles',tone:'ok'};
+    else if(agentResponded)storageState={code:'agent-no-size',label:'Guest Agent disponible · compteurs indisponibles',tone:'warning'};
+    else{
+      const classified=classifyGuestAgentStorageError(agentError,effectiveStatus);
+      storageState={...classified,tone:['timeout','agent-error'].includes(classified.code)?'warning':'neutral'};
+    }
+  }
+  const value={
+    used,total,free,usagePct,source,usedKnown,
+    configuredCapacity,configuredDisks,
+    guestAgentAvailable:machine.type!=='qemu'?null:agentResponded,
+    agentError,storageState,filesystems
+  };
   const ttl=source==='guest-agent'?GUEST_STORAGE_CACHE_OK_MS:GUEST_STORAGE_CACHE_NEGATIVE_MS;
   GUEST_STORAGE_CACHE.set(key,{expiresAt:Date.now()+ttl,value});return value;
 }
 async function enrichMissingGuestStorage(server,auth,dash){
   const rows=dash?.machines||[];
-  // LXC usage is generally provided by PVE itself. For running QEMU guests,
-  // actively query QEMU Guest Agent so Windows/Linux filesystem usage can be shown.
-  const targets=rows.filter(m=>m.type==='qemu'&&m.status==='running' || !Number(m.maxdisk||0) || !Number(m.disk||0)).slice(0,80);if(!targets.length)return dash;
-  for(let i=0;i<targets.length;i+=10){await Promise.all(targets.slice(i,i+10).map(async m=>{try{const info=await guestStorageInfo(server,auth,m);if(info.total>0)m.maxdisk=info.total;if(info.usedKnown)m.disk=info.used;m.diskSource=info.source;m.diskUsedKnown=!!info.usedKnown;m.guestAgentStorage=info.guestAgentAvailable;m.guestAgentStorageError=info.agentError||'';}catch{}}));}
+  const targets=rows.filter(m=>m.type==='qemu'&&(m.status==='running'||!Number(m.maxdisk||0)||!Number(m.disk||0))).slice(0,80);
+  if(!targets.length)return dash;
+  for(let i=0;i<targets.length;i+=8){
+    await Promise.all(targets.slice(i,i+8).map(async m=>{
+      try{
+        const info=await guestStorageInfo(server,auth,m);
+        if(info.total>0)m.maxdisk=info.total;
+        if(info.usedKnown)m.disk=info.used;
+        m.diskFree=info.free;
+        m.diskUsagePct=info.usagePct;
+        m.diskSource=info.source;
+        m.diskUsedKnown=!!info.usedKnown;
+        m.guestAgentStorage=info.guestAgentAvailable;
+        m.guestAgentStorageError=info.agentError||'';
+        m.storageState=info.storageState;
+        m.configuredDiskCount=info.configuredDisks?.length||0;
+      }catch(e){
+        m.storageState={code:'unavailable',label:'Données stockage indisponibles',tone:'warning'};
+        m.guestAgentStorageError=String(e?.message||e||'');
+      }
+    }));
+  }
   return dash;
 }
 
