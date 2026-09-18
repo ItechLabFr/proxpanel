@@ -31,6 +31,30 @@ jobs:
       - name: Run functional reliability tests
         run: node --test tests/*.test.js
 
+      - name: Build and smoke-test OTA package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist-ci /tmp/proxpanel-ota-smoke
+          mkdir -p dist-ci /tmp/proxpanel-ota-smoke
+          chmod +x tools-build-update.sh
+          ./tools-build-update.sh ./app ./dist-ci
+          zip_file="dist-ci/proxpanel-update-v$(node -p "require('./app/package.json').version").zip"
+          unzip -q "$zip_file" -d /tmp/proxpanel-ota-smoke
+          test -f /tmp/proxpanel-ota-smoke/lib/reliability.js
+          node --check /tmp/proxpanel-ota-smoke/server.js
+          PORT=18080 PROXPANEL_DATA_DIR=/tmp/proxpanel-ota-smoke/data node /tmp/proxpanel-ota-smoke/server.js >/tmp/proxpanel-ota-smoke/server.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 20); do
+            if wget -qO- http://127.0.0.1:18080/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat /tmp/proxpanel-ota-smoke/server.log
+          exit 1
+
       - name: Validate release metadata
         run: |
           node -e "const fs=require('fs'); const r=JSON.parse(fs.readFileSync('release.json')); const p=JSON.parse(fs.readFileSync('app/package.json')); if(r.product!=='ProxPanel') throw new Error('Invalid product'); if(r.version!==p.version) throw new Error('release.json and package.json versions differ'); console.log('Version:', r.version);"
