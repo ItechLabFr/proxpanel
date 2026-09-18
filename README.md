@@ -30,7 +30,7 @@ Development is **AI-assisted** for parts of design, code generation, refactoring
 
 - Responsive dashboard for Proxmox VE nodes, VMs and LXCs
 - Customizable Dashboard Studio
-- TV mode with Classic, Charts and Custom layouts
+- TV mode with Summary, Analytics and Studio layouts
 - CPU, RAM, storage, network and historical metrics
 - QEMU Guest Agent storage visibility for Windows/Linux VMs
 - Multi-node infrastructure views and expanded monitoring
@@ -64,7 +64,7 @@ docker run -d \
   -p 8080:8080 \
   -v proxpanel_data:/app/data \
   -v proxpanel_runtime:/opt/proxpanel-runtime \
-  itechlab/proxpanel:1.7.0-beta.14
+  itechlab/proxpanel:beta
 ```
 
 Open:
@@ -128,7 +128,7 @@ The OTA service receives only:
 ```json
 {
   "installation_id": "persistent-local-uuid",
-  "version": "1.7.0-beta.15",
+  "version": "1.7.1-beta.10",
   "update_channel": "beta"
 }
 ```
@@ -198,17 +198,33 @@ Bug reports, focused feature requests and reviewed pull requests are welcome. Se
 
 The public history of the 1.7 branch is available in [`HISTORY.md`](HISTORY.md).
 
-Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.1-beta.2**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
+Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.1-beta.10**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
 
 Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), while `updates.proxpanel.fr` remains responsible for OTA channels, rollout and revocation.
 
+## 1.7.2 roadmap
+
+The next **1.7.2-beta.x** series focuses on multi-platform HomeLab operations:
+
+- **Portainer / Docker** as the first officially supported external integration;
+- Docker environments, containers and stacks;
+- Docker monitoring and alerts;
+- Proxmox ↔ Docker topology;
+- guided image/update management;
+- **optional PBS**, only visible when configured;
+- Automations 2.0;
+- RBAC and Audit 2.0;
+- Health Center 2.0.
+
+See [`ROADMAP.md`](ROADMAP.md) for the beta.1 → beta.10 plan.
+
 ## Project status
 
-Current development version: **1.7.1-beta.2**
+Latest published development release: **1.7.1-beta.10**
 
-Latest published GitHub Release: **1.7.1-beta.2**
+Latest published GitHub Release: **1.7.1-beta.10**
 
-Current series: **1.7.1-beta.x** — maximum 10 betas per version series.
+Next development series: **1.7.2-beta.x** — Portainer/Docker, optional PBS, Automations, RBAC/Audit and Health Center. Maximum 10 betas per version series.
 
 Docker Hub remains the container distribution channel; versioned images should use the same ProxPanel release number as the GitHub/OTA release.
 

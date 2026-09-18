@@ -1,96 +1,311 @@
 # ProxPanel Roadmap
 
-This roadmap is indicative and can change as the project evolves.
+This roadmap is indicative and can evolve with testing feedback and Proxmox/Portainer API changes.
 
-## Current development series — 1.7.1
+## Current status
 
-### 1.7.1-beta.1 — Console Reliability & Fast Mobile PWA Startup
+- Latest published development release: **1.7.1-beta.10**
+- The **1.7.1** series reached its planned maximum of 10 betas.
+- Next development series: **1.7.2-beta.x**
+- A single X.Y.Z series remains limited to **beta.1 → beta.10**.
 
-Published.
+The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more complete **HomeLab operations console**, while keeping the application lightweight and avoiding duplication of every native Proxmox feature.
 
-- Remote-console diagnostics.
-- noVNC reconnect handling.
-- Mobile/tablet console improvements.
-- Faster PWA startup on iPhone and tablets.
+## 1.7.2 design principles
 
-### 1.7.1-beta.2 — Infrastructure UX & Monitoring
+- **Docker first through Portainer.** ProxPanel must not require direct Docker socket access on each host.
+- **Portainer is the first officially supported external integration** for 1.7.2.
+- **PBS remains optional.** PBS-specific navigation should only appear when at least one PBS server is configured.
+- Integrations must use explicit credentials/tokens, clear health states and safe failure handling.
+- A temporary integration failure must never be interpreted as destructive or definitive infrastructure state.
+- Prefer observability, guided operations and topology over recreating every Proxmox configuration screen.
+- New user-facing functionality must remain responsive and available in **French and English**.
+- Sensitive actions must require confirmation and generate an audit entry.
 
-The following work is intentionally grouped into a single beta.2 release.
+---
 
-#### VM storage visibility
+## 1.7.2-beta.1 — Repository Foundation & Portainer Core
 
-- Show virtual disks attached to Windows and Linux QEMU VMs.
-- Show filesystem/volume size, used space and free space when the guest can report it.
-- Use the QEMU Guest Agent when available.
-- Clearly distinguish Proxmox virtual disk capacity from guest filesystem usage.
-- Support multiple disks, partitions and mount points.
-- Clearly report Guest Agent unavailable, not running, timeout, unsupported response, insufficient permissions or unavailable filesystem information.
-- Never display guessed filesystem usage as real guest data.
+### Repository foundation
 
-#### Multi-node interface redesign
+- Bring README, HISTORY, ROADMAP and release documentation in sync with the actual published version.
+- Remove/deprecate obsolete OTA metadata files in favor of the root `release.json`.
+- Align documented GitHub revocation policy with the automated release workflow.
+- Add the first functional test coverage for high-risk logic such as backup alerting.
+- Prepare the integration architecture for multiple external services without exposing unused modules.
 
-- Remove duplicated resource/progress bars.
-- Stop squeezing node information into narrow cards.
-- Improve hierarchy: cluster/group → node → resources → machines/storage.
-- Make node name, server/cluster source and health state immediately identifiable.
-- Rework node cards for two or more nodes.
-- Keep temperature, CPU, RAM, storage and connectivity readable for every node.
-- Prefer horizontal scrolling or stacked layouts over unreadable compressed cards.
+### Portainer Core
 
-#### Global responsive audit
+- Re-enable the Integrations area with a focused Portainer workflow.
+- Add Portainer using:
+  - URL;
+  - API key / access token;
+  - TLS validation;
+  - optional self-signed certificate support.
+- Test connection and display an explicit diagnostic.
+- Discover Portainer environments/endpoints.
+- Support **Docker Standalone first**.
+- Introduce a first-class **Docker** navigation entry only when Portainer is configured.
+- Docker overview:
+  - environment name;
+  - online/offline state;
+  - Docker version when available;
+  - container totals;
+  - running/stopped/unhealthy counts;
+  - basic host metadata.
 
-Audit the entire application, not only login/MFA:
+### Acceptance criteria
 
-- Dashboard, Machines, Nodes, Monitoring, Storage, Backups and Tasks.
-- Dependencies, Changes, Maintenance, PVE updates and Automations.
-- Notifications, Users, Administration and console dialogs.
-- Generic modals, confirmation dialogs, tables, cards, filters and action buttons.
+- No Docker socket needs to be mounted in ProxPanel.
+- One Portainer instance can expose multiple Docker environments.
+- Portainer failure does not break the Proxmox dashboard.
+- An unconfigured installation has no useless Docker/PBS navigation.
 
-Mobile/tablet requirements:
+---
 
-- iPhone PWA safe areas.
-- Android and iPad/tablet layouts.
-- Virtual keyboard handling.
-- Touch targets of at least ~44 px where practical.
-- No hidden navigation actions.
-- No important content outside the viewport.
-- Responsive cards or controlled horizontal scrolling for tables.
-- Small-screen modals must remain usable and scrollable.
+## 1.7.2-beta.2 — Docker Containers & Stacks
 
-#### Monitoring redesign
+- Container inventory by Portainer environment.
+- Name, image, state, health, uptime, ports, networks and stack.
+- CPU/RAM metrics when available through the Portainer/Docker API.
+- Container actions:
+  - start;
+  - stop;
+  - restart;
+  - pause/resume where supported.
+- Logs viewer.
+- Inspect view with secrets redacted where appropriate.
+- Container console/exec where supported.
+- Stack inventory.
+- Stack → containers relationship.
+- Stack start/stop/redeploy operations with confirmation.
+- Compose/source metadata displayed read-only first; do not expose secrets.
 
-- Clear cluster/server/node health summary.
-- Proxmox API reachability and latency.
-- Node connectivity state.
-- CPU usage and load.
-- RAM usage.
-- Storage capacity and usage.
-- Network activity.
-- Node temperatures and lm-sensors diagnostics.
-- Guest Agent/storage-data availability where relevant.
-- Last successful refresh and stale-data indication.
-- Human-readable warning, critical, unavailable and stale states.
-- Same monitoring data model in grouped and individual node views.
+### Acceptance criteria
 
-### beta.2 acceptance criteria
+- Actions are scoped to the correct Portainer environment.
+- All destructive or disruptive operations are audited.
+- Mobile container/stack views remain usable.
 
-- Windows and Linux QEMU VM storage has a useful explicit state even when Guest Agent data is unavailable.
-- Multi-node layouts remain readable with at least two nodes.
-- Main pages are usable on iPhone portrait, tablet portrait and desktop.
-- Monitoring clearly separates healthy, warning, critical, unavailable and stale states.
-- No regression in LXC storage, temperature collection, login/MFA, console or PWA startup.
-- New user-facing text is available in French and English.
+---
 
-## After beta.2
+## 1.7.2-beta.3 — Docker Monitoring & Alerts
 
-The remaining 1.7.1 betas are reserved for testing feedback, fixes, stabilization and smaller improvements discovered during beta.2 validation.
+- Portainer environment unreachable.
+- Docker Engine unreachable.
+- Container stopped unexpectedly.
+- Container health = unhealthy.
+- Repeated container restarts.
+- CPU/RAM threshold warnings where metrics are available.
+- Docker disk/image pressure indicators when reliable data is available.
+- Stack partially degraded.
+- Recovery notifications when a Docker incident clears.
+- Panel / Discord / e-mail event types for Docker.
+- Alert cooldown and duplicate suppression.
 
-The 1.7.1 series remains limited to a maximum of 10 beta releases.
+### Acceptance criteria
 
-## Later
+- Temporary Portainer API errors never become false “container stopped” incidents.
+- Incident/recovery state remains stable across refreshes.
 
-- Additional integrations where they provide clear operational value.
-- More advanced capacity and historical analytics.
-- More granular user permissions and audit workflows.
+---
 
-Feature requests are welcome through GitHub Issues.
+## 1.7.2-beta.4 — Proxmox ↔ Docker Topology
+
+Create a topology model linking infrastructure layers.
+
+Examples:
+
+```text
+Domain
+  → Nginx Proxy Manager
+  → Container
+  → Stack
+  → Docker environment
+  → VM/LXC
+  → Proxmox node
+  → Storage
+```
+
+- Manual mapping between a Portainer environment and a Proxmox VM/LXC.
+- Assisted matching using hostname/IP when confidence is high.
+- Never auto-link ambiguous resources without confirmation.
+- Display Docker state inside VM/LXC details.
+- Display the Proxmox host path inside Docker views.
+- Extend dependency map with Docker and stack entities.
+- Optional NPM-aware relationships when NPM integration is configured later.
+
+### Acceptance criteria
+
+- A Docker environment can always be manually corrected/reassigned.
+- Topology remains useful with several PVE servers and several Docker hosts.
+
+---
+
+## 1.7.2-beta.5 — Docker Image & Update Management
+
+- Detect currently used image/tag/digest.
+- Surface image update availability when it can be determined reliably.
+- Separate:
+  - update detected;
+  - pull available;
+  - redeploy required.
+- Pull image manually.
+- Redeploy a container/stack with explicit confirmation.
+- Pre-update summary.
+- Post-redeploy health verification.
+- Update history / audit.
+- Optional scheduled Docker update windows.
+- **No uncontrolled automatic update by default.**
+
+### Acceptance criteria
+
+- ProxPanel never silently redeploys production containers with the default settings.
+- Failed redeploys remain visible and actionable.
+
+---
+
+## 1.7.2-beta.6 — Proxmox Backup Server Integration
+
+PBS remains optional and hidden until configured.
+
+### Connection
+
+- PBS URL.
+- User/API token authentication where supported by the implementation.
+- TLS validation / self-signed handling.
+- Connection diagnostic.
+
+### Read-only first
+
+- PBS version/health.
+- Datastores.
+- Capacity / used / free.
+- Backup groups and snapshots.
+- VM/LXC restore points.
+- Last backup by guest.
+- Verify jobs/status.
+- Prune jobs/status.
+- Garbage Collection status.
+- Sync jobs/status.
+- Recent tasks/errors.
+
+### Later in the beta if validation is good
+
+- Trigger safe operational jobs such as Verify/Prune/GC only with explicit confirmation and permission checks.
+
+Full restore orchestration is **not required** for beta.6.
+
+---
+
+## 1.7.2-beta.7 — Automations 2.0
+
+Expand the current automation engine beyond simple waits and machine actions.
+
+- Conditions.
+- Retry policies.
+- Timeouts.
+- Wait-until state.
+- Actions by tag/group.
+- Docker actions.
+- Backup steps.
+- Dependencies between steps.
+- Conditional branches.
+- Dry-run / execution preview.
+- Reusable templates.
+- Full execution history with per-step result.
+
+Example:
+
+```text
+23:00
+→ stop machines tagged test
+→ wait until stopped
+→ run backup
+→ wait for successful completion
+→ stop secondary Docker stack
+→ optionally shut down secondary node
+```
+
+---
+
+## 1.7.2-beta.8 — RBAC & Audit 2.0
+
+### RBAC
+
+Current roles/permissions become scope-aware.
+
+- Permission by Proxmox server.
+- Permission by node.
+- Permission by VM/LXC tag/group.
+- Docker environment scope.
+- Read vs control vs console separation.
+- Custom roles.
+- Session list.
+- Revoke active sessions.
+
+### Audit
+
+- Searchable audit timeline.
+- Filters by user, action, server, VMID/container and result.
+- Before/after change diff where available.
+- Link an audit event to its Proxmox/Docker task.
+- Export JSON/CSV where appropriate.
+- Clear actor, target, time and result.
+
+---
+
+## 1.7.2-beta.9 — Health Center 2.0 & Polish
+
+Replace the simple problem list with a real incident workflow.
+
+- Incident start time.
+- Last check.
+- Detection source/evidence.
+- Current state.
+- Acknowledge.
+- Snooze for a defined period.
+- Maintenance suppression.
+- Cooldown.
+- Recovery state and recovery notification.
+- Incident history.
+- Correlate related Proxmox, backup and Docker events.
+- Improve cluster health explanations.
+- Final responsive and Light/Dark pass for 1.7.2 features.
+
+---
+
+## 1.7.2-beta.10 — Stabilization
+
+- Functional regression tests.
+- Backup alert regression tests.
+- Portainer mock/API tests.
+- Permission tests.
+- OTA upgrade test from latest 1.7.1.
+- PWA/mobile/tablet regression pass.
+- Accessibility pass.
+- French/English audit.
+- Performance profiling.
+- Workflow/release cleanup.
+- Documentation finalization.
+- Prepare RC/stable decision.
+
+---
+
+## Deferred / not a 1.7.2 priority
+
+These features may return later but are deliberately not core objectives for 1.7.2:
+
+- Full VM/LXC creation wizard.
+- Full Proxmox firewall replacement.
+- Full SDN management.
+- Energy/cost estimation when reliable source data is unavailable.
+- Full inter-cluster migration orchestration.
+- Full PBS restore orchestration.
+- Kubernetes management through Portainer.
+
+The native Proxmox/Portainer interfaces remain the source for advanced configuration workflows that ProxPanel does not yet expose.
+
+## Feature requests
+
+Focused feature requests are welcome through GitHub Issues. New ideas should be evaluated against the main goal of ProxPanel: **a clear, safe and efficient HomeLab operations interface across Proxmox and Docker**.

@@ -51,7 +51,7 @@ La série historique `1.7.0-beta.x` se termine exceptionnellement à `1.7.0-beta
 
 À partir de la prochaine série :
 
-- la prochaine version de développement est `1.7.1-beta.1` ;
+- après `1.7.1-beta.10`, la prochaine version de développement est `1.7.2-beta.1` ;
 - une même version `X.Y.Z` peut contenir au maximum **10 betas** ;
 - les suffixes autorisés sont donc `beta.1` à `beta.10` ;
 - si des modifications supplémentaires sont nécessaires après `beta.10`, incrémenter le numéro de version avant de repartir à `beta.1`.
@@ -67,20 +67,20 @@ Exemple :
 
 Le workflow de publication applique automatiquement cette limite. `1.7.0-beta.16` est conservée comme exception historique.
 
-## Révoquer une version
+## Révocation automatique des anciennes versions
 
-GitHub ne possède pas de statut natif « revoked ». Une version ProxPanel révoquée suit donc cette convention :
+GitHub ne possède pas de statut natif « revoked ». ProxPanel applique donc automatiquement cette politique à chaque nouvelle publication :
 
-1. **Ne pas supprimer le tag Git.** Il représente l'état historique exact du code.
-2. Renommer la GitHub Release en `⚠️ REVOKED — ProxPanel <version>`.
-3. Ajouter en tête des notes un avertissement en français et en anglais avec la raison et, si disponible, la version de remplacement.
-4. Supprimer les deux ZIP installables de la Release :
-   - `proxpanel-v<version>.zip`
-   - `proxpanel-update-v<version>.zip`
-5. Conserver `release.json` et `SHA256SUMS.txt` pour la traçabilité historique.
-6. Révoquer aussi la version dans `updates.proxpanel.fr`.
-7. Si l'image Docker a été publiée, ne plus faire pointer `:beta` ou `:latest` vers cette version. Selon la gravité, le tag Docker versionné peut également être retiré.
+1. **Le tag Git historique est conservé.**
+2. La Release plus ancienne est renommée `<version> — REVOKED`.
+3. L'avertissement suivant est ajouté en tête de la description :
+   `⚠️ Cette version a été révoquée. Ne pas installer. Utilisez la version suivante.`
+4. **Tous les assets téléchargeables de l'ancienne Release sont supprimés**, y compris les ZIP, `release.json` et `SHA256SUMS.txt`.
+5. La Release et le tag restent visibles pour conserver l'historique.
+6. La nouvelle Release reste la seule Release active avec ses assets.
+7. La révocation OTA doit également être appliquée côté `updates.proxpanel.fr`.
+8. Si une image Docker a été publiée, les tags de canal `:beta` / `:latest` doivent pointer vers la version active appropriée.
 
-Le workflow **Revoke ProxPanel Release** automatise les étapes GitHub. Il demande une confirmation explicite `REVOKE`, les raisons FR/EN et une éventuelle version de remplacement.
+Le workflow de publication vérifie et applique cette politique. Le workflow **Revoke old ProxPanel releases** reste un filet de sécurité pour remettre les anciennes Releases en conformité.
 
-> Si les Immutable Releases sont activées dans GitHub, le titre et les notes restent modifiables mais GitHub bloque l'ajout, le remplacement ou la suppression des assets. Dans ce cas, la Release doit être marquée révoquée visuellement et la distribution doit être bloquée côté OTA/Docker.
+Le workflow manuel **Revoke ProxPanel Release** peut toujours être utilisé pour révoquer explicitement une version en dehors d'une nouvelle publication.
