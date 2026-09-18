@@ -1,33 +1,43 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.0-beta.15",
-  "title": "ProxPanel 1.7.0-beta.15 — Authentication & Mobile UX",
-  "summary": "Refonte du parcours de connexion et de double authentification, avec une expérience dédiée aux téléphones et tablettes.",
+  "version": "1.7.0-beta.16",
+  "title": "ProxPanel 1.7.0-beta.16 — Individual Node Temperature Fix",
+  "title_en": "ProxPanel 1.7.0-beta.16 — Individual Node Temperature Fix",
+  "summary": "Corrige l’absence de température CPU dans les vues individuelles des nœuds alors qu’elle était disponible dans la vue regroupée.",
+  "summary_en": "Fixes missing CPU temperature data in individual node views while the same temperatures were already available in grouped views.",
   "improvements": [
-    "Nouvel écran de connexion responsive avec comportement dédié desktop, tablette et téléphone.",
-    "Parcours de connexion en deux étapes visuelles : identifiants puis vérification 2FA.",
-    "Nouvel écran Authenticator avec champ OTP optimisé pour iOS et Android et validation automatique à 6 chiffres.",
-    "Méthodes de secours 2FA présentées sous forme de grandes actions tactiles : code de récupération et code par e-mail.",
-    "Secours e-mail avec adresse masquée, expiration visible et temporisation avant renvoi.",
-    "Ajout d’un bouton afficher/masquer le mot de passe et d’un avertissement Verr. Maj.",
-    "Première installation améliorée avec confirmation du mot de passe et indicateur de robustesse.",
-    "Messages d’erreur d’authentification intégrés au formulaire au lieu de dépendre uniquement des toasts.",
-    "Prise en charge de 100dvh, des safe areas iPhone, du clavier virtuel et des petits écrans.",
-    "Zones tactiles agrandies, meilleure accessibilité clavier et respect de prefers-reduced-motion."
+    "Aligne la collecte de température des vues individuelles sur celle utilisée par les vues regroupées.",
+    "La route live d’un serveur individuel enrichit maintenant les nœuds avec les données lm-sensors.",
+    "La route dashboard d’un serveur individuel expose maintenant les mêmes champs de température et de diagnostic que la vue regroupée."
+  ],
+  "improvements_en": [
+    "Aligns temperature collection in individual views with the implementation already used by grouped views.",
+    "The individual server live route now enriches nodes with lm-sensors temperature data.",
+    "The individual server dashboard route now exposes the same temperature and diagnostic fields as the grouped view."
   ],
   "fixes": [
-    "Corrige l’affichage trop compact du login sur téléphone et tablette.",
-    "Corrige les boutons MFA trop petits ou mal répartis sur les écrans étroits.",
-    "Corrige le débordement potentiel du formulaire lorsque le clavier mobile est affiché.",
-    "Corrige les changements de hauteur et de lisibilité pendant le passage Login vers MFA.",
-    "Corrige la perte de contexte visuel lors d’un échec de code Authenticator, e-mail ou récupération."
+    "Corrige la température absente dans la vue individuelle d’un nœud.",
+    "Corrige la disparition de la température pendant le rafraîchissement live d’une vue individuelle.",
+    "Corrige l’incohérence entre les vues regroupées et individuelles concernant temperatureC, le statut de lecture et les diagnostics lm-sensors."
+  ],
+  "fixes_en": [
+    "Fixes missing temperature values in individual node views.",
+    "Fixes temperature values disappearing during live refresh in individual views.",
+    "Fixes the inconsistency between grouped and individual views for temperatureC, collection status and lm-sensors diagnostics."
   ],
   "notes": [
-    "Le backend d’authentification existant reste utilisé : TOTP, codes de récupération et secours e-mail.",
-    "La version reste en canal Beta afin de valider le nouveau parcours sur iPhone, Android et tablette."
+    "Cette release clôt exceptionnellement la série 1.7.0-beta.x.",
+    "Les prochaines modifications commenceront en 1.7.1-beta.1.",
+    "À partir de 1.7.1, chaque version est limitée à 10 betas maximum."
+  ],
+  "notes_en": [
+    "This release exceptionally closes the 1.7.0-beta.x series.",
+    "The next changes will start with 1.7.1-beta.1.",
+    "Starting with 1.7.1, each version series is limited to a maximum of 10 beta releases."
   ],
   "breaking_changes": [],
-  "min_supported_version": "1.7.0-beta.14",
+  "breaking_changes_en": [],
+  "min_supported_version": "1.7.0-beta.15",
   "mandatory": false,
   "restart_required": true,
   "rollout": 100
