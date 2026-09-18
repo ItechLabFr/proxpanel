@@ -86,6 +86,16 @@ jobs:
           tag="v$VERSION"
           target_sha="$(git rev-parse HEAD)"
 
+          # A deploy branch may be pushed a few seconds before its feature PR
+          # reaches main. Never keep a release/tag pointing at stale source.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            remote_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha' 2>/dev/null || true)"
+            if [[ -n "$remote_tag_sha" && "$remote_tag_sha" != "$target_sha" ]]; then
+              echo "Release tag points to $remote_tag_sha but main release source is $target_sha. Recreating release."
+              gh release delete "$tag" --cleanup-tag -y
+            fi
+          fi
+
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release edit "$tag"               --title "ProxPanel $VERSION"               --notes-file dist/RELEASE_NOTES.md               --prerelease
             gh release upload "$tag"               "dist/proxpanel-v$VERSION.zip"               "dist/proxpanel-update-v$VERSION.zip"               dist/release.json               dist/SHA256SUMS.txt               --clobber
