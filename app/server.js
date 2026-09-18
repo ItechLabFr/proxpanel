@@ -2125,6 +2125,260 @@ async function dockerContainerStats(item,endpointId,containerId) {
     return {cpuPct:Number(cpuPct.toFixed(2)),memoryUsed:used,memoryLimit:limit,memoryPct:limit?Number((used/limit*100).toFixed(2)):0};
   }catch{return null}
 }
+
+function dockerMonitorState() {
+  const state=jsonRead(DOCKER_MONITOR_STATE_FILE,{});
+  return {
+    lastPollAt:Number(state?.lastPollAt||0),
+    checkedAt:String(state?.checkedAt||''),
+    incidents:state?.incidents&&typeof state.incidents==='object'?state.incidents:{},
+    snapshots:state?.snapshots&&typeof state.snapshots==='object'?state.snapshots:{},
+    manualIntents:state?.manualIntents&&typeof state.manualIntents==='object'?state.manualIntents:{}
+  };
+}
+function saveDockerMonitorState(state){jsonWrite(DOCKER_MONITOR_STATE_FILE,state);}
+function dockerMonitorConfig(settings={}) {
+  const cfg=settings?.alerts?.docker||{};
+  return {
+    enabled:cfg.enabled!==false,
+    confirmations:Math.max(1,Math.min(5,Number(cfg.confirmations||2))),
+    cooldownMinutes:Math.max(5,Math.min(1440,Number(cfg.cooldownMinutes||30))),
+    restartDeltaWarning:Math.max(1,Math.min(50,Number(cfg.restartDeltaWarning||3))),
+    maxMetricContainers:Math.max(0,Math.min(100,Number(cfg.maxMetricContainers??50))),
+    cpuWarning:Math.max(1,Math.min(100,Number(settings?.thresholds?.cpuWarning||85))),
+    memoryWarning:Math.max(1,Math.min(100,Number(settings?.thresholds?.memoryWarning||85))),
+    storageWarning:Math.max(1,Math.min(100,Number(settings?.thresholds?.storageWarning||85))),
+    storageCritical:Math.max(1,Math.min(100,Number(settings?.thresholds?.storageCritical||95)))
+  };
+}
+function dockerMonitorKey(...parts){return parts.map(x=>String(x??'').replace(/[^A-Za-z0-9_.:-]/g,'_')).join(':');}
+function dockerManualIntentKey(portainerId,endpointId,containerId){return dockerMonitorKey('container',portainerId,endpointId,containerId);}
+function recordDockerManualIntent(portainerId,endpointId,containerId,action) {
+  const state=dockerMonitorState(),now=Date.now(),key=dockerManualIntentKey(portainerId,endpointId,containerId);
+  state.manualIntents[key]={action:String(action||''),at:now,expiresAt:now+15*60*1000};
+  saveDockerMonitorState(state);
+}
+function dockerManualStopIsExpected(state,portainerId,endpointId,containerId,now=Date.now()) {
+  const key=dockerManualIntentKey(portainerId,endpointId,containerId),row=state.manualIntents?.[key];
+  return !!(row&&Number(row.expiresAt||0)>now&&['stop','pause'].includes(String(row.action||'')));
+}
+function dockerIncidentPublic(row={}) {
+  return {
+    id:String(row.id||''),code:String(row.type||'docker.unknown'),title:String(row.title||'Incident Docker'),
+    detail:String(row.detail||''),target:String(row.target||''),severity:String(row.severity||'warning'),
+    route:'docker',facts:Array.isArray(row.facts)?row.facts:[],firstSeen:row.firstSeen||'',lastSeen:row.lastSeen||'',
+    portainerId:row.portainerId||'',endpointId:row.endpointId||null,containerId:row.containerId||'',stackName:row.stackName||''
+  };
+}
+function activeDockerAlerts() {
+  const state=dockerMonitorState();
+  return Object.values(state.incidents||{}).filter(x=>x?.active===true).map(dockerIncidentPublic).sort((a,b)=>String(b.lastSeen||'').localeCompare(String(a.lastSeen||'')));
+}
+async function dockerMonitorObserve(state,observed,observation,settings,now) {
+  const cfg=dockerMonitorConfig(settings),id=String(observation.id),previous=state.incidents[id]||{};
+  const transition=dockerIncidentTransition(previous,true,now,{confirmations:cfg.confirmations,cooldownMinutes:cfg.cooldownMinutes});
+  const row={...previous,...observation,...transition,id};
+  if(transition.shouldNotify){
+    await sendAlertChannels(settings,`ProxPanel · ${row.title}`,row.detail,{
+      type:row.type,severity:row.severity,serverName:row.portainerName||'Docker',target:row.target||'',
+      recommendation:row.recommendation||'',details:(row.facts||[]).map(f=>typeof f==='string'?f:`${f.label}: ${f.value}`)
+    });
+    row.lastNotifiedAt=now;
+    addAuditSystem('alerts.docker.sent',row.target||row.portainerName||'Docker',{type:row.type,id:row.id});
+  }
+  state.incidents[id]=row;observed.add(id);
+}
+async function dockerMonitorResolveScopes(state,observed,checkedScopes,settings,now) {
+  for(const [id,previous] of Object.entries(state.incidents||{})){
+    if(observed.has(id)||!checkedScopes.has(String(previous.scope||'')))continue;
+    const transition=dockerIncidentTransition(previous,false,now,{confirmations:dockerMonitorConfig(settings).confirmations,cooldownMinutes:dockerMonitorConfig(settings).cooldownMinutes});
+    const row={...previous,...transition};
+    if(transition.shouldRecover&&Number(previous.lastNotifiedAt||0)>0){
+      await sendAlertChannels(settings,'Docker rétabli',`${previous.target||previous.title||'La ressource Docker'} est de nouveau dans un état normal.`,{
+        type:'docker.recovered',severity:'info',serverName:previous.portainerName||'Docker',target:previous.target||'',
+        details:[`Incident résolu : ${previous.title||previous.type}`]
+      });
+      addAuditSystem('alerts.docker.recovery',previous.target||'Docker',{type:previous.type,id});
+    }
+    state.incidents[id]=row;
+  }
+}
+async function dockerContainerMonitorDetails(item,endpointId,container,wantStats=true) {
+  let inspect=null,stats=null;
+  try{inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(container.id)}/json`);}catch{}
+  if(wantStats&&container.state==='running')stats=await dockerContainerStats(item,endpointId,container.id);
+  return {
+    restartCount:Number(inspect?.RestartCount||0),
+    state:String(inspect?.State?.Status||container.state||'unknown').toLowerCase(),
+    health:String(inspect?.State?.Health?.Status||container.health||'').toLowerCase(),
+    restartPolicy:String(inspect?.HostConfig?.RestartPolicy?.Name||''),
+    stats
+  };
+}
+async function monitorDockerEnvironment(item,env,previousSnapshot,state,settings,now,observed,checkedScopes) {
+  const cfg=dockerMonitorConfig(settings),pid=item.id,eid=Number(env.id),containerScope=`containers:${pid}:${eid}`;
+  let containers,stacks,info;
+  try{
+    [containers,stacks,info]=await Promise.all([
+      portainerContainerList(item,eid),
+      portainerStackList(item,eid).catch(()=>[]),
+      portainerDockerJson(item,eid,'/info').catch(()=>null)
+    ]);
+  }catch{return null}
+  checkedScopes.add(containerScope);
+  const activeStacks=new Map(stacks.map(s=>[s.name,s]));
+  const detailRows=[];
+  for(let i=0;i<containers.length;i+=5){
+    const batch=containers.slice(i,i+5);
+    detailRows.push(...await Promise.all(batch.map((ct,index)=>dockerContainerMonitorDetails(item,eid,ct,(i+index)<cfg.maxMetricContainers))));
+  }
+  const snapshot={checkedAt:new Date(now).toISOString(),containers:{}};
+  for(let i=0;i<containers.length;i++){
+    const ct=containers[i],detail=detailRows[i]||{},previous=previousSnapshot?.containers?.[ct.id]||null;
+    const stateNow=detail.state||ct.state||'unknown',health=detail.health||ct.health||'',target=`${ct.name||ct.id.slice(0,12)} · ${env.name}`;
+    snapshot.containers[ct.id]={name:ct.name,state:stateNow,health,restartCount:Number(detail.restartCount||0),stack:ct.stack||'',checkedAt:now};
+
+    if(health==='unhealthy'){
+      await dockerMonitorObserve(state,observed,{
+        id:dockerMonitorKey('docker.container.unhealthy',pid,eid,ct.id),type:'docker.container.unhealthy',scope:containerScope,severity:'critical',
+        title:'Conteneur Docker unhealthy',detail:`${ct.name||ct.id.slice(0,12)} est déclaré unhealthy par Docker.`,target,
+        portainerId:pid,portainerName:item.name,endpointId:eid,containerId:ct.id,
+        recommendation:'Ouvre les logs et le détail du conteneur, puis vérifie son healthcheck avant un redémarrage.',
+        facts:[{label:'Environnement',value:env.name},{label:'État',value:stateNow},{label:'Health',value:health},{label:'Image',value:ct.image||'—'}]
+      },settings,now);
+    }
+
+    const stack=ct.stack?activeStacks.get(ct.stack):null;
+    const stackIntentionallyInactive=stack&&stack.active===false;
+    const transitionedToStopped=previous&&['running','restarting'].includes(String(previous.state||''))&&!['running','restarting','paused'].includes(stateNow);
+    if(transitionedToStopped&&!stackIntentionallyInactive&&!dockerManualStopIsExpected(state,pid,eid,ct.id,now)){
+      await dockerMonitorObserve(state,observed,{
+        id:dockerMonitorKey('docker.container.stopped',pid,eid,ct.id),type:'docker.container.stopped',scope:containerScope,severity:'critical',
+        title:'Conteneur Docker arrêté',detail:`${ct.name||ct.id.slice(0,12)} était actif et est maintenant ${stateNow}.`,target,
+        portainerId:pid,portainerName:item.name,endpointId:eid,containerId:ct.id,
+        recommendation:'Vérifie les logs du conteneur et la cause de son arrêt avant de le redémarrer.',
+        facts:[{label:'Environnement',value:env.name},{label:'État précédent',value:previous.state},{label:'État actuel',value:stateNow},{label:'Stack',value:ct.stack||'—'}]
+      },settings,now);
+    }
+
+    const restartDelta=previous?Math.max(0,Number(detail.restartCount||0)-Number(previous.restartCount||0)):0;
+    if((stateNow==='restarting'&&previous?.state==='restarting')||restartDelta>=cfg.restartDeltaWarning){
+      const inspectScope=`inspect:${pid}:${eid}:${ct.id}`;checkedScopes.add(inspectScope);
+      await dockerMonitorObserve(state,observed,{
+        id:dockerMonitorKey('docker.container.restarts',pid,eid,ct.id),type:'docker.container.restarts',scope:inspectScope,severity:'warning',
+        title:'Redémarrages Docker répétés',detail:`${ct.name||ct.id.slice(0,12)} redémarre de façon répétée.`,target,
+        portainerId:pid,portainerName:item.name,endpointId:eid,containerId:ct.id,
+        recommendation:'Vérifie les logs, le healthcheck et la restart policy du conteneur.',
+        facts:[{label:'Restart count',value:String(detail.restartCount||0)},{label:'Nouveaux redémarrages',value:String(restartDelta)},{label:'Restart policy',value:detail.restartPolicy||'—'}]
+      },settings,now);
+    } else if(previous){
+      checkedScopes.add(`inspect:${pid}:${eid}:${ct.id}`);
+    }
+
+    if(detail.stats){
+      const metricScope=`metrics:${pid}:${eid}:${ct.id}`;checkedScopes.add(metricScope);
+      if(Number(detail.stats.cpuPct||0)>=cfg.cpuWarning){
+        await dockerMonitorObserve(state,observed,{
+          id:dockerMonitorKey('docker.resources.cpu',pid,eid,ct.id),type:'docker.resources.cpu',scope:metricScope,severity:'warning',
+          title:'CPU Docker élevée',detail:`${ct.name||ct.id.slice(0,12)} utilise ${Number(detail.stats.cpuPct||0).toFixed(1)} % CPU.`,target,
+          portainerId:pid,portainerName:item.name,endpointId:eid,containerId:ct.id,
+          recommendation:'Contrôle la charge du conteneur et son activité avant d’ajuster ses limites.',
+          facts:[{label:'CPU',value:`${Number(detail.stats.cpuPct||0).toFixed(1)} %`},{label:'Seuil',value:`${cfg.cpuWarning} %`}]
+        },settings,now);
+      }
+      if(Number(detail.stats.memoryPct||0)>=cfg.memoryWarning){
+        await dockerMonitorObserve(state,observed,{
+          id:dockerMonitorKey('docker.resources.memory',pid,eid,ct.id),type:'docker.resources.memory',scope:metricScope,severity:'warning',
+          title:'RAM Docker élevée',detail:`${ct.name||ct.id.slice(0,12)} utilise ${Number(detail.stats.memoryPct||0).toFixed(1)} % de sa limite mémoire.`,target,
+          portainerId:pid,portainerName:item.name,endpointId:eid,containerId:ct.id,
+          recommendation:'Contrôle la consommation mémoire du conteneur et recherche une fuite ou une limite trop basse.',
+          facts:[{label:'RAM',value:`${Number(detail.stats.memoryPct||0).toFixed(1)} %`},{label:'Seuil',value:`${cfg.memoryWarning} %`}]
+        },settings,now);
+      }
+    }
+  }
+
+  for(const stack of stacks.filter(s=>s.active)){
+    const members=containers.filter(c=>c.stack===stack.name);
+    if(members.length<2)continue;
+    const bad=members.filter(c=>c.health==='unhealthy'||!['running','restarting','paused'].includes(String(c.state||'')));
+    if(bad.length>0&&bad.length<members.length){
+      await dockerMonitorObserve(state,observed,{
+        id:dockerMonitorKey('docker.stack.degraded',pid,eid,stack.id),type:'docker.stack.degraded',scope:containerScope,severity:'warning',
+        title:'Stack Docker partiellement dégradée',detail:`${stack.name} a ${bad.length}/${members.length} conteneur(s) en défaut.`,target:`${stack.name} · ${env.name}`,
+        portainerId:pid,portainerName:item.name,endpointId:eid,stackName:stack.name,
+        recommendation:'Ouvre la stack et vérifie les conteneurs en défaut avant tout redeploy.',
+        facts:[{label:'Conteneurs',value:String(members.length)},{label:'En défaut',value:bad.map(x=>x.name).join(', ')}]
+      },settings,now);
+    }
+  }
+
+  if(info){
+    const diskScope=`disk:${pid}:${eid}`;checkedScopes.add(diskScope);
+    const pressure=dockerDiskPressureFromInfo(info,cfg.storageWarning,cfg.storageCritical);
+    if(pressure&&pressure.severity!=='ok'){
+      await dockerMonitorObserve(state,observed,{
+        id:dockerMonitorKey('docker.storage.pressure',pid,eid),type:'docker.storage.pressure',scope:diskScope,severity:pressure.severity,
+        title:'Stockage Docker sous pression',detail:`${env.name} utilise ${pressure.pct.toFixed(1)} % de l’espace Docker mesurable.`,target:env.name,
+        portainerId:pid,portainerName:item.name,endpointId:eid,
+        recommendation:'Nettoie les images/volumes inutilisés ou augmente la capacité après vérification des données Docker.',
+        facts:[{label:'Utilisé',value:`${pressure.pct.toFixed(1)} %`},{label:'Source',value:pressure.source}]
+      },settings,now);
+    }
+  }
+  return snapshot;
+}
+async function runDockerBackgroundAlerts(settings,now=Date.now()) {
+  const cfg=dockerMonitorConfig(settings);if(!cfg.enabled||DEMO_MODE)return;
+  const state=dockerMonitorState(),interval=Math.max(1,Number(settings?.alerts?.pollMinutes||5))*60000;
+  if(now-Number(state.lastPollAt||0)<interval)return;
+  state.lastPollAt=now;
+  const observed=new Set(),checkedScopes=new Set();
+  for(const [key,intent] of Object.entries(state.manualIntents||{}))if(Number(intent?.expiresAt||0)<=now)delete state.manualIntents[key];
+
+  const portainers=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
+  for(const item of portainers){
+    const portainerScope=`portainer:${item.id}`;let overview;
+    try{
+      overview=await portainerOverview(item);checkedScopes.add(portainerScope);
+    }catch(error){
+      checkedScopes.add(portainerScope);
+      await dockerMonitorObserve(state,observed,{
+        id:dockerMonitorKey('docker.portainer.unreachable',item.id),type:'docker.portainer.unreachable',scope:portainerScope,severity:'critical',
+        title:'Portainer inaccessible',detail:`${item.name||'Portainer'} ne répond plus à ProxPanel.`,target:item.name||'Portainer',
+        portainerId:item.id,portainerName:item.name||'Portainer',
+        recommendation:'Vérifie le service Portainer, son URL, le certificat TLS et la connectivité depuis ProxPanel.',
+        facts:[{label:'URL',value:item.url},{label:'Erreur',value:String(error?.message||error)}]
+      },settings,now);
+      continue;
+    }
+
+    for(const env of overview.environments||[]){
+      const engineScope=`engine:${item.id}:${env.id}`;checkedScopes.add(engineScope);
+      if(!env.reachable){
+        await dockerMonitorObserve(state,observed,{
+          id:dockerMonitorKey('docker.engine.unreachable',item.id,env.id),type:'docker.engine.unreachable',scope:engineScope,severity:'critical',
+          title:'Docker Engine inaccessible',detail:`${env.name} est connu de Portainer mais son Docker Engine ne répond pas.`,target:env.name,
+          portainerId:item.id,portainerName:item.name||'Portainer',endpointId:Number(env.id),
+          recommendation:'Vérifie le Docker Engine, l’agent Portainer et la connectivité entre Portainer et cet environnement.',
+          facts:[{label:'Portainer',value:item.name||'Portainer'},{label:'Environnement',value:env.name},{label:'Erreur',value:env.error||'Connexion Docker impossible'}]
+        },settings,now);
+        continue;
+      }
+      if(!env.supported)continue;
+      const snapshotKey=`${item.id}:${env.id}`,previous=state.snapshots[snapshotKey]||null;
+      const snapshot=await monitorDockerEnvironment(item,env,previous,state,settings,now,observed,checkedScopes);
+      if(snapshot)state.snapshots[snapshotKey]=snapshot;
+    }
+  }
+  await dockerMonitorResolveScopes(state,observed,checkedScopes,settings,now);
+  const keepAfter=now-7*24*60*60*1000;
+  for(const [id,row] of Object.entries(state.incidents||{})){
+    if(row.active!==true&&Number(new Date(row.resolvedAt||row.lastSeen||0).getTime()||0)<keepAfter)delete state.incidents[id];
+  }
+  state.checkedAt=new Date(now).toISOString();saveDockerMonitorState(state);
+}
+
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
