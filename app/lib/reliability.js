@@ -65,16 +65,19 @@ function dockerIncidentTransition(previous={},observed=false,now=Date.now(),opti
   const prev=previous&&typeof previous==='object'?previous:{};
   if(observed){
     const confirmations=Math.min(100,Number(prev.confirmations||0)+1);
-    const wasActive=prev.active===true;
-    const active=wasActive||confirmations>=required;
+    const active=prev.active===true||confirmations>=required;
     const lastNotifiedAt=Number(prev.lastNotifiedAt||0);
-    const shouldNotify=!wasActive&&active&&(!lastNotifiedAt||now-lastNotifiedAt>=cooldownMs);
-    return {...prev,active,confirmations,firstSeen:prev.firstSeen||new Date(now).toISOString(),lastSeen:new Date(now).toISOString(),resolvedAt:'',shouldNotify};
+    const cooldownReady=!lastNotifiedAt||now-lastNotifiedAt>=cooldownMs;
+    const shouldNotify=active&&prev.occurrenceNotified!==true&&cooldownReady;
+    return {
+      ...prev,active,confirmations,occurrenceNotified:prev.occurrenceNotified===true||shouldNotify,
+      firstSeen:prev.firstSeen||new Date(now).toISOString(),lastSeen:new Date(now).toISOString(),resolvedAt:'',shouldNotify
+    };
   }
   if(prev.active===true){
-    return {...prev,active:false,confirmations:0,resolvedAt:new Date(now).toISOString(),shouldNotify:false,shouldRecover:true};
+    return {...prev,active:false,confirmations:0,occurrenceNotified:false,resolvedAt:new Date(now).toISOString(),shouldNotify:false,shouldRecover:true};
   }
-  return {...prev,active:false,confirmations:0,shouldNotify:false,shouldRecover:false};
+  return {...prev,active:false,confirmations:0,occurrenceNotified:false,shouldNotify:false,shouldRecover:false};
 }
 
 function firstContainerName(row={}) {
