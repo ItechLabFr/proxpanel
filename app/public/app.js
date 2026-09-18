@@ -232,9 +232,10 @@ async function api(url,opt={}){
 }
 function resolvedUiTheme(prefs={}){
   const ui={...(state.settings?.ui||{}),...prefs},choice=ui.theme||'default',mode=ui.colorMode||'dark';
+  if(choice==='light')return'light';
   if(mode==='light')return'light';
   if(mode==='auto'&&window.matchMedia?.('(prefers-color-scheme: light)')?.matches)return'light';
-  return choice==='light'?'default':choice;
+  return choice;
 }
 function applyUiPreferences(overrides={}){
   const ui={...(state.settings?.ui||{}),...overrides},root=document.documentElement;
