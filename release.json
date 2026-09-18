@@ -1,49 +1,53 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.1-beta.7",
-  "title": "ProxPanel 1.7.1-beta.7 — Light Theme Completion & Admin Navigation",
-  "title_en": "ProxPanel 1.7.1-beta.7 — Light Theme Completion & Admin Navigation",
-  "summary": "Finalise le thème clair sur les composants encore sombres et transforme Administration en espace de configuration avec navigation secondaire persistante.",
-  "summary_en": "Completes the Light theme across remaining dark components and turns Administration into a configuration workspace with persistent secondary navigation.",
+  "version": "1.7.1-beta.8",
+  "title": "ProxPanel 1.7.1-beta.8 — TV Mode & Administration Redesign",
+  "title_en": "ProxPanel 1.7.1-beta.8 — TV Mode & Administration Redesign",
+  "summary": "Refonte complète du Mode TV et des pages Administration Supervision, Avancé et installation automatique, avec responsive réellement adapté au desktop, tablette et mobile/PWA.",
+  "summary_en": "Complete TV Mode and Administration redesign for Monitoring, Advanced and automatic updates, with true responsive layouts for desktop, tablet and mobile/PWA.",
   "improvements": [
-    "Navigation Administration persistante avec dix rubriques clairement séparées.",
-    "Notifications et Utilisateurs intégrés directement dans l'espace Administration.",
-    "Sous-menu Administration sticky sur desktop et horizontal défilable sur mobile.",
-    "Filtre rapide des rubriques Administration.",
-    "Toast de succès, avertissement et erreur adaptés au thème clair."
+    "Nouvelle vue TV Synthèse conçue pour la lecture à distance.",
+    "Six KPI TV principaux avec historique et états visuels.",
+    "Panneaux TV dédiés aux alertes, nœuds, sauvegardes, mises à jour et capacité.",
+    "Header Mode TV entièrement repensé avec horloge, état LIVE et sélecteur de vue.",
+    "Layouts TV dédiés desktop, tablette et mobile/PWA.",
+    "Page Supervision Administration entièrement restructurée.",
+    "Page Avancé Administration compactée et réorganisée.",
+    "Créneaux d'installation automatique OTA modernisés.",
+    "Réduction des espaces vides dans les formulaires et cartes."
   ],
   "improvements_en": [
-    "Persistent Administration navigation with ten clearly separated sections.",
-    "Notifications and Users integrated directly into the Administration workspace.",
-    "Sticky Administration sub-navigation on desktop and horizontally scrollable navigation on mobile.",
-    "Quick Administration section filtering.",
-    "Success, warning and error toasts adapted to the Light theme."
+    "New TV Summary view designed for distance readability.",
+    "Six primary TV KPIs with history and visual state indicators.",
+    "Dedicated TV panels for alerts, nodes, backups, updates and capacity.",
+    "Fully redesigned TV header with clock, LIVE state and view switcher.",
+    "Dedicated TV layouts for desktop, tablet and mobile/PWA.",
+    "Administration Monitoring page fully restructured.",
+    "Administration Advanced page compacted and reorganized.",
+    "Modernized OTA automatic-install scheduling.",
+    "Reduced unused whitespace in forms and cards."
   ],
   "fixes": [
-    "Corrige les tuiles sombres restantes du widget Températures.",
-    "Corrige les blocs sombres internes de Santé du cluster.",
-    "Corrige les fonds sombres de la fenêtre détail VM/LXC.",
-    "Corrige la barre Monitoring qui restait noire en thème Light.",
-    "Corrige les KPI sombres de la page Mises à jour PVE.",
-    "Corrige plusieurs surfaces OTA, SMTP, formulaires et diagnostics encore sombres.",
-    "Corrige les modales et boutons de fermeture qui ne suivaient pas entièrement le thème Light."
+    "Corrige les formulaires Supervision trop étirés et peu lisibles.",
+    "Supprime l'affichage brut de l'ordre des modules dans Avancé.",
+    "Corrige l'énorme bloc sombre des créneaux OTA dans le thème clair en utilisant des surfaces thémées.",
+    "Corrige le Mode TV qui se contentait de réduire la mise en page desktop sur petits écrans.",
+    "Améliore la densité et la lisibilité du Mode TV sur grands écrans."
   ],
   "fixes_en": [
-    "Fixes remaining dark Temperature widget tiles.",
-    "Fixes dark internal Cluster Health surfaces.",
-    "Fixes dark VM/LXC detail modal surfaces.",
-    "Fixes the Monitoring toolbar remaining black in Light mode.",
-    "Fixes dark PVE Updates KPI cards.",
-    "Fixes several OTA, SMTP, form and diagnostics surfaces that still remained dark.",
-    "Fixes modal headers and close buttons that did not fully follow the Light theme."
+    "Fixes stretched and hard-to-scan Monitoring forms.",
+    "Removes the raw module-order field from the visible Advanced UI.",
+    "Fixes the oversized dark OTA scheduling block in Light mode by using themed surfaces.",
+    "Fixes TV Mode simply shrinking desktop layout on smaller screens.",
+    "Improves TV Mode density and readability on large displays."
   ],
   "notes": [
-    "Les consoles noVNC/xterm restent volontairement sombres.",
-    "Le menu principal est simplifié : Notifications et Utilisateurs sont désormais dans Administration."
+    "Le Mode TV conserve volontairement une identité sombre à fort contraste, indépendamment du thème principal.",
+    "Les consoles noVNC/xterm restent inchangées."
   ],
   "notes_en": [
-    "noVNC/xterm consoles intentionally remain dark.",
-    "The primary sidebar is simplified: Notifications and Users now live inside Administration."
+    "TV Mode intentionally keeps a dedicated high-contrast dark identity regardless of the main theme.",
+    "noVNC/xterm consoles remain unchanged."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
