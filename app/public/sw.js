@@ -1,11 +1,11 @@
-const CACHE='proxpanel-v1.7.1-beta.5';
+const CACHE='proxpanel-v1.7.1-beta.6';
 const CORE=[
   '/',
   '/index.html',
-  '/styles.css?v=1.7.1-beta.5',
-  '/auth-v15.css?v=1.7.1-beta.5',
-  '/auth-v15.js?v=1.7.1-beta.5',
-  '/app.js?v=1.7.1-beta.5',
+  '/styles.css?v=1.7.1-beta.6',
+  '/auth-v15.css?v=1.7.1-beta.6',
+  '/auth-v15.js?v=1.7.1-beta.6',
+  '/app.js?v=1.7.1-beta.6',
   '/manifest.webmanifest',
   '/proxpanel-logo-192.png',
   '/proxpanel-logo-256.png',
@@ -19,7 +19,7 @@ self.addEventListener('install',event=>{
     await Promise.all(CORE.map(async url=>{
       try{
         const response=await fetch(url,{cache:'reload'});
-        if(response.ok)await cache.put(url,response);
+        if(response.ok)await cache.put(url,response.clone());
       }catch{}
     }));
     await self.skipWaiting();
@@ -34,14 +34,27 @@ self.addEventListener('activate',event=>{
   })());
 });
 
-function refreshInBackground(request,cacheKey=request){
-  return fetch(request).then(async response=>{
-    if(response&&response.ok){
-      const cache=await caches.open(CACHE);
-      await cache.put(cacheKey,response.clone());
-    }
-    return response;
-  }).catch(()=>null);
+self.addEventListener('message',event=>{
+  if(event.data?.type==='SKIP_WAITING')self.skipWaiting();
+});
+
+async function putCache(key,response){
+  if(!response?.ok)return response;
+  const cache=await caches.open(CACHE);
+  await cache.put(key,response.clone());
+  return response;
+}
+
+async function networkFirst(request,cacheKey=request,{preload=null}={}){
+  try{
+    const preloaded=await preload;
+    if(preloaded?.ok)return await putCache(cacheKey,preloaded);
+  }catch{}
+  try{
+    const response=await fetch(request,{cache:'no-cache'});
+    if(response?.ok)return await putCache(cacheKey,response);
+  }catch{}
+  return (await caches.match(cacheKey))||(await caches.match(request))||null;
 }
 
 self.addEventListener('fetch',event=>{
@@ -51,46 +64,30 @@ self.addEventListener('fetch',event=>{
 
   if(request.mode==='navigate'){
     event.respondWith((async()=>{
-      const cached=await caches.match('/index.html');
-      const networkPromise=(async()=>{
-        try{
-          const preloaded=await event.preloadResponse;
-          if(preloaded&&preloaded.ok){
-            const cache=await caches.open(CACHE);
-            await cache.put('/index.html',preloaded.clone());
-            return preloaded;
-          }
-        }catch{}
-        return refreshInBackground(request,'/index.html');
-      })();
-      if(cached){
-        event.waitUntil(networkPromise);
-        return cached;
-      }
-      return (await networkPromise)||new Response('ProxPanel indisponible hors ligne.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}});
+      const response=await networkFirst(request,'/index.html',{preload:event.preloadResponse});
+      return response||new Response('ProxPanel indisponible hors ligne.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     })());
     return;
   }
 
-  const isVersionedAppAsset=['/styles.css','/auth-v15.css','/auth-v15.js','/app.js'].includes(url.pathname);
-  if(isVersionedAppAsset){
+  const criticalAsset=['/styles.css','/auth-v15.css','/auth-v15.js','/app.js','/sw.js','/manifest.webmanifest'].includes(url.pathname);
+  if(criticalAsset){
     event.respondWith((async()=>{
-      const cached=await caches.match(request);
-      if(cached){
-        event.waitUntil(refreshInBackground(request));
-        return cached;
-      }
-      return (await refreshInBackground(request))||Response.error();
+      const response=await networkFirst(request,request);
+      return response||Response.error();
     })());
     return;
   }
 
   event.respondWith((async()=>{
     const cached=await caches.match(request);
-    if(cached){
-      event.waitUntil(refreshInBackground(request));
-      return cached;
+    if(cached)return cached;
+    try{
+      const response=await fetch(request);
+      if(response?.ok)return await putCache(request,response);
+      return response;
+    }catch{
+      return Response.error();
     }
-    return (await refreshInBackground(request))||Response.error();
   })());
 });
