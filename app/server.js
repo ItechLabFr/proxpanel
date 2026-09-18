@@ -3842,11 +3842,14 @@ function serveStatic(req, res, url) {
     const ext = path.extname(candidate).toLowerCase();
     const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
     const isVersionedStatic = url.searchParams.has('v') && ['.js','.css'].includes(ext);
-    const cacheControl = isVersionedStatic
-      ? 'public, max-age=31536000, immutable'
-      : ['.html','.webmanifest','.json','.js','.css'].includes(ext)
-        ? 'no-cache'
-        : 'public, max-age=86400';
+    const criticalFresh = pathname === '/index.html' || pathname === '/sw.js' || pathname === '/manifest.webmanifest';
+    const cacheControl = criticalFresh
+      ? 'no-store, max-age=0'
+      : isVersionedStatic
+        ? 'public, max-age=31536000, immutable'
+        : ['.html','.webmanifest','.json','.js','.css'].includes(ext)
+          ? 'no-cache'
+          : 'public, max-age=86400';
     if (String(req.headers['if-none-match'] || '') === etag) {
       res.writeHead(304, { ETag: etag, 'Cache-Control': cacheControl });
       return res.end();
