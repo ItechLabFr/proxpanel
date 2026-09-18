@@ -1,6 +1,11 @@
 services:
   proxpanel-demo:
-    image: itechlab/proxpanel:demo
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${PROXPANEL_DEMO_VERSION:-demo}
+    image: proxpanel-demo:local
     container_name: proxpanel-demo
     restart: unless-stopped
     ports:
