@@ -12,16 +12,6 @@ services:
     volumes:
       - proxpanel_demo_data:/app/data
       - proxpanel_demo_runtime:/opt/proxpanel-runtime
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  watchtower-demo:
-    image: containrrr/watchtower:latest
-    container_name: proxpanel-demo-updater
-    restart: unless-stopped
-    command: --interval 60 --cleanup --label-enable proxpanel-demo
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   proxpanel_demo_data:
