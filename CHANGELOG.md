@@ -1,3 +1,23 @@
+# ProxPanel 1.7.1-beta.1
+
+## Français
+- Diagnostic console par étapes et reconnexion automatique noVNC.
+- Sessions console temporaires portées à 5 minutes.
+- Console mobile/tablette plus lisible et plus facile à utiliser.
+- Premier affichage PWA accéléré sur iPhone grâce au chargement progressif.
+- Données secondaires déplacées en arrière-plan.
+- Dashboard initial chargé sans historique, puis graphiques complétés après affichage.
+- Service Worker et cache HTTP optimisés pour les fichiers versionnés.
+
+## English
+- Adds step-by-step console diagnostics and automatic noVNC reconnect.
+- Extends temporary console sessions to 5 minutes.
+- Improves phone/tablet console usability.
+- Speeds up the first PWA render on iPhone with progressive loading.
+- Moves secondary startup data to background loading.
+- Loads the initial dashboard without history, then fetches historical charts after the first render.
+- Optimizes Service Worker and HTTP caching for versioned assets.
+
 # ProxPanel 1.7.0-beta.16
 
 ## Français
