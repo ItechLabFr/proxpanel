@@ -32,6 +32,8 @@ Development is **AI-assisted** for parts of design, code generation, refactoring
 - Customizable Dashboard Studio
 - TV mode with Classic, Charts and Custom layouts
 - CPU, RAM, storage, network and historical metrics
+- QEMU Guest Agent storage visibility for Windows/Linux VMs
+- Multi-node infrastructure views and expanded monitoring
 - Node CPU temperature collection through `lm-sensors`
 - VM/LXC operations and administration workflows
 - Backup and task visibility
@@ -194,7 +196,7 @@ Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/i
 
 ## Project status
 
-Current development version: **1.7.1-beta.1**
+Current development version: **1.7.1-beta.2**
 
 Latest published GitHub Release: **1.7.1-beta.1**
 
