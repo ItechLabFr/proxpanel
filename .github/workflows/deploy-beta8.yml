@@ -1,0 +1,114 @@
+name: Deploy ProxPanel 1.7.1-beta.8
+
+on:
+  push:
+    branches:
+      - 'deploy/1.7.1-beta.8'
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: 1.7.1-beta.8
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    steps:
+      - name: Checkout main release source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="$(node -p "require('./release.json').version")"
+          package_version="$(node -p "require('./app/package.json').version")"
+          test "$release_version" = "$VERSION"
+          test "$package_version" = "$VERSION"
+          test -f "docs/releases/$VERSION.md"
+          node --check launcher.js
+          node --check app/server.js
+          node --check app/public/app.js
+          node --check app/public/auth-v15.js
+          node --check app/public/sw.js
+
+      - name: Validate Docker build
+        run: |
+          docker build --pull             --build-arg VERSION="$VERSION"             -t "proxpanel-release-test:$VERSION" .
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          git archive             --format=zip             --prefix="proxpanel-v$VERSION/"             --output="dist/proxpanel-v$VERSION.zip"             HEAD
+
+          chmod +x tools-build-update.sh
+          ./tools-build-update.sh ./app ./dist
+          cp release.json dist/release.json
+
+          (
+            cd dist
+            sha256sum               "proxpanel-v$VERSION.zip"               "proxpanel-update-v$VERSION.zip"               release.json > SHA256SUMS.txt
+          )
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "docs/releases/$VERSION.md" dist/RELEASE_NOTES.md
+          printf '\n## Téléchargements / Downloads\n\n' >> dist/RELEASE_NOTES.md
+          printf -- '- `proxpanel-v%s.zip` — package complet / full package\n' "$VERSION" >> dist/RELEASE_NOTES.md
+          printf -- '- `proxpanel-update-v%s.zip` — mise à jour OTA / OTA update\n' "$VERSION" >> dist/RELEASE_NOTES.md
+          printf -- '- `release.json` — métadonnées / metadata\n' >> dist/RELEASE_NOTES.md
+          printf -- '- `SHA256SUMS.txt` — sommes SHA-256 / SHA-256 checksums\n\n' >> dist/RELEASE_NOTES.md
+          printf '**FR :** Docker Hub distribue les images conteneur. Le rollout et les révocations OTA restent gérés par `updates.proxpanel.fr`.\n\n' >> dist/RELEASE_NOTES.md
+          printf '**EN:** Docker Hub distributes container images. OTA rollout and revocation remain managed by `updates.proxpanel.fr`.\n' >> dist/RELEASE_NOTES.md
+
+      - name: Create GitHub prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          target_sha="$(git rev-parse HEAD)"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag"               --title "ProxPanel $VERSION"               --notes-file dist/RELEASE_NOTES.md               --prerelease
+            gh release upload "$tag"               "dist/proxpanel-v$VERSION.zip"               "dist/proxpanel-update-v$VERSION.zip"               dist/release.json               dist/SHA256SUMS.txt               --clobber
+          else
+            gh release create "$tag"               --target "$target_sha"               --title "ProxPanel $VERSION"               --notes-file dist/RELEASE_NOTES.md               --prerelease               "dist/proxpanel-v$VERSION.zip"               "dist/proxpanel-update-v$VERSION.zip"               dist/release.json               dist/SHA256SUMS.txt
+          fi
+
+      - name: Setup QEMU
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Publish Docker Hub beta
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build             --pull             --platform linux/amd64,linux/arm64             --build-arg VERSION="$VERSION"             -t "itechlab/proxpanel:$VERSION"             -t "itechlab/proxpanel:beta"             --provenance=true             --sbom=true             --push .
