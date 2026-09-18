@@ -1,3 +1,33 @@
+# ProxPanel 1.7.2-beta.3
+
+## Français
+- Supervision Docker/Portainer en arrière-plan, même navigateur fermé.
+- Alertes Portainer inaccessible et Docker Engine inaccessible.
+- Détection fiable des conteneurs arrêtés, unhealthy et en redémarrages répétés.
+- Alertes CPU/RAM conteneur quand les statistiques Docker sont disponibles.
+- Pression stockage détectée uniquement avec des données Docker Used/Total fiables.
+- Détection des stacks actives partiellement dégradées.
+- Confirmation sur 2 contrôles par défaut avant incident, cooldown et anti-doublon.
+- Notifications de récupération.
+- Nouveaux événements Docker pour Panel, Discord, webhook, Telegram et e-mail.
+- Incidents visibles dans Docker et Notifications.
+- Les erreurs temporaires Portainer ne deviennent jamais de faux arrêts de conteneur.
+- Actions Stop/Pause/Restart lancées depuis ProxPanel temporairement exclues de la détection d’arrêt inattendu.
+
+## English
+- Background Docker/Portainer monitoring, even when the browser is closed.
+- Portainer unreachable and Docker Engine unreachable alerts.
+- Reliable stopped, unhealthy and repeated-restart container detection.
+- Container CPU/RAM alerts when Docker statistics are available.
+- Storage pressure only when reliable Docker Used/Total capacity data exists.
+- Partially degraded active-stack detection.
+- Two-check confirmation by default, cooldown and duplicate suppression.
+- Recovery notifications.
+- New Docker events for Panel, Discord, webhook, Telegram and email.
+- Incidents shown in Docker and Notifications.
+- Temporary Portainer errors never become false stopped-container incidents.
+- Stop/Pause/Restart actions started from ProxPanel are temporarily excluded from unexpected-stop detection.
+
 # ProxPanel 1.7.2-beta.2
 
 ## Français

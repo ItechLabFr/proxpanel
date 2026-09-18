@@ -4,9 +4,9 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.1-beta.10**
+- Latest published development release: **1.7.2-beta.3**
 - The **1.7.1** series reached its planned maximum of 10 betas.
-- Next development series: **1.7.2-beta.x**
+- Current development series: **1.7.2-beta.x**
 - A single X.Y.Z series remains limited to **beta.1 → beta.10**.
 
 The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more complete **HomeLab operations console**, while keeping the application lightweight and avoiding duplication of every native Proxmox feature.

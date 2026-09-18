@@ -128,7 +128,7 @@ The OTA service receives only:
 ```json
 {
   "installation_id": "persistent-local-uuid",
-  "version": "1.7.2-beta.1",
+  "version": "1.7.2-beta.3",
   "update_channel": "beta"
 }
 ```
@@ -198,13 +198,13 @@ Bug reports, focused feature requests and reviewed pull requests are welcome. Se
 
 The public history of the 1.7 branch is available in [`HISTORY.md`](HISTORY.md).
 
-Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.2-beta.1**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
+Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.2-beta.3**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
 
 Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), while `updates.proxpanel.fr` remains responsible for OTA channels, rollout and revocation.
 
 ## 1.7.2 roadmap
 
-**1.7.2-beta.1 is the first active release in this series.** Portainer is the first officially supported external integration.
+**1.7.2-beta.3 is the active release in this series.** Portainer/Docker now covers environments, containers, stacks, actions and background monitoring with reliable alerts and recovery notifications.
 
 
 The active **1.7.2-beta.x** series focuses on multi-platform HomeLab operations:
@@ -223,9 +223,9 @@ See [`ROADMAP.md`](ROADMAP.md) for the beta.1 → beta.10 plan.
 
 ## Project status
 
-Latest published development release: **1.7.2-beta.2**
+Latest published development release: **1.7.2-beta.3**
 
-Latest published GitHub Release: **1.7.2-beta.2**
+Latest published GitHub Release: **1.7.2-beta.3**
 
 Current development series: **1.7.2-beta.x** — Portainer/Docker, optional PBS, Automations, RBAC/Audit and Health Center. Maximum 10 betas per version series.
 
