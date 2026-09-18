@@ -19,25 +19,60 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Pull official ProxPanel image
-        run: docker pull itechlab/proxpanel:1.7.0-beta.14
-
-      - name: Extract application source
+      - name: Fetch ProxPanel 1.7.0-beta.14 source package
         shell: bash
         run: |
           set -euo pipefail
-          cid="$(docker create itechlab/proxpanel:1.7.0-beta.14)"
-          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p /tmp/proxpanel-import
+
+          if docker pull itechlab/proxpanel:1.7.0-beta.14; then
+            cid="$(docker create itechlab/proxpanel:1.7.0-beta.14)"
+            trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+            rm -rf app
+            mkdir -p app docs/assets
+            docker cp "$cid:/opt/proxpanel-seed/." app/
+            docker cp "$cid:/opt/proxpanel-bootstrap/launcher.js" launcher.js
+            rm -f app/release.json
+            cp app/public/proxpanel-logo-512.png docs/assets/proxpanel-logo.png
+            exit 0
+          fi
+
+          echo "Docker tag unavailable; trying the official OTA service."
+          check_url='https://updates.proxpanel.fr/api/v1/updates/check?version=1.7.0-beta.13&channel=beta&instance_id=github-source-import'
+          curl --fail --silent --show-error --location "$check_url" -o /tmp/proxpanel-import/check.json
+
+          python3 - <<'PY'
+          import json, pathlib, sys
+          data=json.loads(pathlib.Path('/tmp/proxpanel-import/check.json').read_text())
+          urls=[]
+          def walk(x):
+              if isinstance(x, dict):
+                  for k,v in x.items():
+                      if isinstance(v,str) and v.startswith('http') and ('.zip' in v or 'download' in k.lower() or 'archive' in k.lower() or 'url' in k.lower()):
+                          urls.append(v)
+                      walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(data)
+          for url in urls:
+              if 'updates.proxpanel.fr' in url or url.endswith('.zip'):
+                  pathlib.Path('/tmp/proxpanel-import/archive-url.txt').write_text(url)
+                  break
+          else:
+              print('No OTA archive URL found.')
+              sys.exit(2)
+          PY
+
+          archive_url="$(cat /tmp/proxpanel-import/archive-url.txt)"
+          curl --fail --silent --show-error --location "$archive_url" -o /tmp/proxpanel-import/update.zip
+          unzip -q /tmp/proxpanel-import/update.zip -d /tmp/proxpanel-import/update
 
           rm -rf app
           mkdir -p app docs/assets
-          docker cp "$cid:/opt/proxpanel-seed/." app/
-          docker cp "$cid:/opt/proxpanel-bootstrap/launcher.js" launcher.js
-
-          # release.json is kept once at repository root.
-          rm -f app/release.json
-
-          # Reuse the official application logo in the GitHub README.
+          cp /tmp/proxpanel-import/update/server.js app/server.js
+          cp /tmp/proxpanel-import/update/package.json app/package.json
+          cp -R /tmp/proxpanel-import/update/public app/public
+          cp -R /tmp/proxpanel-import/update/vendor app/vendor
           cp app/public/proxpanel-logo-512.png docs/assets/proxpanel-logo.png
 
       - name: Sanity checks
@@ -52,9 +87,8 @@ jobs:
           node --check app/server.js
           node --check app/public/app.js
           node --check launcher.js
-
           if find app -type f \( -name '.env' -o -name '*.pem' -o -name '*.key' -o -name 'settings.json' -o -name 'servers.json' -o -name 'users.json' \) | grep -q .; then
-            echo "Sensitive runtime file detected; refusing to commit."
+            echo 'Sensitive runtime file detected; refusing to commit.'
             exit 1
           fi
 
@@ -62,14 +96,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app launcher.js docs/assets/proxpanel-logo.png
-
           if git diff --cached --quiet; then
-            echo "Source already synchronized."
+            echo 'Source already synchronized.'
             exit 0
           fi
-
-          git commit -m "Add complete ProxPanel 1.7.0-beta.14 source"
+          git commit -m 'Add complete ProxPanel 1.7.0-beta.14 source'
           git push
