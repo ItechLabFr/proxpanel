@@ -1,6 +1,6 @@
 FROM node:22-alpine3.24
 
-ARG VERSION=1.7.0-beta.15
+ARG VERSION=1.7.0-beta.16
 LABEL org.opencontainers.image.title="ProxPanel" \
       org.opencontainers.image.description="Self-hosted Proxmox VE management panel" \
       org.opencontainers.image.version="${VERSION}" \
