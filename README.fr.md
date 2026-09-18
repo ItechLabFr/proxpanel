@@ -130,7 +130,7 @@ Les rapports de bugs, demandes de fonctions ciblées et pull requests revues son
 
 L'historique public de la branche 1.7 est disponible dans [`HISTORY.md`](HISTORY.md).
 
-Les notes historiques sont disponibles depuis **1.7.0-beta.1**. **v1.7.0-beta.14** est la première GitHub Release reproductible. La dernière prerelease publiée est **v1.7.0-beta.16**, avec ZIP complet, ZIP OTA, `release.json` et sommes SHA-256.
+Les notes historiques sont disponibles depuis **1.7.0-beta.1**. **v1.7.0-beta.14** est la première GitHub Release reproductible. La dernière prerelease publiée est **v1.7.1-beta.2**, avec ZIP complet, ZIP OTA, `release.json` et sommes SHA-256.
 
 Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), tandis que `updates.proxpanel.fr` reste responsable des canaux OTA, du rollout et des révocations.
 
@@ -142,7 +142,7 @@ Dernière GitHub Release publiée : **1.7.1-beta.2**
 
 Série de développement actuelle : **1.7.1-beta.x** — 10 betas maximum par version.
 
-Docker Hub reste pour l’instant sur l’image publiée précédente tant que l’image beta.15 n’a pas été poussée.
+Docker Hub reste le canal de distribution des images ; les tags versionnés doivent utiliser le même numéro de version que la Release GitHub et l’OTA.
 
 ProxPanel est actuellement un projet personnel en bêta.
 
