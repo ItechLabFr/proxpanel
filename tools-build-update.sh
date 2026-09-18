@@ -8,10 +8,9 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$OUT"
 OUT_ABS="$(cd "$OUT" && pwd)"
-cp "$APP_DIR/server.js" "$STAGE/server.js"
-cp "$APP_DIR/package.json" "$STAGE/package.json"
-cp -R "$APP_DIR/public" "$STAGE/public"
-cp -R "$APP_DIR/vendor" "$STAGE/vendor"
+# Copy the complete application tree. Keeping an allow-list here caused the
+# 1.7.2-beta.1 OTA package to omit app/lib and crash at startup.
+cp -R "$APP_DIR"/. "$STAGE"/
 cp "$ROOT_DIR/release.json" "$STAGE/release.json"
 cat > "$STAGE/proxpanel-update.json" <<JSON
 {
@@ -28,6 +27,6 @@ cat > "$STAGE/proxpanel-update.json" <<JSON
 JSON
 (
   cd "$STAGE"
-  zip -qr "$OUT_ABS/proxpanel-update-v$VERSION.zip" release.json proxpanel-update.json server.js package.json public vendor
+  zip -qr "$OUT_ABS/proxpanel-update-v$VERSION.zip" .
 )
 echo "$OUT_ABS/proxpanel-update-v$VERSION.zip"
