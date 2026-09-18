@@ -1,3 +1,19 @@
+# ProxPanel 1.7.2-beta.1.1
+
+## Français
+- Hotfix critique du ZIP OTA de 1.7.2-beta.1.
+- Corrige le 502 Bad Gateway causé par l'absence de `app/lib/reliability.js` après une mise à jour OTA.
+- Le builder OTA copie désormais toute l'application afin qu'un nouveau dossier applicatif ne puisse plus être oublié.
+- L'updater vérifie les dépendances JavaScript locales avant d'activer une release.
+- La roadmap beta.2 reste inchangée : Docker Containers & Stacks.
+
+## English
+- Critical OTA ZIP hotfix for 1.7.2-beta.1.
+- Fixes the 502 Bad Gateway caused by missing `app/lib/reliability.js` after an OTA update.
+- The OTA builder now copies the complete application so new application directories cannot be omitted.
+- The updater validates local JavaScript dependencies before activating a release.
+- The beta.2 roadmap remains unchanged: Docker Containers & Stacks.
+
 # ProxPanel 1.7.2-beta.1
 
 ## Français
