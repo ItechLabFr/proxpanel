@@ -188,15 +188,17 @@ Bug reports, focused feature requests and reviewed pull requests are welcome. Se
 
 The public history of the 1.7 branch is available in [`HISTORY.md`](HISTORY.md).
 
-Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release; **v1.7.0-beta.15** is now published as a prerelease with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
+Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.0-beta.16**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
 
 Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), while `updates.proxpanel.fr` remains responsible for OTA channels, rollout and revocation.
 
 ## Project status
 
-Current development version: **1.7.0-beta.15**
+Current development version: **1.7.0-beta.16**
 
-Latest published GitHub Release: **1.7.0-beta.15**
+Latest published GitHub Release: **1.7.0-beta.16**
+
+Next development series: **1.7.1-beta.1** — maximum 10 betas per version series.
 
 Docker Hub currently remains on the previous published image until the beta.15 image is pushed.
 
