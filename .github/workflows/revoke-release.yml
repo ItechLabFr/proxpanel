@@ -1,0 +1,197 @@
+name: Revoke ProxPanel Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to revoke, for example 1.7.0-beta.15'
+        required: true
+        type: string
+      reason_fr:
+        description: 'Raison de la révocation en français'
+        required: true
+        type: string
+      reason_en:
+        description: 'Revocation reason in English'
+        required: true
+        type: string
+      replacement_version:
+        description: 'Replacement version, if available'
+        required: false
+        type: string
+      remove_installable_assets:
+        description: 'Remove full and OTA ZIP assets from the GitHub Release'
+        required: true
+        default: true
+        type: boolean
+      confirmation:
+        description: 'Type REVOKE to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  revoke:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirmation }}" = "REVOKE" || {
+            echo "Confirmation must be exactly REVOKE" >&2
+            exit 1
+          }
+
+      - name: Mark GitHub Release as revoked
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
+          tag="v${version}"
+          reason_fr="${{ inputs.reason_fr }}"
+          reason_en="${{ inputs.reason_en }}"
+          replacement="${{ inputs.replacement_version }}"
+
+          gh release view "$tag" --json body --jq .body > /tmp/original-notes.md
+
+          {
+            echo "# ⚠️ VERSION RÉVOQUÉE / REVOKED RELEASE"
+            echo
+            echo "## 🇫🇷 Français"
+            echo
+            echo "**Cette version ne doit plus être installée ni utilisée pour une nouvelle installation.**"
+            echo
+            echo "**Raison :** $reason_fr"
+            if [ -n "$replacement" ]; then
+              echo
+              echo "**Version de remplacement :** `$replacement`"
+            fi
+            echo
+            echo "La révocation OTA doit également être appliquée sur `updates.proxpanel.fr`."
+            echo
+            echo "## 🇬🇧 English"
+            echo
+            echo "**This release must no longer be installed or used for a new installation.**"
+            echo
+            echo "**Reason:** $reason_en"
+            if [ -n "$replacement" ]; then
+              echo
+              echo "**Replacement version:** `$replacement`"
+            fi
+            echo
+            echo "The OTA release must also be revoked on `updates.proxpanel.fr`."
+            echo
+            echo "---"
+            echo
+            echo "## Notes de version originales / Original release notes"
+            echo
+            cat /tmp/original-notes.md
+          } > /tmp/revoked-notes.md
+
+          gh release edit "$tag"             --title "⚠️ REVOKED — ProxPanel ${version}"             --notes-file /tmp/revoked-notes.md
+
+          {
+            echo "ProxPanel ${version}"
+            echo
+            echo "FR: VERSION RÉVOQUÉE"
+            echo "Raison: $reason_fr"
+            [ -n "$replacement" ] && echo "Version de remplacement: $replacement"
+            echo
+            echo "EN: REVOKED RELEASE"
+            echo "Reason: $reason_en"
+            [ -n "$replacement" ] && echo "Replacement version: $replacement"
+          } > /tmp/REVOKED.txt
+
+          # Best effort: immutable GitHub Releases do not allow asset changes.
+          gh release upload "$tag" /tmp/REVOKED.txt --clobber ||             echo "::warning::Could not upload REVOKED.txt. The release may be immutable."
+
+      - name: Remove installable ZIP assets
+        if: ${{ inputs.remove_installable_assets }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
+          tag="v${version}"
+
+          for asset in             "proxpanel-v${version}.zip"             "proxpanel-update-v${version}.zip"
+          do
+            gh release delete-asset "$tag" "$asset" -y ||               echo "::warning::Could not delete $asset. The release may be immutable or the asset may already be absent."
+          done
+
+      - name: Record revocation in repository history
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
+          reason_fr="${{ inputs.reason_fr }}"
+          reason_en="${{ inputs.reason_en }}"
+          replacement="${{ inputs.replacement_version }}"
+
+          mkdir -p docs/revocations
+          cat > "docs/revocations/${version}.md" <<EOF
+          # ProxPanel ${version} — Révoquée / Revoked
+
+          ## 🇫🇷 Français
+
+          **Statut : VERSION RÉVOQUÉE**
+
+          **Raison :** ${reason_fr}
+
+          $([ -n "$replacement" ] && printf '**Version de remplacement :** `%s`\n' "$replacement")
+
+          Cette version reste référencée pour assurer la traçabilité de l'historique, mais ses packages installables ne doivent plus être utilisés.
+
+          ## 🇬🇧 English
+
+          **Status: REVOKED RELEASE**
+
+          **Reason:** ${reason_en}
+
+          $([ -n "$replacement" ] && printf '**Replacement version:** `%s`\n' "$replacement")
+
+          This version remains documented for historical traceability, but its installable packages must no longer be used.
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+          version=os.environ.get('VERSION_TO_REVOKE','')
+          p=Path('HISTORY.md')
+          text=p.read_text()
+          lines=[]
+          for line in text.splitlines():
+              if line.startswith(f'| [{version}]('):
+                  cells=[c.strip() for c in line.split('|')]
+                  if len(cells) >= 5:
+                      cells[3]='⚠️ Révoquée / Revoked'
+                      line='| ' + ' | '.join(cells[1:-1]) + ' |'
+              lines.append(line)
+          p.write_text('\n'.join(lines)+'\n')
+          PY
+        env:
+          VERSION_TO_REVOKE: ${{ inputs.version }}
+
+      - name: Commit revocation record
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add HISTORY.md docs/revocations
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Mark ProxPanel ${{ inputs.version }} as revoked"
+          git push
