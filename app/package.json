@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.1-beta.1",
+  "version": "1.7.1-beta.2",
   "private": true,
-  "description": "ProxPanel 1.7.1-beta.1 - Console reliability and fast mobile PWA startup.",
+  "description": "ProxPanel 1.7.1-beta.2 - VM storage, multi-node UX, responsive UI and monitoring.",
   "scripts": {
     "start": "node server.js"
   },
