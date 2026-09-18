@@ -1,5 +1,5 @@
-const CACHE='proxpanel-v1.7.0-beta.15';
-const CORE=['/','/index.html','/styles.css?v=1.7.0-beta.15','/auth-v15.css?v=1.7.0-beta.15','/auth-v15.js?v=1.7.0-beta.15','/app.js?v=1.7.0-beta.15','/manifest.webmanifest','/proxpanel-logo-192.png','/proxpanel-logo-256.png','/proxpanel-logo-512.png','/apple-touch-icon.png'];
+const CACHE='proxpanel-v1.7.0-beta.16';
+const CORE=['/','/index.html','/styles.css?v=1.7.0-beta.16','/auth-v15.css?v=1.7.0-beta.16','/auth-v15.js?v=1.7.0-beta.16','/app.js?v=1.7.0-beta.16','/manifest.webmanifest','/proxpanel-logo-192.png','/proxpanel-logo-256.png','/proxpanel-logo-512.png','/apple-touch-icon.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{
