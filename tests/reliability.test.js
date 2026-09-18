@@ -105,3 +105,16 @@ test('Docker incidents require confirmation and emit one recovery transition',()
   assert.equal(recovered.active,false);
   assert.equal(recovered.shouldRecover,true);
 });
+
+
+test('Docker recurring incident waits for cooldown then notifies once',()=>{
+  const start=10_000_000;
+  const active={active:true,confirmations:2,occurrenceNotified:true,lastNotifiedAt:start,firstSeen:new Date(start).toISOString(),lastSeen:new Date(start).toISOString()};
+  const recovered=dockerIncidentTransition(active,false,start+60_000,{confirmations:2,cooldownMinutes:30});
+  const pending=dockerIncidentTransition(recovered,true,start+120_000,{confirmations:2,cooldownMinutes:30});
+  const suppressed=dockerIncidentTransition(pending,true,start+180_000,{confirmations:2,cooldownMinutes:30});
+  assert.equal(suppressed.active,true);
+  assert.equal(suppressed.shouldNotify,false);
+  const delayed=dockerIncidentTransition(suppressed,true,start+31*60_000,{confirmations:2,cooldownMinutes:30});
+  assert.equal(delayed.shouldNotify,true);
+});
