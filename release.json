@@ -1,39 +1,63 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.1.1",
-  "title": "ProxPanel 1.7.2-beta.1.1 — OTA Packaging Hotfix",
-  "title_en": "ProxPanel 1.7.2-beta.1.1 — OTA Packaging Hotfix",
-  "summary": "Hotfix critique du package OTA 1.7.2-beta.1 : le dossier app/lib est désormais inclus et l'updater refuse les packages dont une dépendance locale JavaScript manque.",
-  "summary_en": "Critical hotfix for the 1.7.2-beta.1 OTA package: app/lib is now included and the updater rejects packages missing a local JavaScript dependency.",
+  "version": "1.7.2-beta.2",
+  "title": "ProxPanel 1.7.2-beta.2 — Docker Containers & Stacks",
+  "title_en": "ProxPanel 1.7.2-beta.2 — Docker Containers & Stacks",
+  "summary": "Ajoute une vraie console d’exploitation Docker via Portainer : inventaire conteneurs et stacks, détails, métriques, logs, Exec et actions auditées.",
+  "summary_en": "Adds a real Docker operations console through Portainer: container and stack inventory, details, metrics, logs, Exec and audited actions.",
   "improvements": [
-    "Le ZIP OTA embarque désormais l'intégralité de l'arborescence applicative au lieu d'une liste partielle de dossiers.",
-    "Validation des dépendances require() locales avant bascule vers une nouvelle release.",
-    "Préserve toutes les fonctions Portainer/Docker introduites en 1.7.2-beta.1.",
-    "Ajout d'un smoke test du package OTA dans la CI."
+    "Nouvel espace Docker par environnement Portainer.",
+    "Inventaire des conteneurs avec image, état, health, uptime/statut, ports, réseaux et stack associée.",
+    "Détails conteneur avec CPU/RAM temps réel lorsque Docker expose les statistiques.",
+    "Inspect Docker filtré : variables d’environnement et champs sensibles sont masqués.",
+    "Visualiseur de logs Docker avec limitation du nombre de lignes.",
+    "Exec non interactif via Portainer → Docker avec sortie affichée dans ProxPanel.",
+    "Actions conteneur : start, stop, restart, pause et resume.",
+    "Inventaire des stacks Portainer avec état, source, nombre de conteneurs et métadonnées non sensibles.",
+    "Actions stack : start, stop et redeploy avec pull des images.",
+    "Toutes les actions conteneurs/stacks sont liées à l’environnement Portainer sélectionné et ajoutées au journal d’audit.",
+    "Interface responsive téléphone/tablette pour les vues Docker.",
+    "Conserve le packaging OTA complet et le smoke-test introduits par 1.7.2-beta.1.1."
   ],
   "improvements_en": [
-    "The OTA ZIP now includes the complete application tree instead of a partial allow-list.",
-    "Validates local require() dependencies before switching to a new release.",
-    "Keeps all Portainer/Docker features introduced in 1.7.2-beta.1.",
-    "Adds an OTA package smoke test to CI."
+    "Adds a Docker workspace per Portainer environment.",
+    "Container inventory with image, state, health, uptime/status, ports, networks and associated stack.",
+    "Container details with real-time CPU/RAM when Docker exposes stats.",
+    "Filtered Docker inspect view: environment variables and sensitive fields are redacted.",
+    "Docker log viewer with bounded tail size.",
+    "Non-interactive Exec through Portainer → Docker with output displayed in ProxPanel.",
+    "Container actions: start, stop, restart, pause and resume.",
+    "Portainer stack inventory with state, source, container count and non-sensitive metadata.",
+    "Stack actions: start, stop and redeploy with image pull.",
+    "All container/stack actions are scoped to the selected Portainer environment and written to the audit log.",
+    "Responsive phone/tablet Docker views.",
+    "Keeps the complete OTA packaging and smoke-test introduced in 1.7.2-beta.1.1."
   ],
   "fixes": [
-    "Corrige le 502 Bad Gateway après mise à jour OTA vers 1.7.2-beta.1.",
-    "Corrige l'absence de app/lib/reliability.js dans le ZIP OTA.",
-    "Empêche une release OTA incomplète d'être activée si une dépendance locale requise est absente."
+    "Les secrets ne sont pas renvoyés dans la vue Inspect.",
+    "Les valeurs des variables d’environnement de stack ne sont jamais exposées dans l’interface.",
+    "Les identifiants Portainer, environnement, conteneur et stack sont validés côté serveur.",
+    "Les erreurs d’un environnement Docker restent isolées de la supervision Proxmox."
   ],
   "fixes_en": [
-    "Fixes the 502 Bad Gateway after updating to 1.7.2-beta.1 through OTA.",
-    "Fixes app/lib/reliability.js being missing from the OTA ZIP.",
-    "Prevents an incomplete OTA release from being activated when a required local dependency is missing."
+    "Secrets are not returned by the Inspect view.",
+    "Stack environment variable values are never exposed in the UI.",
+    "Portainer, environment, container and stack identifiers are validated server-side.",
+    "Docker environment failures remain isolated from Proxmox monitoring."
   ],
   "notes": [
-    "Hotfix de packaging uniquement : la roadmap 1.7.2-beta.2 reste dédiée à Docker Containers & Stacks.",
-    "Les installations déjà bloquées en 502 après beta.1 doivent d'abord revenir à la release précédente, puis installer ce hotfix."
+    "Docker reste géré exclusivement via Portainer ; aucun accès direct au socket Docker.",
+    "Portainer CE reste la cible de validation principale ; Business Edition est compatible lorsque les endpoints utilisés sont identiques.",
+    "L’Exec de beta.2 est volontairement non interactif et utilise /bin/sh -lc dans le conteneur.",
+    "Le redeploy d’une stack Git utilise l’API Git redeploy de Portainer ; une stack Compose locale est redeployée avec son contenu actuel et PullImage=true.",
+    "Les alertes Docker avancées arrivent en 1.7.2-beta.3."
   ],
   "notes_en": [
-    "Packaging-only hotfix: the 1.7.2-beta.2 roadmap remains dedicated to Docker Containers & Stacks.",
-    "Installations already stuck on a 502 after beta.1 must first switch back to the previous release, then install this hotfix."
+    "Docker remains managed exclusively through Portainer; no direct Docker socket access.",
+    "Portainer CE remains the primary validation target; Business Edition is compatible where the endpoints used are identical.",
+    "beta.2 Exec is intentionally non-interactive and uses /bin/sh -lc inside the container.",
+    "Git stacks use Portainer's Git redeploy API; local Compose stacks are redeployed from their current content with PullImage=true.",
+    "Advanced Docker alerts arrive in 1.7.2-beta.3."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
