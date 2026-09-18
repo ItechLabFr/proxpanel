@@ -682,3 +682,12 @@ html[data-theme="light"] .brand-mark{box-shadow:0 7px 22px color-mix(in srgb,var
   .admin-section-card{padding:14px}
   .admin-section-card>.panel-head{margin:-14px -14px 14px}
 }
+
+
+/* beta.3 theme finishing touches */
+.brand-mark{background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 88%,#fff 12%),color-mix(in srgb,var(--accent) 78%,#000 22%));box-shadow:0 7px 22px color-mix(in srgb,var(--accent) 17%,transparent)}
+html[data-theme="contrast"] .btn.primary{color:#000}
+html[data-theme="contrast"] .nav-btn.active{color:#fff}
+html[data-theme="light"] .topbar{box-shadow:0 1px 0 rgba(38,55,75,.04)}
+html[data-theme="light"] .search-result:hover,html[data-theme="light"] .nav-btn:hover{background:#eef3f8}
+html[data-theme="light"] .admin-hub-card,html[data-theme="light"] .admin-summary{box-shadow:0 4px 18px rgba(38,55,75,.04)}
