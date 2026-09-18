@@ -20,13 +20,17 @@ echo "==> Version source : $VERSION"
 echo "==> Commit         : $SHA"
 echo "==> Port           : 8082"
 
-echo "==> Build Docker local..."
-docker compose -f "$COMPOSE_FILE" build --pull "$CONTAINER"
+echo "==> Suppression de l'ancien conteneur..."
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
-echo "==> Recréation du conteneur..."
-docker compose -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans "$CONTAINER"
+echo "==> Build Docker local sans cache..."
+docker compose -f "$COMPOSE_FILE" build --pull --no-cache "$CONTAINER"
+
+echo "==> Démarrage de la nouvelle démo..."
+docker compose -f "$COMPOSE_FILE" up -d --remove-orphans "$CONTAINER"
 
 echo "==> Vérification du mode démo..."
+API_STATUS=""
 for attempt in $(seq 1 24); do
   STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER" 2>/dev/null || true)"
 
