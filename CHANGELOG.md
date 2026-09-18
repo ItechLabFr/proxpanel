@@ -1,3 +1,23 @@
+# ProxPanel 1.7.1-beta.2
+
+## Français
+- Stockage VM Windows/Linux enrichi via QEMU Guest Agent : partitions, volumes, utilisé, libre, total et pourcentage.
+- Distinction entre capacité virtuelle Proxmox et occupation réelle invitée.
+- Diagnostics explicites si les données Guest Agent sont indisponibles ; aucun faux 0 Go.
+- Refonte multi-nœuds avec cartes lisibles et source serveur/cluster.
+- Audit responsive global téléphone/tablette, y compris tableaux Machines et modales.
+- Monitoring enrichi : API, latence, nœuds, CPU, RAM, stockage, température, Guest Agent et données périmées.
+- Cohérence renforcée des données stockage/température entre vues regroupées, individuelles et live.
+
+## English
+- Adds Windows/Linux VM storage details through QEMU Guest Agent: filesystems, used, free, total and usage percentage.
+- Separates Proxmox virtual capacity from actual guest usage.
+- Adds explicit Guest Agent unavailability diagnostics and avoids fake 0 GB values.
+- Redesigns multi-node cards and clearly identifies the source server/cluster.
+- Adds a global phone/tablet responsive pass, including Machines tables and modals.
+- Expands Monitoring with API, latency, nodes, CPU, RAM, storage, temperature, Guest Agent and stale-data states.
+- Improves storage/temperature consistency across grouped, individual and live views.
+
 # ProxPanel 1.7.1-beta.1
 
 ## Français
