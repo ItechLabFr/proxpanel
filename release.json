@@ -1,55 +1,47 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.1-beta.9",
-  "title": "ProxPanel 1.7.1-beta.9 — Mobile UX & Cluster Health",
-  "title_en": "ProxPanel 1.7.1-beta.9 — Mobile UX & Cluster Health",
-  "summary": "Refonte mobile de Machines, actions groupées adaptées au tactile, modales plein écran mobile et nouveau widget Santé du cluster sans le gros cercle 100/100.",
-  "summary_en": "Redesigns mobile Machines UX, touch-friendly bulk actions, full-screen mobile modals and a new Cluster Health widget without the oversized 100/100 ring.",
+  "version": "1.7.1-beta.10",
+  "title": "ProxPanel 1.7.1-beta.10 — Backup Reliability & Stabilization",
+  "title_en": "ProxPanel 1.7.1-beta.10 — Backup Reliability & Stabilization",
+  "summary": "Corrige les faux positifs de sauvegarde en distinguant une vraie absence d'un inventaire temporairement indisponible, avec fallback cache, tâches vzdump et confirmation sur deux contrôles.",
+  "summary_en": "Fixes backup false positives by distinguishing real absence from temporary inventory failures, using cached inventory, successful vzdump tasks and two-check confirmation.",
   "improvements": [
-    "Cartes Machines réellement adaptées au mobile.",
-    "Sélection multiple intégrée dans chaque carte.",
-    "Barre d’actions groupées fixe et tactile.",
-    "Conservation de la sélection pendant les rafraîchissements.",
-    "Modales détail VM/LXC plein écran sur téléphone.",
-    "Passe responsive globale sur plusieurs composants communs.",
-    "Nouveau widget Santé du cluster avec score compact et barre de progression.",
-    "Résumé santé plus lisible avec états Nœuds et Stockages séparés."
+    "Fallback sur le dernier inventaire backup valide.",
+    "Récupération du VMID depuis le volid si nécessaire.",
+    "Utilisation des tâches vzdump réussies comme preuve complémentaire.",
+    "Comptage des points de restauration détectés par VM/LXC.",
+    "État de fiabilité de l'inventaire backup exposé au moteur d'alertes.",
+    "Confirmation sur deux contrôles fiables avant une alerte d'absence."
   ],
   "improvements_en": [
-    "Machine cards redesigned for true mobile usage.",
-    "Multi-selection integrated into each card.",
-    "Fixed touch-friendly bulk action bar.",
-    "Selection persists across refreshes.",
-    "Full-screen VM/LXC detail modals on phones.",
-    "Broader responsive pass across shared components.",
-    "New Cluster Health widget with compact score and progress bar.",
-    "Cleaner health summary with separate Nodes and Storage states."
+    "Falls back to the last valid backup inventory.",
+    "Recovers VMID from volid when needed.",
+    "Uses successful vzdump tasks as additional backup evidence.",
+    "Counts detected restore points per VM/LXC.",
+    "Exposes backup inventory reliability to the alert engine.",
+    "Requires two reliable checks before a missing-backup alert."
   ],
   "fixes": [
-    "Corrige la zone Sélection qui débordait à gauche sur mobile.",
-    "Corrige la checkbox qui sortait de la carte.",
-    "Corrige les chevauchements Mémoire/Stockage/CPU/Nœud sur les cartes Machines.",
-    "Corrige les boutons Console/Actions trop serrés sur téléphone.",
-    "Réduit les débordements horizontaux sur les écrans étroits.",
-    "Supprime le gros anneau Santé du cluster jugé trop massif.",
-    "Corrige la présentation mobile des modales et panneaux de détails."
+    "Corrige les alertes « aucun backup trouvé » alors qu'une sauvegarde quotidienne existe.",
+    "Corrige les faux positifs lorsqu'un stockage/PBS ne répond pas pendant un poll.",
+    "Empêche un inventaire partiel d'être utilisé pour conclure à une absence de sauvegarde.",
+    "Empêche le spam Discord du même incident intermittent.",
+    "Conserve le seuil de 36 h cohérent avec une sauvegarde quotidienne d'environ 24 h."
   ],
   "fixes_en": [
-    "Fixes the Selection label overflowing on the left in mobile view.",
-    "Fixes the checkbox rendering outside the machine card.",
-    "Fixes Memory/Storage/CPU/Node collisions on mobile machine cards.",
-    "Fixes Console/Actions buttons being too cramped on phones.",
-    "Reduces horizontal overflow on narrow screens.",
-    "Removes the oversized Cluster Health ring.",
-    "Fixes mobile presentation of detail modals and panels."
+    "Fixes “no backup found” alerts when daily backups actually exist.",
+    "Fixes false positives when a storage/PBS endpoint temporarily fails during polling.",
+    "Prevents partial inventory from being used to infer missing backups.",
+    "Prevents repeated Discord spam for the same intermittent incident.",
+    "Keeps the 36-hour threshold appropriate for daily backups around 24 hours old."
   ],
   "notes": [
-    "La beta.10 sera principalement consacrée à la stabilisation finale de la branche 1.7.1.",
-    "Tester en priorité la page Machines et le dashboard sur iPhone/PWA."
+    "Pour une rétention de 7 jours, ProxPanel peut maintenant compter plusieurs points de restauration pour une même VM/LXC.",
+    "Une absence réelle doit être confirmée deux fois avant notification Discord/e-mail/panel."
   ],
   "notes_en": [
-    "beta.10 will primarily focus on final stabilization of the 1.7.1 branch.",
-    "Prioritize testing Machines and the dashboard on iPhone/PWA."
+    "With a 7-day retention policy, ProxPanel can now count multiple restore points for the same VM/LXC.",
+    "A real absence must be confirmed twice before Discord/email/panel notification."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
