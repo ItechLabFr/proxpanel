@@ -14,7 +14,7 @@ The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more
 ## 1.7.2 design principles
 
 - **Docker first through Portainer.** ProxPanel must not require direct Docker socket access on each host.
-- **Portainer is the first officially supported external integration** for 1.7.2.
+- **Portainer is the first officially supported external integration** for 1.7.2. Portainer Community Edition is the primary validation target; Business Edition remains compatible when the API endpoints used by ProxPanel are compatible.
 - **PBS remains optional.** PBS-specific navigation should only appear when at least one PBS server is configured.
 - Integrations must use explicit credentials/tokens, clear health states and safe failure handling.
 - A temporary integration failure must never be interpreted as destructive or definitive infrastructure state.
@@ -25,6 +25,8 @@ The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more
 ---
 
 ## 1.7.2-beta.1 — Repository Foundation & Portainer Core
+
+Status: **implemented for publication**.
 
 ### Repository foundation
 
@@ -45,6 +47,7 @@ The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more
 - Test connection and display an explicit diagnostic.
 - Discover Portainer environments/endpoints.
 - Support **Docker Standalone first**.
+- Do not hard-code the integration to Portainer Community Edition: detect version/edition when exposed by the API and keep Business Edition compatible.
 - Introduce a first-class **Docker** navigation entry only when Portainer is configured.
 - Docker overview:
   - environment name;

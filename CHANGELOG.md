@@ -1,3 +1,37 @@
+# ProxPanel 1.7.2-beta.1
+
+## Français
+- Première version de la série 1.7.2.
+- Portainer devient la première intégration officiellement supportée.
+- Portainer CE est testé en priorité ; la compatibilité Business Edition reste ouverte lorsque les API utilisées sont identiques.
+- Ajout d'une configuration Portainer par URL + API Key / Access Token.
+- Test de connexion avant sauvegarde de l'intégration.
+- Support TLS et certificat auto-signé optionnel.
+- Découverte automatique des environnements Portainer.
+- Support initial Docker Standalone.
+- Nouvelle page Docker avec état des environnements, version Docker, CPU, RAM, OS et compteurs de conteneurs.
+- Le menu Docker reste caché si Portainer n'est pas configuré.
+- Aucun accès direct au socket Docker.
+- Une instance Portainer en erreur n'empêche pas les autres de remonter.
+- Premiers tests fonctionnels automatisés pour les sauvegardes et la logique Docker/Portainer.
+- PBS reste optionnel et est prévu pour beta.6.
+
+## English
+- First release in the 1.7.2 series.
+- Portainer becomes the first officially supported integration.
+- Portainer CE is tested first; Business Edition compatibility remains open where the same APIs are available.
+- Adds Portainer configuration using URL + API Key / Access Token.
+- Connection is tested before saving the integration.
+- Adds TLS support with optional self-signed certificates.
+- Automatically discovers Portainer environments.
+- Initial Docker Standalone support.
+- Adds a Docker page with environment state, Docker version, CPU, RAM, OS and container counters.
+- Docker navigation stays hidden when Portainer is not configured.
+- No direct Docker socket access.
+- A failed Portainer instance does not block data from other configured instances.
+- Adds initial automated functional tests for backup and Docker/Portainer reliability.
+- PBS remains optional and is planned for beta.6.
+
 # ProxPanel 1.7.1-beta.10
 
 ## Français

@@ -1,47 +1,61 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.1-beta.10",
-  "title": "ProxPanel 1.7.1-beta.10 — Backup Reliability & Stabilization",
-  "title_en": "ProxPanel 1.7.1-beta.10 — Backup Reliability & Stabilization",
-  "summary": "Corrige les faux positifs de sauvegarde en distinguant une vraie absence d'un inventaire temporairement indisponible, avec fallback cache, tâches vzdump et confirmation sur deux contrôles.",
-  "summary_en": "Fixes backup false positives by distinguishing real absence from temporary inventory failures, using cached inventory, successful vzdump tasks and two-check confirmation.",
+  "version": "1.7.2-beta.1",
+  "title": "ProxPanel 1.7.2-beta.1 — Repository Foundation & Portainer Core",
+  "title_en": "ProxPanel 1.7.2-beta.1 — Repository Foundation & Portainer Core",
+  "summary": "Lance la série 1.7.2 avec Portainer comme première intégration officielle, découverte des environnements Docker Standalone, vue Docker consolidée et premiers tests fonctionnels.",
+  "summary_en": "Starts the 1.7.2 series with Portainer as the first official integration, Docker Standalone environment discovery, a consolidated Docker overview and initial functional tests.",
   "improvements": [
-    "Fallback sur le dernier inventaire backup valide.",
-    "Récupération du VMID depuis le volid si nécessaire.",
-    "Utilisation des tâches vzdump réussies comme preuve complémentaire.",
-    "Comptage des points de restauration détectés par VM/LXC.",
-    "État de fiabilité de l'inventaire backup exposé au moteur d'alertes.",
-    "Confirmation sur deux contrôles fiables avant une alerte d'absence."
+    "Portainer devient la première intégration officiellement supportée par ProxPanel.",
+    "Portainer Community Edition est la cible de test prioritaire, sans verrouiller la compatibilité avec Business Edition.",
+    "Ajout Portainer par URL et API Key / Access Token chiffré localement.",
+    "Test de connexion obligatoire avant enregistrement d'une nouvelle intégration Portainer.",
+    "Support TLS avec option pour les certificats auto-signés.",
+    "Découverte automatique des environnements Portainer.",
+    "Support initial de Docker Standalone via l'API Portainer.",
+    "Nouvelle page Docker avec environnements, état, version Docker, CPU, RAM, OS et compteurs de conteneurs.",
+    "Menu Docker affiché uniquement lorsqu'au moins un Portainer est configuré.",
+    "Aucun accès direct au socket Docker n'est requis.",
+    "PBS reste optionnel et annoncé pour une intégration dédiée ultérieure.",
+    "Ajout de premiers tests fonctionnels pour les alertes backup et la logique Docker/Portainer."
   ],
   "improvements_en": [
-    "Falls back to the last valid backup inventory.",
-    "Recovers VMID from volid when needed.",
-    "Uses successful vzdump tasks as additional backup evidence.",
-    "Counts detected restore points per VM/LXC.",
-    "Exposes backup inventory reliability to the alert engine.",
-    "Requires two reliable checks before a missing-backup alert."
+    "Portainer becomes ProxPanel's first officially supported external integration.",
+    "Portainer Community Edition is the primary test target without locking out Business Edition compatibility.",
+    "Adds Portainer through URL and locally encrypted API Key / Access Token.",
+    "Requires a successful connection test before saving a new Portainer integration.",
+    "Supports TLS with an option for self-signed certificates.",
+    "Automatically discovers Portainer environments.",
+    "Initial Docker Standalone support through the Portainer API.",
+    "Adds a Docker page showing environments, state, Docker version, CPU, RAM, OS and container counters.",
+    "Docker navigation only appears when at least one Portainer integration is configured.",
+    "No direct Docker socket access is required.",
+    "PBS remains optional and is reserved for a later dedicated integration.",
+    "Adds initial functional tests for backup alerting and Docker/Portainer logic."
   ],
   "fixes": [
-    "Corrige les alertes « aucun backup trouvé » alors qu'une sauvegarde quotidienne existe.",
-    "Corrige les faux positifs lorsqu'un stockage/PBS ne répond pas pendant un poll.",
-    "Empêche un inventaire partiel d'être utilisé pour conclure à une absence de sauvegarde.",
-    "Empêche le spam Discord du même incident intermittent.",
-    "Conserve le seuil de 36 h cohérent avec une sauvegarde quotidienne d'environ 24 h."
+    "Conserve les garde-fous de fiabilité introduits en 1.7.1-beta.10 pour éviter les faux positifs de sauvegarde.",
+    "Le défaut d'une instance Portainer n'empêche pas l'affichage des autres instances configurées.",
+    "Les environnements Docker non pris en charge sont signalés clairement au lieu d'être traités comme Docker Standalone."
   ],
   "fixes_en": [
-    "Fixes “no backup found” alerts when daily backups actually exist.",
-    "Fixes false positives when a storage/PBS endpoint temporarily fails during polling.",
-    "Prevents partial inventory from being used to infer missing backups.",
-    "Prevents repeated Discord spam for the same intermittent incident.",
-    "Keeps the 36-hour threshold appropriate for daily backups around 24 hours old."
+    "Keeps the backup reliability safeguards introduced in 1.7.1-beta.10 to avoid false positives.",
+    "A failing Portainer instance no longer prevents other configured instances from being displayed.",
+    "Unsupported Docker environments are reported clearly instead of being treated as Docker Standalone."
   ],
   "notes": [
-    "Pour une rétention de 7 jours, ProxPanel peut maintenant compter plusieurs points de restauration pour une même VM/LXC.",
-    "Une absence réelle doit être confirmée deux fois avant notification Discord/e-mail/panel."
+    "Docker est géré exclusivement via Portainer dans la série 1.7.2 ; aucun montage de /var/run/docker.sock n'est demandé.",
+    "Portainer CE est testé en priorité. Portainer BE est prévu comme compatible lorsque les endpoints API utilisés sont identiques.",
+    "La beta.1 est en lecture/supervision. Les détails, logs, stacks et actions conteneurs arrivent en beta.2.",
+    "Docker Swarm peut être découvert mais n'est pas encore pris en charge comme cible opérationnelle en beta.1.",
+    "PBS est prévu pour 1.7.2-beta.6 et reste absent du menu principal tant qu'il n'est pas configuré."
   ],
   "notes_en": [
-    "With a 7-day retention policy, ProxPanel can now count multiple restore points for the same VM/LXC.",
-    "A real absence must be confirmed twice before Discord/email/panel notification."
+    "Docker is managed exclusively through Portainer in the 1.7.2 series; mounting /var/run/docker.sock is not required.",
+    "Portainer CE is tested first. Portainer BE is intended to remain compatible where the API endpoints used are identical.",
+    "beta.1 is read-only/monitoring focused. Container details, logs, stacks and actions arrive in beta.2.",
+    "Docker Swarm may be discovered but is not yet supported as an operational target in beta.1.",
+    "PBS is planned for 1.7.2-beta.6 and remains out of primary navigation until configured."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],

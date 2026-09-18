@@ -128,7 +128,7 @@ The OTA service receives only:
 ```json
 {
   "installation_id": "persistent-local-uuid",
-  "version": "1.7.1-beta.10",
+  "version": "1.7.2-beta.1",
   "update_channel": "beta"
 }
 ```
@@ -198,15 +198,18 @@ Bug reports, focused feature requests and reviewed pull requests are welcome. Se
 
 The public history of the 1.7 branch is available in [`HISTORY.md`](HISTORY.md).
 
-Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.1-beta.10**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
+Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.2-beta.1**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
 
 Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), while `updates.proxpanel.fr` remains responsible for OTA channels, rollout and revocation.
 
 ## 1.7.2 roadmap
 
-The next **1.7.2-beta.x** series focuses on multi-platform HomeLab operations:
+**1.7.2-beta.1 is the first active release in this series.** Portainer is the first officially supported external integration.
 
-- **Portainer / Docker** as the first officially supported external integration;
+
+The active **1.7.2-beta.x** series focuses on multi-platform HomeLab operations:
+
+- **Portainer / Docker** as the first officially supported external integration; **Portainer CE is tested first and Business Edition remains compatible when the APIs used are identical**;
 - Docker environments, containers and stacks;
 - Docker monitoring and alerts;
 - Proxmox ↔ Docker topology;
@@ -220,11 +223,11 @@ See [`ROADMAP.md`](ROADMAP.md) for the beta.1 → beta.10 plan.
 
 ## Project status
 
-Latest published development release: **1.7.1-beta.10**
+Latest published development release: **1.7.2-beta.1**
 
-Latest published GitHub Release: **1.7.1-beta.10**
+Latest published GitHub Release: **1.7.2-beta.1**
 
-Next development series: **1.7.2-beta.x** — Portainer/Docker, optional PBS, Automations, RBAC/Audit and Health Center. Maximum 10 betas per version series.
+Current development series: **1.7.2-beta.x** — Portainer/Docker, optional PBS, Automations, RBAC/Audit and Health Center. Maximum 10 betas per version series.
 
 Docker Hub remains the container distribution channel; versioned images should use the same ProxPanel release number as the GitHub/OTA release.
 

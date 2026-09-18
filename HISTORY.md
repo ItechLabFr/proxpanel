@@ -33,7 +33,9 @@ Cet historique couvre la branche **1.7.0-beta.x** à partir de **1.7.0-beta.1**.
 | [1.7.1-beta.7](docs/releases/1.7.1-beta.7.md) | Beta | Révoquée | Light theme · Navigation Administration |
 | [1.7.1-beta.8](docs/releases/1.7.1-beta.8.md) | Beta | Révoquée | Mode TV · Administration |
 | [1.7.1-beta.9](docs/releases/1.7.1-beta.9.md) | Beta | Révoquée | UX mobile · Santé du cluster |
-| [1.7.1-beta.10](docs/releases/1.7.1-beta.10.md) | Beta | **Release active** | Fiabilité sauvegardes · Stabilisation |
+| [1.7.1-beta.10](docs/releases/1.7.1-beta.10.md) | Beta | Révoquée par 1.7.2-beta.1 | Fiabilité sauvegardes · Stabilisation |
+
+| [1.7.2-beta.1](docs/releases/1.7.2-beta.1.md) | Beta | **Release active** | Portainer Core · Docker Standalone · Foundation |
 
 ## Politique d'archivage
 
@@ -61,6 +63,6 @@ La version [v1.7.0-beta.14](https://github.com/ItechLabFr/proxpanel/releases/tag
 Les versions suivantes utiliseront le même format.
 
 
-## Prochaine série — 1.7.2
+## Série actuelle — 1.7.2
 
-La série `1.7.1-beta.x` a atteint `beta.10`. Le prochain cycle de développement est **`1.7.2-beta.x`**, avec Portainer/Docker comme première intégration officielle, PBS optionnel, Automations 2.0, RBAC/Audit 2.0 et Health Center 2.0. Voir [`ROADMAP.md`](ROADMAP.md).
+La série `1.7.1-beta.x` a atteint `beta.10`. Le cycle de développement actif est **`1.7.2-beta.x`**, avec Portainer/Docker comme première intégration officielle, PBS optionnel, Automations 2.0, RBAC/Audit 2.0 et Health Center 2.0. Voir [`ROADMAP.md`](ROADMAP.md).
