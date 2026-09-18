@@ -2,7 +2,7 @@
   "name": "proxpanel",
   "version": "1.7.1-beta.2",
   "private": true,
-  "description": "ProxPanel 1.7.1-beta.2 - VM storage, multi-node UX, responsive UI and monitoring.",
+  "description": "ProxPanel 1.7.1-beta.2 - VM Storage, Multi-node UX, Responsive UI and Monitoring.",
   "scripts": {
     "start": "node server.js"
   },
