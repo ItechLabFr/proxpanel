@@ -25,9 +25,41 @@ Mot de passe : ProxPanelDemo2026!
 
 Les identifiants sont préremplis sur la page de connexion.
 
-Le mode démo initialise automatiquement un cluster Proxmox fictif avec 3 nœuds, plusieurs VM et LXC, des stockages, des sauvegardes, des tâches, des métriques, des températures et un historique. Aucune connexion à un vrai serveur Proxmox n'est nécessaire.
+Le mode démo initialise automatiquement une infrastructure fictive complète : cluster Proxmox, VM/LXC, stockages, sauvegardes, tâches, métriques, températures et historique. Il inclut également un Portainer CE fictif avec plusieurs environnements Docker, conteneurs, stacks, ports, réseaux, états de santé, métriques et logs simulés. Aucune connexion à un vrai serveur Proxmox ou Portainer n'est nécessaire.
 
 Le mode est en lecture seule : les visiteurs peuvent parcourir l'interface, mais les modifications et actions d'administration sont bloquées.
+
+
+## Règle obligatoire : parité fonctionnelle de la démo
+
+Toute nouvelle fonctionnalité visible ajoutée à ProxPanel doit être représentée dans le mode démo **avant que la version soit considérée comme terminée**.
+
+Cela concerne notamment :
+
+- une nouvelle page ou carte du dashboard ;
+- une nouvelle intégration ;
+- une nouvelle ressource Proxmox, PBS, Docker ou Portainer ;
+- une nouvelle métrique, alerte, notification ou état ;
+- une nouvelle vue de monitoring ;
+- un nouvel écran de détails ;
+- une nouvelle fonction de sauvegarde, stockage, tâche ou mise à jour.
+
+Pour chaque nouveauté, le mode démo doit fournir des données fictives cohérentes permettant de parcourir réellement l'interface sans dépendre d'un service externe.
+
+Les données doivent couvrir lorsque c'est pertinent plusieurs états : normal, arrêté/inactif, warning, erreur ou unhealthy. Les actions modifiant l'infrastructure restent bloquées en mode démo lecture seule.
+
+Une nouveauté UI qui apparaît vide, demande une vraie connexion externe ou affiche « non configuré » alors qu'elle fait partie de la démonstration est considérée comme **incomplète côté démo**.
+
+Le contrôle à effectuer pour chaque nouvelle fonctionnalité est donc :
+
+```text
+Fonction réelle ajoutée
+→ données fictives ajoutées
+→ navigation et détails testés en DEMO_MODE
+→ aucune dépendance externe requise
+→ actions sensibles toujours bloquées
+→ seulement ensuite : version prête
+```
 
 ## Première installation
 
@@ -68,8 +100,8 @@ Le script :
 1. récupère le dernier `main` depuis GitHub ;
 2. construit `proxpanel-demo:local` directement sur le serveur ;
 3. recrée uniquement le conteneur `proxpanel-demo` ;
-4. conserve les volumes de données ;
-5. contrôle le healthcheck ;
+4. recrée les données fictives de démonstration ;
+5. contrôle le healthcheck et vérifie que `demoMode=true` et `setupDone=true` ;
 6. affiche le commit réellement déployé.
 
 Aucun build n'est déclenché tant que la commande n'est pas exécutée.
