@@ -1,0 +1,75 @@
+name: Import initial ProxPanel source
+
+on:
+  push:
+    paths:
+      - '.github/workflows/import-initial-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pull official ProxPanel image
+        run: docker pull itechlab/proxpanel:1.7.0-beta.14
+
+      - name: Extract application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cid="$(docker create itechlab/proxpanel:1.7.0-beta.14)"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+
+          rm -rf app
+          mkdir -p app docs/assets
+          docker cp "$cid:/opt/proxpanel-seed/." app/
+          docker cp "$cid:/opt/proxpanel-bootstrap/launcher.js" launcher.js
+
+          # release.json is kept once at repository root.
+          rm -f app/release.json
+
+          # Reuse the official application logo in the GitHub README.
+          cp app/public/proxpanel-logo-512.png docs/assets/proxpanel-logo.png
+
+      - name: Sanity checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f app/server.js
+          test -f app/public/app.js
+          test -f app/public/styles.css
+          test -f app/public/proxpanel-logo-512.png
+          test -f launcher.js
+          node --check app/server.js
+          node --check app/public/app.js
+          node --check launcher.js
+
+          if find app -type f \( -name '.env' -o -name '*.pem' -o -name '*.key' -o -name 'settings.json' -o -name 'servers.json' -o -name 'users.json' \) | grep -q .; then
+            echo "Sensitive runtime file detected; refusing to commit."
+            exit 1
+          fi
+
+      - name: Commit complete source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app launcher.js docs/assets/proxpanel-logo.png
+
+          if git diff --cached --quiet; then
+            echo "Source already synchronized."
+            exit 0
+          fi
+
+          git commit -m "Add complete ProxPanel 1.7.0-beta.14 source"
+          git push
