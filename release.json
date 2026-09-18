@@ -1,43 +1,35 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.1-beta.4",
-  "title": "ProxPanel 1.7.1-beta.4 — Urgent Proxmox Connection Hotfix",
-  "title_en": "ProxPanel 1.7.1-beta.4 — Urgent Proxmox Connection Hotfix",
-  "summary": "Correctif urgent de la connexion Proxmox après beta.3 et stabilisation du logo dans tous les thèmes.",
-  "summary_en": "Urgent Proxmox connection reliability hotfix after beta.3, plus stable logo identity across themes.",
+  "version": "1.7.1-beta.5",
+  "title": "ProxPanel 1.7.1-beta.5 — Dashboard Loading Hotfix",
+  "title_en": "ProxPanel 1.7.1-beta.5 — Dashboard Loading Hotfix",
+  "summary": "Corrige l'erreur notifyProblems is not defined qui bloquait le dashboard malgré une récupération réussie des données Proxmox.",
+  "summary_en": "Fixes the notifyProblems is not defined error that blocked the dashboard even after Proxmox data was successfully retrieved.",
   "improvements": [
-    "Validation de la vue multi-nœuds sauvegardée avant le premier chargement du dashboard.",
-    "Retour automatique vers le serveur Proxmox sélectionné quand une vue multi-nœuds est invalide ou indisponible.",
-    "Logo ProxPanel orange fixe dans tous les thèmes."
+    "Restauration du gestionnaire de notifications du dashboard.",
+    "Lecture robuste de l'historique local des notifications."
   ],
   "improvements_en": [
-    "Validates the saved multi-node view before the first dashboard load.",
-    "Automatically falls back to the selected Proxmox server when a multi-node view is invalid or unavailable.",
-    "Keeps the ProxPanel logo consistently orange in every theme."
+    "Restores the dashboard notification handler.",
+    "Adds robust parsing for local notification history."
   ],
   "fixes": [
-    "Corrige le cas où ProxPanel pouvait apparaître totalement déconnecté après beta.3 à cause d'une vue dashboard sauvegardée invalide.",
-    "Corrige l'échec initial du dashboard lorsqu'un ancien groupe multi-nœuds n'existe plus.",
-    "Empêche la récupération de session PVE de casser un dashboard déjà chargé.",
-    "Corrige le logo qui changeait de couleur avec le thème.",
-    "Force le renouvellement des assets PWA en version 1.7.1-beta.4."
+    "Corrige l'erreur JavaScript notifyProblems is not defined.",
+    "Corrige le faux état Données Proxmox indisponibles déclenché après un chargement réussi.",
+    "Renouvelle les assets PWA en 1.7.1-beta.5."
   ],
   "fixes_en": [
-    "Fixes ProxPanel appearing fully disconnected after beta.3 because of an invalid persisted dashboard view.",
-    "Fixes initial dashboard failure when an old multi-node group no longer exists.",
-    "Prevents PVE session retrieval from breaking an already loaded dashboard.",
-    "Fixes the logo changing color with the selected theme.",
-    "Forces PWA assets to refresh as version 1.7.1-beta.4."
+    "Fixes the JavaScript error notifyProblems is not defined.",
+    "Fixes the false Proxmox data unavailable state triggered after successful loading.",
+    "Refreshes PWA assets as 1.7.1-beta.5."
   ],
   "notes": [
-    "Correctif prioritaire recommandé aux utilisateurs de 1.7.1-beta.3.",
-    "Après mise à jour PWA, relancer complètement l'application si l'ancien cache reste affiché.",
-    "Série 1.7.1 : 10 betas maximum."
+    "Correctif prioritaire pour les utilisateurs des beta.3 et beta.4.",
+    "Après mise à jour PWA, fermer complètement puis relancer l'application."
   ],
   "notes_en": [
-    "Priority hotfix recommended for 1.7.1-beta.3 users.",
-    "After updating the PWA, fully relaunch the app if an old cached UI is still visible.",
-    "1.7.1 series: maximum 10 beta releases."
+    "Priority hotfix for beta.3 and beta.4 users.",
+    "After updating the PWA, fully close and relaunch the application."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],

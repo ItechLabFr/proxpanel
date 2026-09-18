@@ -701,7 +701,7 @@ function adminHomePage(){
   const s=state.settings||{},remote=state.remoteUpdate||{},u=state.updates||{},serverOnline=state.servers.filter(x=>x.status==='online').length;
   return`<div class="page-head"><div><h1>Administration</h1><p>Centre de configuration ProxPanel. Les réglages sont maintenant regroupés par usage.</p></div><div>${button('Se déconnecter','logout','danger')}</div></div>
   <div class="admin-summary-grid">
-    <div class="admin-summary"><span>Version</span><strong>${esc(u.currentVersion||'1.7.1-beta.4')}</strong><small>${remote.available?'Mise à jour disponible':'Version installée'}</small></div>
+    <div class="admin-summary"><span>Version</span><strong>${esc(u.currentVersion||'1.7.1-beta.5')}</strong><small>${remote.available?'Mise à jour disponible':'Version installée'}</small></div>
     <div class="admin-summary"><span>Canal OTA</span><strong>${esc(String(s.updates?.otaChannel||'beta').toUpperCase())}</strong><small>${remote.lastCheckAt?'Vérifié '+fmtDate(remote.lastCheckAt):'Vérification différée'}</small></div>
     <div class="admin-summary"><span>Serveurs</span><strong>${serverOnline}/${state.servers.length}</strong><small>connecté(s)</small></div>
     <div class="admin-summary"><span>2FA</span><strong>${state.me?.totpEnabled?'Active':'À vérifier'}</strong><small>Compte courant</small></div>
@@ -1065,6 +1065,24 @@ async function reloadSection(){
     }
   }catch(e){toast(e.message,'error')}
 }
+function notifyProblems(){
+  if(!('Notification' in window)||Notification.permission!=='granted'||!state.settings?.pwa?.notificationsEnabled)return;
+  let stored=[];
+  try{stored=JSON.parse(localStorage.getItem('proxpanel.notified')||'[]')}catch{stored=[]}
+  const keys=new Set(Array.isArray(stored)?stored:[]);
+  let changed=false;
+  for(const p of d().problems||[]){
+    if((p.severity==='critical'||p.severity==='warning')&&!keys.has(p.id)){
+      try{
+        new Notification(`ProxPanel · ${translateUiString(p.title)}`,{body:translateUiString(p.detail),icon:'/icon.svg'});
+      }catch{}
+      keys.add(p.id);
+      changed=true;
+    }
+  }
+  if(changed)localStorage.setItem('proxpanel.notified',JSON.stringify([...keys].slice(-100)));
+}
+
 async function saveDashboardOrder(){await api('/api/settings',{method:'PUT',body:JSON.stringify({dashboardWidgets:state.settings.dashboardWidgets})})}
 async function moveWidget(key,delta){const o=[...(state.settings.dashboardWidgets||[])],i=o.indexOf(key),j=Math.max(0,Math.min(o.length-1,i+delta));if(i<0||i===j)return;[o[i],o[j]]=[o[j],o[i]];state.settings.dashboardWidgets=o;await saveDashboardOrder();renderPage()}
 function bindDrag(){if(!state.editDashboard)return;const grid=qs('#dashboardGrid');if(!grid)return;let drag=null;qsa('.widget[draggable="true"]',grid).forEach(el=>{el.addEventListener('dragstart',()=>{drag=el.dataset.widget;el.classList.add('dragging')});el.addEventListener('dragend',()=>el.classList.remove('dragging'));el.addEventListener('dragover',e=>e.preventDefault());el.addEventListener('drop',async e=>{e.preventDefault();const target=el.dataset.widget;if(!drag||drag===target)return;const order=[...(state.settings.dashboardWidgets||[])],a=order.indexOf(drag),b=order.indexOf(target);if(a<0||b<0)return;order.splice(a,1);order.splice(b,0,drag);state.settings.dashboardWidgets=order;await saveDashboardOrder();renderPage()})})}
