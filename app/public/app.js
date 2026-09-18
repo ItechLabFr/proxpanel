@@ -955,18 +955,74 @@ async function loadBase(){
 
   const groupsPromise=api('/api/dashboard-groups').then(groups=>{
     state.dashboardGroups=groups||[];
-    if(state.dashboardView.startsWith('group:')&&!state.dashboardGroups.some(g=>`group:${g.id}`===state.dashboardView))state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';
-  }).catch(()=>{state.dashboardGroups=[];if(state.dashboardView.startsWith('group:'))state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:''});
+    if(state.dashboardView.startsWith('group:')&&!state.dashboardGroups.some(g=>`group:${g.id}`===state.dashboardView)){
+      state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';
+      localStorage.setItem('proxpanel.dashboardView',state.dashboardView);
+    }
+    return state.dashboardGroups;
+  }).catch(()=>{
+    state.dashboardGroups=[];
+    if(state.dashboardView.startsWith('group:')){
+      state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';
+      localStorage.setItem('proxpanel.dashboardView',state.dashboardView);
+    }
+    return [];
+  });
 
+  // A persisted multi-node view must be validated before the first dashboard
+  // request. Otherwise an old/deleted group can make the whole UI look
+  // disconnected from Proxmox after an update.
+  if(state.dashboardView.startsWith('group:'))await groupsPromise;
   await refreshDashboard(false,false);state.perf.dashboardReadyMs=Math.round(performance.now()-state.perf.startedAt);
-  groupsPromise.then(()=>{if(state.currentPage==='overview'&&state.dashboardView.startsWith('group:'))refreshDashboard(false,false).catch(()=>{});else if(state.currentPage==='overview')renderPage()});
+  groupsPromise.then(()=>{if(state.currentPage==='overview')renderPage()});
   if(state.selectedServer)Promise.allSettled([loadTasks(false),refreshLatency(false)]).then(()=>patchConnectionDom());
   const loadHistory=()=>refreshDashboard(false,true).catch(e=>console.warn('Startup history',e.message));
   if('requestIdleCallback' in window)requestIdleCallback(loadHistory,{timeout:2200});else setTimeout(loadHistory,900);
   scheduleDeferredStartup();
 }
 
-async function refreshDashboard(show=true,includeHistory=true){if(!state.selectedServer&&!state.dashboardView){state.dashboard=null;renderPage();return}state.loading=true;if(show)renderPage();try{const previous=state.dashboard;let fresh;const groupId=state.dashboardView?.startsWith('group:')?state.dashboardView.slice(6):'';if(groupId&&state.currentPage==='overview')fresh=await api(`/api/dashboard-groups/${groupId}/dashboard?timeframe=${encodeURIComponent(state.dashboardTimeframe)}&history=${includeHistory?'1':'0'}`);else fresh=await api(`/api/servers/${state.selectedServer}/dashboard?timeframe=${encodeURIComponent(state.dashboardTimeframe)}&history=${includeHistory?'1':'0'}`);if(!includeHistory&&previous){fresh.history=previous.history||fresh.history;if(fresh.metrics?.networkMbps==null&&previous.metrics?.networkMbps!=null)fresh.metrics.networkMbps=previous.metrics.networkMbps;fresh.dashboardTimeframe=previous.dashboardTimeframe||state.dashboardTimeframe;}state.dashboard=fresh;state.dashboardError=null;state.liveUpdatedAt=Date.now();if(includeHistory&&!groupId)state.pveSession=await api(`/api/servers/${state.selectedServer}/pve-session`);if(state.currentPage==='dependencies'&&includeHistory&&!groupId)await loadDependencies();notifyProblems()}catch(e){if(includeHistory)state.dashboard=null;state.dashboardError=e.message}finally{state.loading=false;renderPage()}}
+async function refreshDashboard(show=true,includeHistory=true){
+  if(!state.selectedServer&&!state.dashboardView){state.dashboard=null;renderPage();return}
+  state.loading=true;if(show)renderPage();
+  const previous=state.dashboard;
+  let groupId=state.dashboardView?.startsWith('group:')?state.dashboardView.slice(6):'';
+  try{
+    let fresh;
+    try{
+      if(groupId&&state.currentPage==='overview'){
+        fresh=await api(`/api/dashboard-groups/${groupId}/dashboard?timeframe=${encodeURIComponent(state.dashboardTimeframe)}&history=${includeHistory?'1':'0'}`);
+      }else{
+        fresh=await api(`/api/servers/${state.selectedServer}/dashboard?timeframe=${encodeURIComponent(state.dashboardTimeframe)}&history=${includeHistory?'1':'0'}`);
+      }
+    }catch(groupError){
+      // Reliability first: if a saved group is stale/broken, immediately fall
+      // back to the selected Proxmox server instead of marking the whole app
+      // as disconnected.
+      if(groupId&&state.selectedServer){
+        console.warn('Dashboard group unavailable, fallback to server',groupError.message);
+        state.dashboardView=`server:${state.selectedServer}`;
+        localStorage.setItem('proxpanel.dashboardView',state.dashboardView);
+        groupId='';
+        fresh=await api(`/api/servers/${state.selectedServer}/dashboard?timeframe=${encodeURIComponent(state.dashboardTimeframe)}&history=${includeHistory?'1':'0'}`);
+      }else throw groupError;
+    }
+    if(!includeHistory&&previous){
+      fresh.history=previous.history||fresh.history;
+      if(fresh.metrics?.networkMbps==null&&previous.metrics?.networkMbps!=null)fresh.metrics.networkMbps=previous.metrics.networkMbps;
+      fresh.dashboardTimeframe=previous.dashboardTimeframe||state.dashboardTimeframe;
+    }
+    state.dashboard=fresh;state.dashboardError=null;state.liveUpdatedAt=Date.now();
+    if(includeHistory&&!groupId)state.pveSession=await api(`/api/servers/${state.selectedServer}/pve-session`).catch(()=>state.pveSession);
+    if(state.currentPage==='dependencies'&&includeHistory&&!groupId)await loadDependencies();
+    notifyProblems();
+  }catch(e){
+    if(includeHistory)state.dashboard=null;
+    state.dashboardError=e.message;
+  }finally{
+    state.loading=false;
+    renderPage();
+  }
+}
 async function refreshPveUpdateStatus(render=false){try{state.pveUpdates=await api('/api/pve-updates/status');if(render)renderPage();else if(state.currentPage==='overview')patchOverviewLiveDom()}catch(e){console.warn('PVE update status',e.message)}}
 async function refreshRemoteUpdateStatus(render=false){try{const prev=state.remoteUpdate?.version;state.remoteUpdate=await api('/api/update/remote-status');if(render)renderPage();if(state.remoteUpdate?.available&&state.remoteUpdate.version&&state.remoteUpdate.version!==prev)toast(`Mise à jour ProxPanel ${state.remoteUpdate.version} disponible.`,'warning')}catch(e){console.warn('Update status',e.message)}}
 async function refreshLatency(render=false){if(!state.selectedServer){state.latencyMs=null;return}try{const r=await api(`/api/servers/${state.selectedServer}/ping`);state.latencyMs=Number.isFinite(Number(r.latencyMs))?Number(r.latencyMs):null}catch{state.latencyMs=null}if(render)renderPage();else patchConnectionDom()}
