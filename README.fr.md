@@ -32,6 +32,8 @@ Le développement est **assisté par IA** pour certaines tâches de design, gén
 - Dashboard Studio personnalisable
 - Mode TV Classique, Graphiques et Personnalisé
 - CPU, RAM, stockage, réseau et métriques historiques
+- Stockage invité QEMU Guest Agent pour les VM Windows/Linux
+- Vues multi-nœuds et Monitoring enrichi
 - Températures CPU des nœuds via `lm-sensors`
 - Gestion et actions VM/LXC
 - Suivi des sauvegardes et tâches
@@ -134,7 +136,7 @@ Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechl
 
 ## Statut
 
-Version de développement actuelle : **1.7.1-beta.1**
+Version de développement actuelle : **1.7.1-beta.2**
 
 Dernière GitHub Release publiée : **1.7.1-beta.1**
 
