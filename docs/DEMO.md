@@ -14,6 +14,21 @@ proxpanel-demo:local
 
 Cette image existe uniquement sur le serveur de démo.
 
+## Compte et données de démonstration
+
+Le fichier `docker-compose.demo.yml` active automatiquement le mode démo public.
+
+```text
+Utilisateur : demo
+Mot de passe : ProxPanelDemo2026!
+```
+
+Les identifiants sont préremplis sur la page de connexion.
+
+Le mode démo initialise automatiquement un cluster Proxmox fictif avec 3 nœuds, plusieurs VM et LXC, des stockages, des sauvegardes, des tâches, des métriques, des températures et un historique. Aucune connexion à un vrai serveur Proxmox n'est nécessaire.
+
+Le mode est en lecture seule : les visiteurs peuvent parcourir l'interface, mais les modifications et actions d'administration sont bloquées.
+
 ## Première installation
 
 Sur le serveur Docker :
