@@ -17,7 +17,12 @@ const {
   backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
   normalizeDockerContainer,normalizePortainerStack,redactDockerInspect
 } = require('./lib/reliability');
-const { DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL, demoProxmoxApi, demoTemperatureForNode } = require('./lib/demo-mode');
+const {
+  DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
+  demoProxmoxApi, demoTemperatureForNode,
+  demoDockerOverview, demoDockerContainers, demoDockerStacks,
+  demoDockerContainerDetails, demoDockerLogs
+} = require('./lib/demo-mode');
 
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
@@ -495,6 +500,13 @@ function ensureDemoModeSeed() {
     id:'demo-pve',name:'Cluster ProxPanel Demo',url:'https://demo-pve.local:8006',
     username:'demo@pve',authMode:'demo',demo:true,allowSelfSigned:false,certFingerprint:'',
     createdAt,status:'online',lastSeen:new Date().toISOString(),lastError:null,pveVersion:'9.0.3',wol:null
+  }]);
+  jsonWrite(INTEGRATIONS_FILE,[{
+    id:'demo-portainer',type:'portainer',name:'Portainer CE · Démo',url:'https://portainer.demo.local',
+    username:'',statusPageSlug:'',allowSelfSigned:false,enabled:true,createdAt,
+    lastStatus:'ok',lastTestAt:new Date().toISOString(),lastError:'',
+    portainerVersion:'2.27.1',portainerEdition:'Community Edition',
+    environmentCount:2,supportedDockerCount:2,demo:true
   }]);
 }
 ensureDemoModeSeed();
@@ -4109,6 +4121,7 @@ async function handleApi(req, res, url) {
     return sendJson(res,201,redactIntegration(row));
   }
   if(url.pathname==='/api/docker/overview'&&req.method==='GET'){
+    if(DEMO_MODE)return sendJson(res,200,demoDockerOverview());
     const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
     if(!rows.length)return sendJson(res,200,{configured:false,portainers:[],summary:{portainers:0,environments:0,reachable:0,supported:0,containers:0,running:0,stopped:0,unhealthy:0}});
     const force=url.searchParams.get('force')==='1';
@@ -4127,7 +4140,13 @@ async function handleApi(req, res, url) {
   if(dockerContainersMatch&&req.method==='GET'){
     const item=findPortainerIntegration(dockerContainersMatch[1]);if(!item)return sendJson(res,404,{error:'Portainer introuvable.'});
     try{
-      const endpointId=dockerEndpointId(dockerContainersMatch[2]),containers=await portainerContainerList(item,endpointId);
+      const endpointId=dockerEndpointId(dockerContainersMatch[2]);
+      if(DEMO_MODE){
+        const containers=demoDockerContainers(endpointId),stacks=demoDockerStacks(endpointId);
+        const stackByName=Object.fromEntries(stacks.map(s=>[s.name,s]));
+        return sendJson(res,200,{endpointId,containers:containers.map(x=>({...x,stackInfo:x.stack?stackByName[x.stack]||null:null})),summary:summarizeDockerContainers(containers)});
+      }
+      const containers=await portainerContainerList(item,endpointId);
       const stacks=await portainerStackList(item,endpointId).catch(()=>[]);
       const stackByName=Object.fromEntries(stacks.map(s=>[s.name,s]));
       return sendJson(res,200,{endpointId,containers:containers.map(x=>({...x,stackInfo:x.stack?stackByName[x.stack]||null:null})),summary:summarizeDockerContainers(containers)});
@@ -4139,6 +4158,15 @@ async function handleApi(req, res, url) {
     let endpointId,containerId;try{endpointId=dockerEndpointId(dockerContainerMatch[2]);containerId=dockerObjectId(decodeURIComponent(dockerContainerMatch[3]));}catch(e){return sendJson(res,400,{error:e.message});}
     const op=dockerContainerMatch[4]||'inspect';
     try{
+      if(DEMO_MODE&&req.method==='GET'&&op==='inspect'){
+        const details=demoDockerContainerDetails(endpointId,containerId);
+        if(!details)return sendJson(res,404,{error:'Conteneur de démonstration introuvable.'});
+        return sendJson(res,200,details);
+      }
+      if(DEMO_MODE&&req.method==='GET'&&op==='logs'){
+        const tail=Math.max(20,Math.min(1000,Number(url.searchParams.get('tail')||250)));
+        return sendJson(res,200,{logs:demoDockerLogs(endpointId,containerId,tail),tail});
+      }
       if(req.method==='GET'&&op==='inspect'){
         const inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/json`);
         const stats=String(inspect?.State?.Status||'').toLowerCase()==='running'?await dockerContainerStats(item,endpointId,containerId):null;
@@ -4179,6 +4207,16 @@ async function handleApi(req, res, url) {
     let endpointId;try{endpointId=dockerEndpointId(dockerStacksMatch[2]);}catch(e){return sendJson(res,400,{error:e.message});}
     const stackId=Number(dockerStacksMatch[3]||0),op=dockerStacksMatch[4]||'';
     try{
+      if(DEMO_MODE&&req.method==='GET'&&!stackId){
+        const stacks=demoDockerStacks(endpointId),containers=demoDockerContainers(endpointId);
+        const counts={};for(const ct of containers)if(ct.stack)counts[ct.stack]=(counts[ct.stack]||0)+1;
+        return sendJson(res,200,{endpointId,stacks:stacks.map(s=>({...s,containerCount:Number(counts[s.name]||0)}))});
+      }
+      if(DEMO_MODE&&req.method==='GET'&&stackId&&!op){
+        const stack=demoDockerStacks(endpointId).find(s=>Number(s.id)===stackId);
+        if(!stack)return sendJson(res,404,{error:'Stack de démonstration introuvable.'});
+        return sendJson(res,200,{stack});
+      }
       if(req.method==='GET'&&!stackId){
         const stacks=await portainerStackList(item,endpointId),containers=await portainerContainerList(item,endpointId).catch(()=>[]);
         const counts={};for(const ct of containers)if(ct.stack)counts[ct.stack]=(counts[ct.stack]||0)+1;
