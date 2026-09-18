@@ -30,7 +30,7 @@ Le développement est **assisté par IA** pour certaines tâches de design, gén
 
 - Dashboard responsive pour nœuds, VM et LXC
 - Dashboard Studio personnalisable
-- Mode TV Classique, Graphiques et Personnalisé
+- Mode TV Synthèse, Analytique et Studio
 - CPU, RAM, stockage, réseau et métriques historiques
 - Stockage invité QEMU Guest Agent pour les VM Windows/Linux
 - Vues multi-nœuds et Monitoring enrichi
@@ -60,7 +60,7 @@ docker run -d \
   -p 8080:8080 \
   -v proxpanel_data:/app/data \
   -v proxpanel_runtime:/opt/proxpanel-runtime \
-  itechlab/proxpanel:1.7.0-beta.14
+  itechlab/proxpanel:beta
 ```
 
 Puis ouvre :
@@ -109,7 +109,7 @@ Seules ces informations sont envoyées :
 ```json
 {
   "installation_id": "uuid-local-persistant",
-  "version": "1.7.0-beta.15",
+  "version": "1.7.1-beta.10",
   "update_channel": "beta"
 }
 ```
@@ -140,17 +140,33 @@ Les rapports de bugs, demandes de fonctions ciblées et pull requests revues son
 
 L'historique public de la branche 1.7 est disponible dans [`HISTORY.md`](HISTORY.md).
 
-Les notes historiques sont disponibles depuis **1.7.0-beta.1**. **v1.7.0-beta.14** est la première GitHub Release reproductible. La dernière prerelease publiée est **v1.7.1-beta.2**, avec ZIP complet, ZIP OTA, `release.json` et sommes SHA-256.
+Les notes historiques sont disponibles depuis **1.7.0-beta.1**. **v1.7.0-beta.14** est la première GitHub Release reproductible. La dernière prerelease publiée est **v1.7.1-beta.10**, avec ZIP complet, ZIP OTA, `release.json` et sommes SHA-256.
 
 Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), tandis que `updates.proxpanel.fr` reste responsable des canaux OTA, du rollout et des révocations.
 
+## Roadmap 1.7.2
+
+La prochaine série **1.7.2-beta.x** est centrée sur l'exploitation HomeLab multi-plateforme :
+
+- **Portainer / Docker** comme première intégration officiellement supportée ;
+- vue des environnements, conteneurs et stacks ;
+- monitoring et alertes Docker ;
+- topologie Proxmox ↔ Docker ;
+- gestion guidée des mises à jour d'images ;
+- **PBS optionnel**, visible uniquement s'il est configuré ;
+- Automations 2.0 ;
+- RBAC et Audit 2.0 ;
+- Health Center 2.0.
+
+Voir [`ROADMAP.md`](ROADMAP.md) pour le détail beta.1 → beta.10.
+
 ## Statut
 
-Version de développement actuelle : **1.7.1-beta.2**
+Dernière version de développement publiée : **1.7.1-beta.10**
 
-Dernière GitHub Release publiée : **1.7.1-beta.2**
+Dernière GitHub Release publiée : **1.7.1-beta.10**
 
-Série de développement actuelle : **1.7.1-beta.x** — 10 betas maximum par version.
+Prochaine série de développement : **1.7.2-beta.x** — Portainer/Docker, PBS optionnel, automatisations, RBAC/Audit et Health Center. Maximum 10 betas par version.
 
 Docker Hub reste le canal de distribution des images ; les tags versionnés doivent utiliser le même numéro de version que la Release GitHub et l’OTA.
 
