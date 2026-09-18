@@ -1,3 +1,17 @@
+# ProxPanel 1.7.0-beta.16
+
+## Français
+- Corrige la température CPU absente dans les vues individuelles des nœuds.
+- Aligne les routes dashboard et live individuelles sur la collecte lm-sensors des vues regroupées.
+- Corrige la disparition de la température pendant le rafraîchissement live.
+- Ajoute la règle de versioning : prochaine série en 1.7.1-beta.1, 10 betas maximum par version.
+
+## English
+- Fixes missing CPU temperature values in individual node views.
+- Aligns individual dashboard and live routes with the lm-sensors collection used by grouped views.
+- Fixes temperatures disappearing during live refresh.
+- Adds the versioning rule: next series starts at 1.7.1-beta.1, with a maximum of 10 beta releases per version.
+
 # ProxPanel 1.7.0-beta.15
 
 ## Authentication & Mobile UX
