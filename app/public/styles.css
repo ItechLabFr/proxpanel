@@ -685,9 +685,22 @@ html[data-theme="light"] .brand-mark{box-shadow:0 7px 22px color-mix(in srgb,var
 
 
 /* beta.3 theme finishing touches */
-.brand-mark{background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 88%,#fff 12%),color-mix(in srgb,var(--accent) 78%,#000 22%));box-shadow:0 7px 22px color-mix(in srgb,var(--accent) 17%,transparent)}
+.brand-mark{background:linear-gradient(145deg,#ff8b2d,#e85c00);box-shadow:0 7px 22px rgba(255,122,0,.17)}
 html[data-theme="contrast"] .btn.primary{color:#000}
 html[data-theme="contrast"] .nav-btn.active{color:#fff}
 html[data-theme="light"] .topbar{box-shadow:0 1px 0 rgba(38,55,75,.04)}
 html[data-theme="light"] .search-result:hover,html[data-theme="light"] .nav-btn:hover{background:#eef3f8}
 html[data-theme="light"] .admin-hub-card,html[data-theme="light"] .admin-summary{box-shadow:0 4px 18px rgba(38,55,75,.04)}
+
+
+/* v1.7.1-beta.4 hotfix — keep ProxPanel identity stable across themes */
+html[data-theme] .brand-mark{
+  background:linear-gradient(145deg,#ff8b2d,#e85c00);
+  color:#fff;
+  box-shadow:0 7px 22px rgba(255,122,0,.17);
+}
+html[data-theme="light"] .brand-mark{
+  background:linear-gradient(145deg,#ff8b2d,#e85c00);
+  color:#fff;
+  box-shadow:0 7px 22px rgba(255,122,0,.17);
+}
