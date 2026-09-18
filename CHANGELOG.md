@@ -1,3 +1,33 @@
+# ProxPanel 1.7.2-beta.2
+
+## Français
+- Nouvelle console Docker par environnement Portainer.
+- Inventaire des conteneurs : image, état, health, statut, ports, réseaux et stack.
+- Détails avec statistiques CPU/RAM temps réel quand disponibles.
+- Inspect filtré avec secrets et variables d’environnement masqués.
+- Logs Docker directement dans ProxPanel.
+- Exec non interactif via Portainer.
+- Actions conteneur : start, stop, restart, pause, resume.
+- Inventaire des stacks Portainer avec source, état et nombre de conteneurs.
+- Actions stack : start, stop et redeploy avec confirmation.
+- Toutes les actions Docker sont auditées.
+- Interface responsive mobile/tablette.
+- Packaging OTA complet + smoke-test conservés depuis beta.1.1.
+
+## English
+- New Docker operations workspace per Portainer environment.
+- Container inventory: image, state, health, status, ports, networks and stack.
+- Details with real-time CPU/RAM stats when available.
+- Filtered Inspect with secrets and environment values redacted.
+- Docker logs directly in ProxPanel.
+- Non-interactive Exec through Portainer.
+- Container actions: start, stop, restart, pause, resume.
+- Portainer stack inventory with source, state and container count.
+- Stack actions: start, stop and redeploy with confirmation.
+- All Docker actions are audited.
+- Responsive mobile/tablet interface.
+- Complete OTA packaging + smoke-test retained from beta.1.1.
+
 # ProxPanel 1.7.2-beta.1.1
 
 ## Français
