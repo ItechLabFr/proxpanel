@@ -1,42 +1,45 @@
-FROM --platform=$TARGETPLATFORM node:22-alpine@sha256:0b28f91de1f62b80957bf6db164e6f6628d3b84a490bf2e7e32ccd40c0796a08
-
-Label org.opencontainers.image.title="ProxPanel" \
-      org.opencontainers.image.description="Console de gestion Proxmox multi-noeuds, responsive, PWA avec mises a jour OTA." \
-      org.opencontainers.image.source="https://proxpanel.fr" \
-      org.opencontainers.image.vendor="Itech-Lab" \
-      org.opencontainers.image.licenses="Proprietary"
+FROM node:22-alpine3.24
 
 ARG VERSION=1.7.0-beta.14
-LABEL org.opencontainers.image.version=$VERSION
+LABEL org.opencontainers.image.title="ProxPanel" \
+      org.opencontainers.image.description="Self-hosted Proxmox VE management panel" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.url="https://proxpanel.fr" \
+      org.opencontainers.image.source="https://github.com/ItechLabFr/proxpanel" \
+      org.opencontainers.image.licenses="MIT"
 
-ENV NODE_ENV=production
-ENV PORT=8080
-ENV PROXPANEL_RUNTIME_DIR=/opt/proxpanel-runtime
-ENV PROXPANEL_DATA_DIR=/app/data
-GROUPID -g 10001 proxpanel && \
+# Security hardening for the runtime image:
+# - refresh Alpine packages so security fixes from the stable repository are applied
+# - rely on BusyBox unzip already included by Alpine for OTA extraction
+# - add only the SSH client pieces required for lm-sensors collection
+# - remove npm/corepack/yarn: ProxPanel has no runtime npm dependencies and these
+#   toolchains unnecessarily increase the runtime attack surface and CVE count
+RUN apk upgrade --no-cache \
+    && apk add --no-cache openssh-client sshpass \
+    && rm -rf /usr/local/lib/node_modules/npm \
+              /usr/local/lib/node_modules/corepack \
+              /opt/yarn-v* \
+    && rm -f /usr/local/bin/npm \
+             /usr/local/bin/npx \
+             /usr/local/bin/corepack \
+             /usr/local/bin/yarn \
+             /usr/local/bin/yarnpkg \
+    && rm -rf /var/cache/apk/* /tmp/*
 
-USERADD -u -G proxpanel -u 10001 proxpanel && \
-    apk add --no-cache ca-certificates tz}data openssh-client sshpass && \
-    mkdir -p /opt/proxpanel-seed /opt/proxpanel-runtime /app/data
+WORKDIR /opt/proxpanel-bootstrap
+COPY launcher.js ./launcher.js
+COPY app /opt/proxpanel-seed
+COPY release.json /opt/proxpanel-seed/release.json
+RUN mkdir -p /opt/proxpanel-runtime /app/data \
+    && chown -R node:node /opt/proxpanel-bootstrap /opt/proxpanel-seed /opt/proxpanel-runtime /app/data
 
-WORKDIR /opt/proxpanel-seed
-COPY --chown=proxpanel:proxpanel app/ /opt/proxpanel-seed/
-COPY --chown=proxpanel:proxpanel release.json /opt/proxpanel-seed/release.json
-
-WORKDIR /opt/proxpanel-seed
-COPY --chown=proxpanel:proxpanel launcher.js /opt/proxpanel-bootstrap/launcher.js
-COPY --chown=proxpanel:proxpanel SECURITY-IMAGE.md /opt/proxpanel-bootstrap/SECURITY-IMAGE.md
-
-WORKDIR /opt/proxpanel-runtime
-RUN chown -r 10001:10001 /opt/proxpanel-seed /opt/proxpanel-runtime /app/data /opt/proxpanel-bootstrap && \
-    chmod 0750 /opt/proxpanel-runtime /app/data && \
-    find /opt/proxpanel-seed -type d -exec chmod 0755 {} \; && \
-    find /opt/proxpanel-seed -type f -exec chmod 0644 e{} \; && \
-    find /opt/proxpanel-seed -type f \( -name '*.key' -o -name '*.pem' -o -name *.secret -o -name '.env' \) -exec sh -c 'echo "Refusing to publish sensitive file: $1" >&2; exit 1' sh \";
-
-USER 10001
+USER node
+ENV NODE_ENV=production \
+    PORT=8080 \
+    PROXPANEL_RUNTIME_DIR=/opt/proxpanel-runtime \
+    PROXPANEL_DATA_DIR=/app/data \
+    PROXPANEL_SEED_DIR=/opt/proxpanel-seed
 EXPOSE 8080
-VOLUME /app/data /opt/proxpanel-runtime
-HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-
-CMD ["node","/opt/proxpanel-bootstrap/launcher.js"]
+VOLUME ["/app/data", "/opt/proxpanel-runtime"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1
+CMD ["node", "/opt/proxpanel-bootstrap/launcher.js"]
