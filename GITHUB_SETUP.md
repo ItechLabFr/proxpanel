@@ -32,7 +32,7 @@ Recommended topics:
 git init
 git branch -M main
 git add .
-git commit -m "Initial public release: ProxPanel 1.7.0-beta.14"
+git commit -m "Initial public release: ProxPanel 1.7.0-beta.15"
 git remote add origin https://github.com/ItechLabFr/proxpanel.git
 git push -u origin main
 ```
@@ -41,15 +41,15 @@ git push -u origin main
 
 Tag:
 
-`v1.7.0-beta.14`
+`v1.7.0-beta.15`
 
 Suggested title:
 
-`ProxPanel 1.7.0-beta.14`
+`ProxPanel 1.7.0-beta.15`
 
 ```bash
-git tag -a v1.7.0-beta.14 -m "ProxPanel 1.7.0-beta.14"
-git push origin v1.7.0-beta.14
+git tag -a v1.7.0-beta.15 -m "ProxPanel 1.7.0-beta.15"
+git push origin v1.7.0-beta.15
 b``
 
 Use the matching `release.json`/CHANGELOG content for the release notes.
