@@ -96,6 +96,30 @@ Object.assign(EN_UI,{
 });
 /* BETA2_I18N */
 Object.assign(EN_UI,{"Vue lisible de chaque nœud, même dans une infrastructure multi-nœuds.":"Readable view of every node, even in a multi-node infrastructure.","Vue multi-nœuds":"Multi-node view","Capacité Proxmox":"Proxmox capacity","Utilisé invité":"Guest used","Libre invité":"Guest free","Disques configurés dans Proxmox":"Disks configured in Proxmox","Occupation non confirmée":"Usage not confirmed","Occupation N/D":"Usage N/A","Occupation invitée indisponible":"Guest usage unavailable","Occupation réelle · QEMU Guest Agent":"Real usage · QEMU Guest Agent","Capacité Proxmox · occupation invitée indisponible":"Proxmox capacity · guest usage unavailable","Données Guest Agent disponibles":"Guest Agent data available","Guest Agent disponible · compteurs indisponibles":"Guest Agent available · counters unavailable","VM arrêtée":"VM stopped","QEMU Guest Agent arrêté":"QEMU Guest Agent stopped","QEMU Guest Agent non configuré":"QEMU Guest Agent not configured","Timeout QEMU Guest Agent":"QEMU Guest Agent timeout","Permissions insuffisantes":"Insufficient permissions","Information non supportée":"Unsupported information","QEMU Guest Agent indisponible":"QEMU Guest Agent unavailable","Données filesystem indisponibles":"Filesystem data unavailable","Données stockage indisponibles":"Storage data unavailable","État API, latence, ressources, température, stockage et disponibilité des données invitées.":"API state, latency, resources, temperature, storage and guest-data availability.","Données anciennes":"Stale data","API Proxmox":"Proxmox API","Disponible":"Available","À surveiller":"Warning","Tous joignables":"All reachable","Partielle":"Partial","Partiel":"Partial","Non détecté":"Not detected","État des nœuds":"Node status","Stockages Proxmox":"Proxmox storage","Charger l’historique":"Load history","Données périmées":"Stale data","Aucun nœud":"No node","Aucun storage":"No storage","Sain":"Healthy","Avertissement":"Warning","Capacité et état par nœud":"Capacity and status by node","CPU · RAM · stockage root · température · source":"CPU · RAM · root storage · temperature · source","Guest Agent détecté, compteurs non fournis":"Guest Agent detected, counters not provided","La capacité virtuelle reste affichée, mais ProxPanel ne connaît pas l’espace utilisé à l’intérieur de la VM sans Guest Agent fonctionnel.":"Virtual capacity remains visible, but ProxPanel cannot know used space inside the VM without a working Guest Agent.","La VM doit être démarrée pour interroger son espace utilisé.":"The VM must be running to query its used space.","QEMU Guest Agent requis pour afficher l’espace utilisé.":"QEMU Guest Agent is required to display used space."});
+Object.assign(EN_UI,{
+  "✓ Supervision Docker":"✓ Docker monitoring",
+  "Aucun incident Docker confirmé.":"No confirmed Docker incident.",
+  "⚠ Incidents Docker":"⚠ Docker incidents",
+  "incident(s) confirmé(s) · worker Portainer en arrière-plan":"confirmed incident(s) · background Portainer worker",
+  "Supervision Docker":"Docker monitoring",
+  "Worker Portainer en arrière-plan avec confirmation, récupération et anti-doublon.":"Background Portainer worker with confirmation, recovery and duplicate suppression.",
+  "Activer les alertes Docker via Portainer":"Enable Docker alerts through Portainer",
+  "Contrôles consécutifs":"Consecutive checks",
+  "Cooldown notifications (min)":"Notification cooldown (min)",
+  "Redémarrages / intervalle":"Restarts / interval",
+  "CPU/RAM utilisent les seuils généraux de supervision. Un échec temporaire de l’API Portainer n’est jamais interprété comme un conteneur arrêté.":"CPU/RAM use the global monitoring thresholds. A temporary Portainer API failure is never treated as a stopped container.",
+  "Les alertes Proxmox et Docker confirmées sont regroupées ici.":"Confirmed Proxmox and Docker alerts are grouped here.",
+  "Portainer inaccessible":"Portainer unreachable",
+  "Docker Engine inaccessible":"Docker Engine unreachable",
+  "Conteneur Docker arrêté":"Docker container stopped",
+  "Conteneur Docker unhealthy":"Docker container unhealthy",
+  "Redémarrages Docker répétés":"Repeated Docker restarts",
+  "CPU Docker élevée":"High Docker CPU",
+  "RAM Docker élevée":"High Docker memory",
+  "Stockage Docker sous pression":"Docker storage pressure",
+  "Stack Docker dégradée":"Degraded Docker stack",
+  "Docker rétabli":"Docker recovered"
+});
 const EN_RULES=[
   [/^(\d+) hors ligne$/i,'$1 offline'],
   [/^(\d+) en erreur$/i,'$1 in error'],
@@ -712,10 +736,16 @@ function dockerStacksView(){
     ${can('machines.control')?`<div class="row-actions docker-row-actions">${s.active?button('Arrêter',`docker-stack-action:${s.id}:stop`,'tiny danger'):button('Démarrer',`docker-stack-action:${s.id}:start`,'tiny primary')}${button('Redeploy',`docker-stack-action:${s.id}:redeploy`,'tiny')}</div>`:''}
   </article>`).join('')}</div>`;
 }
+function dockerAlertsPanel(endpointId=null){
+  const rows=(state.dockerAlerts||[]).filter(a=>endpointId==null||Number(a.endpointId||0)===Number(endpointId));
+  if(!rows.length)return'<section class="panel docker-alerts-panel healthy"><div class="panel-head"><div><h3>✓ Supervision Docker</h3><p>Aucun incident Docker confirmé.</p></div>'+badge('Sain','ok')+'</div></section>';
+  return `<section class="panel docker-alerts-panel"><div class="panel-head"><div><h3>⚠ Incidents Docker</h3><p>${rows.length} incident(s) confirmé(s) · worker Portainer en arrière-plan</p></div>${badge(String(rows.length),rows.some(x=>x.severity==='critical')?'danger':'warning')}</div>${problemList(rows)}</section>`;
+}
 function dockerWorkspacePage(){
   const env=dockerEnvironmentMeta(),tab=state.dockerTab||'containers';
   return `<div class="page-head"><div><div class="docker-breadcrumb"><button type="button" data-action="docker-back">Docker</button><span>›</span><b>${esc(env?.name||'Environnement')}</b></div><h1>${esc(env?.name||'Docker')}</h1><p>${esc(env?.hostName||env?.url||'Docker Standalone')} · ${esc(env?.portainerName||'Portainer')}</p></div><div class="actions">${button('Actualiser','docker-env-refresh','primary')}${button('Retour','docker-back','secondary')}</div></div>
   ${state.dockerError?`<div class="warning-box"><strong>Erreur Docker</strong><p>${esc(state.dockerError)}</p></div>`:''}
+  ${dockerAlertsPanel(env?.id)}
   <div class="docker-workspace-kpis">
     <div class="panel"><span>Conteneurs</span><strong>${state.dockerContainers.length}</strong></div>
     <div class="panel"><span>Running</span><strong>${state.dockerContainers.filter(x=>x.state==='running').length}</strong></div>
@@ -733,6 +763,7 @@ function dockerPage(){
   if(!overview)return'<div class="panel loading">Chargement des environnements Docker…</div>';
   const s=overview.summary||{},portainers=overview.portainers||[];
   return`<div class="page-head"><div><h1>Docker</h1><p>Vue consolidée des environnements Docker découverts via Portainer.</p></div><div class="actions">${button('Actualiser','docker-refresh','primary')}${button('Gérer Portainer','open-portainer-admin','secondary')}</div></div>
+  ${dockerAlertsPanel()}
   <div class="docker-summary">
     <div class="panel"><span>Portainer</span><strong>${s.portainers||0}</strong><small>instance(s) configurée(s)</small></div>
     <div class="panel"><span>Environnements</span><strong>${s.environments||0}</strong><small>${s.reachable||0} joignable(s)</small></div>
