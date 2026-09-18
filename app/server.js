@@ -3304,7 +3304,10 @@ async function handleApi(req, res, url) {
     const server=findServer(liveDashMatch[1]); if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
     try {
       const auth=await resolveProxmoxAuth(server,session); const resources=await proxmoxApi(server,'/cluster/resources',{auth});
-      const live=calcDashboard(Array.isArray(resources)?resources:[],[],[],[]); const settings=getSettings();
+      const live=calcDashboard(Array.isArray(resources)?resources:[],[],[],[]);
+      // Keep the single-server live dashboard aligned with grouped views:
+      // node temperatures are enriched before the response is sent.
+      await enrichNodeTemperatures(server,auth,live);
       return sendJson(res,200,{collectedAt:live.collectedAt,metrics:live.metrics,nodes:live.nodes,machines:live.machines,storages:live.storages});
     } catch(e){return sendJson(res,502,{error:e.message});}
   }
@@ -3328,6 +3331,10 @@ async function handleApi(req, res, url) {
       dashboard.history.storage = calcStorageRrdHistory(storageRrdResults);
       const inventory = await fetchBackupInventory(server, auth, dashboard);
       dashboard = enrichBackupState(dashboard, inventory);
+      // The grouped dashboard already enriched temperatures through buildDashboardPart().
+      // Do the same for the legacy single-server route so the node cards, temperature
+      // widget, alerts and live refresh all receive the same temperature fields.
+      await enrichNodeTemperatures(server,auth,dashboard);
       const settings = getSettings();
       dashboard.problems = computeProblems(dashboard, settings);
       dashboard.capacity = getCapacityForecast(server.id);
