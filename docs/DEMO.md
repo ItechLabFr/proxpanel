@@ -25,12 +25,18 @@ cd /opt/proxpanel-demo
 docker compose -f docker-compose.demo.yml up -d --build
 ```
 
-Par défaut, la démo écoute sur le port `8080`.
+Par défaut, la démo écoute sur le port `8082`.
 
-Pour utiliser un autre port, crée `/opt/proxpanel-demo/.env` :
+Accès local :
 
 ```text
-PROXPANEL_DEMO_PORT=8081
+http://IP_DU_SERVEUR:8082
+```
+
+Pour utiliser exceptionnellement un autre port, crée `/opt/proxpanel-demo/.env` :
+
+```text
+PROXPANEL_DEMO_PORT=8083
 ```
 
 ## Mettre la démo à jour
