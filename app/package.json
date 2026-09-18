@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.1-beta.7",
+  "version": "1.7.1-beta.8",
   "private": true,
-  "description": "ProxPanel 1.7.1-beta.7 - Light Theme Completion & Admin Navigation.",
+  "description": "ProxPanel 1.7.1-beta.8 - TV Mode & Administration Redesign.",
   "scripts": {
     "start": "node server.js"
   },
