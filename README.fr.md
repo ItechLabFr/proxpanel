@@ -138,7 +138,7 @@ Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechl
 
 Version de développement actuelle : **1.7.1-beta.2**
 
-Dernière GitHub Release publiée : **1.7.1-beta.1**
+Dernière GitHub Release publiée : **1.7.1-beta.2**
 
 Série de développement actuelle : **1.7.1-beta.x** — 10 betas maximum par version.
 
