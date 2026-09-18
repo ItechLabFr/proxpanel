@@ -1523,12 +1523,15 @@ async function buildLiveDashboardPart(server,auth,{nodesFilter=[]}={}) {
   const wanted=new Set((nodesFilter||[]).map(String));
   const resources=(Array.isArray(resourcesAll)?resourcesAll:[]).filter(r=>!wanted.size||wanted.has(String(r.node||'')));
   const dash=calcDashboard(resources,[],[],[]);
+  // Keep grouped live refresh consistent with the full dashboard. Guest Agent
+  // storage calls use the short-lived cache, so refreshes retain used/free state
+  // without hammering every VM on every dashboard tick.
+  await enrichMissingGuestStorage(server,auth,dash);
   await enrichNodeTemperatures(server,auth,dash);
   dash.nodes=(dash.nodes||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.machines=(dash.machines||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.storages=(dash.storages||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
-  // The live endpoint intentionally skips RRD, backup inventory, guest-agent
-  // enrichment and problem analysis. Those remain on the full dashboard load.
+  // The live endpoint still skips RRD, backup inventory and problem analysis.
   return dash;
 }
 async function buildDashboardPart(server,auth,{timeframe='day',nodesFilter=[],history=true}={}) {
