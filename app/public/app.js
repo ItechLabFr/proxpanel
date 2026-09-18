@@ -643,14 +643,83 @@ async function startTerminal(host,c,wrap){try{if(!qs('#xtermCss')){const l=docum
 function firewallPath(){const f=state.firewall;if(f.scope==='cluster')return`/api/servers/${state.selectedServer}/firewall/cluster/rules`;if(f.scope==='node')return`/api/servers/${state.selectedServer}/firewall/node/${encodeURIComponent(f.node)}/rules`;return`/api/servers/${state.selectedServer}/firewall/machine/${encodeURIComponent(f.node)}/${f.type}/${f.vmid}/rules`}
 function openFirewallRule(pos=null){const r=pos==null?{}:state.firewallRules.find((x,i)=>Number(x.pos??i)===Number(pos))||{};modal(pos==null?'Nouvelle règle':'Modifier la règle',`${selectField('Type','fwType',['in','out','group'],r.type||'in')}${selectField('Action','fwAction',['ACCEPT','DROP','REJECT'],r.action||'ACCEPT')}${field('Source','fwSource',r.source||'')}${field('Destination','fwDest',r.dest||'')}${field('Protocole','fwProto',r.proto||'')}${field('Port destination','fwDport',r.dport||'')}${field('Interface','fwIface',r.iface||'')}${field('Commentaire','fwComment',r.comment||'')}<label class="check"><input id="fwEnable" type="checkbox" ${r.enable!==0?'checked':''}> Activée</label>`,`<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="${pos==null?'firewall-create':`firewall-update:${pos}`}">Enregistrer</button>`)}
 
+async function loadDeferredBaseData(me){
+  const canUsers=(me?.permissions||[]).includes('*')||(me?.permissions||[]).includes('admin.users');
+  const loaders=[
+    ['updates',()=>api('/api/update/status')],
+    ['remoteUpdate',()=>api('/api/update/remote-status')],
+    ['otaLatest',()=>api('/api/update/ota/latest')],
+    ['pveUpdates',()=>api('/api/pve-updates/status')],
+    ['changes',()=>api('/api/changes')],
+    ['audit',()=>api('/api/audit')],
+    ['automations',()=>api('/api/automations')],
+    ['restoreTests',()=>api('/api/restore-tests')],
+    ['automationRuns',()=>api('/api/automation-runs')],
+    ['groups',()=>api('/api/groups')],
+    ['users',()=>canUsers?api('/api/users'):Promise.resolve([])]
+  ];
+  const results=await Promise.all(loaders.map(async([key,load])=>{
+    try{return [key,await load()]}catch(e){console.warn('Startup deferred',key,e.message);return [key,null]}
+  }));
+  for(const [key,value] of results){
+    if(value!==null)state[key]=value;
+  }
+  if(state.currentPage!=='overview')renderPage();
+}
+function scheduleDeferredStartup(me){
+  const run=()=>loadDeferredBaseData(me).catch(e=>console.warn('Deferred startup',e.message));
+  if('requestIdleCallback' in window)requestIdleCallback(run,{timeout:1200});
+  else setTimeout(run,250);
+}
 async function loadBase(){
-  const me=await api('/api/me');const userPromise=(me.permissions||[]).includes('*')||(me.permissions||[]).includes('admin.users')?api('/api/users'):Promise.resolve([]);const [settings,servers,updates,remoteUpdate,otaLatest,pveUpdates,changes,audit,automations,restores,runs,groups,dashboardGroups,users]=await Promise.all([api('/api/settings'),api('/api/servers'),api('/api/update/status'),api('/api/update/remote-status'),api('/api/update/ota/latest').catch(()=>null),api('/api/pve-updates/status'),api('/api/changes'),api('/api/audit').catch(()=>[]),api('/api/automations'),api('/api/restore-tests'),api('/api/automation-runs'),api('/api/groups'),api('/api/dashboard-groups'),userPromise]);
-  state.me=me;state.user=me.username;state.users=users;state.settings=settings;if(!localStorage.getItem('proxpanel.uiLanguage'))state.uiLanguage=normalizeUiLanguage(settings?.language||state.uiLanguage||'fr');state.servers=servers;state.updates=updates;state.remoteUpdate=remoteUpdate;state.otaLatest=otaLatest;state.pveUpdates=pveUpdates;state.changes=changes;state.audit=audit;state.automations=automations;state.restoreTests=restores;state.automationRuns=runs;state.groups=groups;state.dashboardGroups=dashboardGroups;state.dashboardLiveSeconds=Math.max(5,Math.min(300,Number(settings?.ui?.dashboardRefreshSeconds||10)));
-  const remembered=localStorage.getItem('proxpanel.server');state.selectedServer=servers.some(s=>s.id===remembered)?remembered:servers[0]?.id||null;const savedRange=localStorage.getItem('proxpanel.dashboardTimeframe');if(['hour','day','week','month','year'].includes(savedRange))state.dashboardTimeframe=savedRange;
+  // Only fetch what is required to render the application shell. The previous
+  // startup path waited for every admin/update/audit endpoint before showing
+  // anything, which was especially noticeable in iOS standalone PWA mode.
+  const [me,settings,servers,dashboardGroups]=await Promise.all([
+    api('/api/me'),
+    api('/api/settings'),
+    api('/api/servers'),
+    api('/api/dashboard-groups').catch(()=>[])
+  ]);
+
+  state.me=me;
+  state.user=me.username;
+  state.settings=settings;
+  state.servers=servers;
+  state.dashboardGroups=dashboardGroups;
+
+  if(!localStorage.getItem('proxpanel.uiLanguage'))state.uiLanguage=normalizeUiLanguage(settings?.language||state.uiLanguage||'fr');
+  state.dashboardLiveSeconds=Math.max(5,Math.min(300,Number(settings?.ui?.dashboardRefreshSeconds||10)));
+
+  const remembered=localStorage.getItem('proxpanel.server');
+  state.selectedServer=servers.some(s=>s.id===remembered)?remembered:servers[0]?.id||null;
+  const savedRange=localStorage.getItem('proxpanel.dashboardTimeframe');
+  if(['hour','day','week','month','year'].includes(savedRange))state.dashboardTimeframe=savedRange;
+
   if(!state.dashboardView||(!state.dashboardView.startsWith('group:')&&!state.dashboardView.startsWith('server:')))state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';
   if(state.dashboardView.startsWith('group:')&&!dashboardGroups.some(g=>`group:${g.id}`===state.dashboardView))state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';
-  state.currentPage=state.tvMode?'overview':(moduleEnabled(settings.homePage)?settings.homePage:'overview');await refreshDashboard(false,true);if(state.selectedServer){await Promise.all([loadTasks(false),refreshLatency(false)])}renderPage();
+
+  state.currentPage=state.tvMode?'overview':(moduleEnabled(settings.homePage)?settings.homePage:'overview');
+
+  // First paint now happens immediately with the application shell and a
+  // lightweight dashboard request without historical series.
+  state.loading=true;
+  renderPage();
+  await refreshDashboard(false,false);
+
+  // Tasks and latency are useful but must never block the first usable screen.
+  if(state.selectedServer){
+    Promise.allSettled([loadTasks(false),refreshLatency(false)]).then(()=>patchConnectionDom());
+  }
+
+  // Load historical graphs after the first screen is visible.
+  const loadHistory=()=>refreshDashboard(false,true).catch(e=>console.warn('Startup history',e.message));
+  if('requestIdleCallback' in window)requestIdleCallback(loadHistory,{timeout:1800});
+  else setTimeout(loadHistory,500);
+
+  scheduleDeferredStartup(me);
 }
+
 async function refreshDashboard(show=true,includeHistory=true){if(!state.selectedServer&&!state.dashboardView){state.dashboard=null;renderPage();return}state.loading=true;if(show)renderPage();try{const previous=state.dashboard;let fresh;const groupId=state.dashboardView?.startsWith('group:')?state.dashboardView.slice(6):'';if(groupId&&state.currentPage==='overview')fresh=await api(`/api/dashboard-groups/${groupId}/dashboard?timeframe=${encodeURIComponent(state.dashboardTimeframe)}&history=${includeHistory?'1':'0'}`);else fresh=await api(`/api/servers/${state.selectedServer}/dashboard?timeframe=${encodeURIComponent(state.dashboardTimeframe)}&history=${includeHistory?'1':'0'}`);if(!includeHistory&&previous){fresh.history=previous.history||fresh.history;if(fresh.metrics?.networkMbps==null&&previous.metrics?.networkMbps!=null)fresh.metrics.networkMbps=previous.metrics.networkMbps;fresh.dashboardTimeframe=previous.dashboardTimeframe||state.dashboardTimeframe;}state.dashboard=fresh;state.dashboardError=null;state.liveUpdatedAt=Date.now();if(includeHistory&&!groupId)state.pveSession=await api(`/api/servers/${state.selectedServer}/pve-session`);if(state.currentPage==='dependencies'&&includeHistory&&!groupId)await loadDependencies();notifyProblems()}catch(e){if(includeHistory)state.dashboard=null;state.dashboardError=e.message}finally{state.loading=false;renderPage()}}
 async function refreshPveUpdateStatus(render=false){try{state.pveUpdates=await api('/api/pve-updates/status');if(render)renderPage();else if(state.currentPage==='overview')patchOverviewLiveDom()}catch(e){console.warn('PVE update status',e.message)}}
 async function refreshRemoteUpdateStatus(render=false){try{const prev=state.remoteUpdate?.version;state.remoteUpdate=await api('/api/update/remote-status');if(render)renderPage();if(state.remoteUpdate?.available&&state.remoteUpdate.version&&state.remoteUpdate.version!==prev)toast(`Mise à jour ProxPanel ${state.remoteUpdate.version} disponible.`,'warning')}catch(e){console.warn('Update status',e.message)}}
@@ -760,7 +829,34 @@ document.addEventListener('click',e=>{if(!e.target.closest('.global-search'))qs(
 document.addEventListener('input',e=>{if(e.target.id==='globalSearch')updateGlobalSearch(e.target.value);if(e.target.id==='machineSearch')filterMachineTable()});
 document.addEventListener('change',async e=>{if(e.target.id==='quickLanguage'){setUiLanguage(e.target.value,{remember:true,render:true});toast(e.target.value==='en'?'Language changed to English.':'Langue changée en français.');return}if(e.target.name==='otaChannel'){const channel=String(e.target.value||'stable');try{await api('/api/settings',{method:'PUT',body:JSON.stringify({updates:{otaChannel:channel}})});state.settings=await api('/api/settings');state.remoteUpdate=await api('/api/update/remote-status');toast(`Canal ${channel==='stable'?'Stable':'Beta'} enregistré · nouvelle recherche OTA lancée.`);renderPage();setTimeout(()=>refreshRemoteUpdateStatus(true),800);setTimeout(()=>refreshRemoteUpdateStatus(true),2500)}catch(err){toast(err.message||String(err),'error')}return}if(e.target.id==='panelUserRole'){const box=qs('#customPermissions');if(box)box.hidden=e.target.value!=='custom';return}if(e.target.id==='machineTypeFilter'||e.target.id==='machineStateFilter'){filterMachineTable();return}if(e.target.id==='dashboardViewSelect'){state.dashboardView=e.target.value||'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);if(state.dashboardView.startsWith('server:')){state.selectedServer=state.dashboardView.slice(7);localStorage.setItem('proxpanel.server',state.selectedServer||'')}state.dashboard=null;state.dashboardError=null;await refreshDashboard(true,true);return}if(e.target.id==='serverSelect'){state.selectedServer=e.target.value||null;localStorage.setItem('proxpanel.server',state.selectedServer||'');state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);state.dashboard=null;state.dashboardError=null;state.dependencies=null;state.tasks=[];await refreshDashboard();await loadTasks(false);return}if(e.target.id==='dashTimeframe'){state.dashboardTimeframe=e.target.value;localStorage.setItem('proxpanel.dashboardTimeframe',state.dashboardTimeframe);await refreshDashboard(false,true);return}});
 
-async function boot(){try{if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});state.status=await api('/api/status');if(!state.uiLanguage)state.uiLanguage=normalizeUiLanguage(state.status.defaultLanguage||'fr');if(!state.status.setupDone)return renderAuth(true);if(!state.status.authenticated)return renderAuth(false);await loadBase();scheduleDashboardLive();setInterval(()=>{if(state.selectedServer&&document.visibilityState==='visible')refreshLatency(false).catch(()=>{})},30000);setInterval(()=>{if(document.visibilityState==='visible')refreshPveUpdateStatus(false).catch(()=>{})},60000);setInterval(()=>{if(document.visibilityState==='visible')refreshRemoteUpdateStatus(false).catch(()=>{})},300000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.currentPage==='overview')refreshDashboardLive().catch(()=>{})})}catch(e){app.innerHTML=`<div class="fatal"><h2>ProxPanel BETA</h2><p>${esc(e.message)}</p><button onclick="location.reload()">Réessayer</button></div>`}}
+function registerServiceWorkerDeferred(){
+  if(!('serviceWorker' in navigator))return;
+  const register=()=>navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  // Avoid competing with /api/status and critical startup requests on iPhone.
+  if(document.readyState==='complete'){
+    if('requestIdleCallback' in window)requestIdleCallback(register,{timeout:1500});else setTimeout(register,300);
+  }else{
+    window.addEventListener('load',()=>setTimeout(register,100),{once:true});
+  }
+}
+async function boot(){
+  try{
+    registerServiceWorkerDeferred();
+    state.status=await api('/api/status');
+    if(!state.uiLanguage)state.uiLanguage=normalizeUiLanguage(state.status.defaultLanguage||'fr');
+    if(!state.status.setupDone)return renderAuth(true);
+    if(!state.status.authenticated)return renderAuth(false);
+    await loadBase();
+    scheduleDashboardLive();
+    setInterval(()=>{if(state.selectedServer&&document.visibilityState==='visible')refreshLatency(false).catch(()=>{})},30000);
+    setInterval(()=>{if(document.visibilityState==='visible')refreshPveUpdateStatus(false).catch(()=>{})},60000);
+    setInterval(()=>{if(document.visibilityState==='visible')refreshRemoteUpdateStatus(false).catch(()=>{})},300000);
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.currentPage==='overview')refreshDashboardLive().catch(()=>{})});
+  }catch(e){
+    app.innerHTML=`<div class="fatal"><h2>ProxPanel BETA</h2><p>${esc(e.message)}</p><button onclick="location.reload()">Réessayer</button></div>`;
+  }
+}
+
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.pwaInstallPrompt=e;if(state.status?.authenticated)renderPage()});
 window.addEventListener('appinstalled',()=>{state.pwaInstalled=true;state.pwaInstallPrompt=null;if(state.status?.authenticated)renderPage();toast('ProxPanel a été installé comme application.')});
 boot();
