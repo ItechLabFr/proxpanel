@@ -2160,7 +2160,7 @@ function recordDockerManualIntent(portainerId,endpointId,containerId,action) {
 }
 function dockerManualStopIsExpected(state,portainerId,endpointId,containerId,now=Date.now()) {
   const key=dockerManualIntentKey(portainerId,endpointId,containerId),row=state.manualIntents?.[key];
-  return !!(row&&Number(row.expiresAt||0)>now&&['stop','pause'].includes(String(row.action||'')));
+  return !!(row&&Number(row.expiresAt||0)>now&&['stop','pause','restart'].includes(String(row.action||'')));
 }
 function dockerIncidentPublic(row={}) {
   return {
@@ -2465,6 +2465,8 @@ const DISCORD_EVENT_TYPES = [
   'backup.success','backup.failed','backup.stale','backup.unprotected',
   'node.offline','node.recovered','task.failed','storage.warning','storage.critical',
   'resources.cpu','resources.memory','temperature.warning','temperature.critical',
+  'docker.portainer.unreachable','docker.engine.unreachable','docker.container.stopped','docker.container.unhealthy','docker.container.restarts',
+  'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.recovered',
   'system.update.available','pve.update.available','pve.update.security','pve.update.manual-report','system.test'
 ];
 function normalizeDiscordEvents(list) {
@@ -2501,13 +2503,16 @@ function discordEventLabel(type) {
   const labels = {
     'backup.success':'Sauvegarde réussie','backup.failed':'Sauvegarde échouée','backup.stale':'Sauvegarde en retard','backup.unprotected':'Machine non protégée',
     'node.offline':'Nœud hors ligne','node.recovered':'Nœud de nouveau en ligne','task.failed':'Tâche échouée','storage.warning':'Stockage en alerte','storage.critical':'Stockage critique',
-    'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique','system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','system.test':'Test système'
+    'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
+    'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
+    'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.recovered':'Docker rétabli',
+    'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','system.test':'Test système'
   };
   return labels[type] || type;
 }
 function severityLabel(severity='info') { return severity==='critical'?'CRITIQUE':severity==='warning'?'AVERTISSEMENT':'INFORMATION'; }
 function eventIcon(event={}) {
-  if(event.type==='backup.success'||event.type==='node.recovered')return '✅';
+  if(event.type==='backup.success'||event.type==='node.recovered'||event.type==='docker.recovered')return '✅';
   if(event.type==='pve.update.security')return '🚨';
   if(event.type==='pve.update.available'||event.type==='pve.update.manual-report'||event.type==='system.update.available')return '⬆️';
   if(event.severity==='critical')return '🚨';
@@ -2526,6 +2531,16 @@ function defaultRecommendation(event={}) {
     'storage.critical':'Libère ou étends le stockage rapidement avant interruption de service.',
     'resources.cpu':'Identifie les VM/LXC les plus consommatrices et contrôle l’historique.',
     'resources.memory':'Identifie les VM/LXC les plus consommatrices et contrôle la mémoire engagée.',
+    'docker.portainer.unreachable':'Vérifie le service Portainer, son URL, le certificat TLS et la connectivité depuis ProxPanel.',
+    'docker.engine.unreachable':'Vérifie le Docker Engine, l’agent Portainer et la connectivité de cet environnement.',
+    'docker.container.stopped':'Vérifie les logs et la cause de l’arrêt avant de redémarrer le conteneur.',
+    'docker.container.unhealthy':'Vérifie le healthcheck et les logs avant toute action.',
+    'docker.container.restarts':'Contrôle les logs, le healthcheck et la restart policy du conteneur.',
+    'docker.resources.cpu':'Contrôle la charge du conteneur et son activité avant d’ajuster ses limites.',
+    'docker.resources.memory':'Contrôle la mémoire du conteneur et recherche une fuite ou une limite trop basse.',
+    'docker.storage.pressure':'Nettoie les images/volumes inutilisés ou augmente la capacité après vérification.',
+    'docker.stack.degraded':'Vérifie les conteneurs en défaut de la stack avant un redeploy.',
+    'docker.recovered':'Aucune action requise si la ressource reste stable après récupération.',
     'temperature.warning':'Surveille la charge et le refroidissement du nœud. Vérifie les ventilateurs et le flux d’air si la température continue de monter.',
     'temperature.critical':'Vérifie immédiatement le refroidissement, les ventilateurs, les dissipateurs et la charge du nœud.',
     'auth.2fa.email':'Si tu n’es pas à l’origine de cette demande, change ton mot de passe ProxPanel et contrôle les sessions actives.',
@@ -2656,6 +2671,16 @@ const MAIL_TEST_TEMPLATES = [
   {type:'storage.critical',group:'Infrastructure',label:'Stockage critique',severity:'critical',description:'Le stockage dépasse le seuil critique.'},
   {type:'resources.cpu',group:'Ressources',label:'CPU élevée',severity:'warning',description:'La charge CPU dépasse le seuil configuré.'},
   {type:'resources.memory',group:'Ressources',label:'RAM élevée',severity:'warning',description:'La mémoire utilisée dépasse le seuil configuré.'},
+  {type:'docker.portainer.unreachable',group:'Docker',label:'Portainer inaccessible',severity:'critical',description:'ProxPanel ne parvient plus à joindre Portainer.'},
+  {type:'docker.engine.unreachable',group:'Docker',label:'Docker Engine inaccessible',severity:'critical',description:'Un environnement Docker connu de Portainer ne répond plus.'},
+  {type:'docker.container.stopped',group:'Docker',label:'Conteneur arrêté',severity:'critical',description:'Un conteneur précédemment actif s’est arrêté de façon inattendue.'},
+  {type:'docker.container.unhealthy',group:'Docker',label:'Conteneur unhealthy',severity:'critical',description:'Docker signale un healthcheck en échec.'},
+  {type:'docker.container.restarts',group:'Docker',label:'Redémarrages répétés',severity:'warning',description:'Un conteneur redémarre de façon répétée.'},
+  {type:'docker.resources.cpu',group:'Docker',label:'CPU Docker élevée',severity:'warning',description:'Un conteneur dépasse le seuil CPU.'},
+  {type:'docker.resources.memory',group:'Docker',label:'RAM Docker élevée',severity:'warning',description:'Un conteneur dépasse le seuil mémoire.'},
+  {type:'docker.storage.pressure',group:'Docker',label:'Stockage Docker sous pression',severity:'warning',description:'L’espace Docker mesurable dépasse le seuil configuré.'},
+  {type:'docker.stack.degraded',group:'Docker',label:'Stack Docker dégradée',severity:'warning',description:'Une stack active contient des conteneurs en défaut.'},
+  {type:'docker.recovered',group:'Docker',label:'Docker rétabli',severity:'info',description:'Une ressource Docker précédemment en incident est revenue à la normale.'},
   {type:'system.update.available',group:'Mises à jour',label:'Mise à jour ProxPanel',severity:'info',description:'Une nouvelle version de ProxPanel est disponible.'},
   {type:'pve.update.available',group:'Mises à jour',label:'Mises à jour Proxmox',severity:'info',description:'Des mises à jour de paquets PVE sont disponibles.'},
   {type:'pve.update.security',group:'Mises à jour',label:'Correctifs de sécurité PVE',severity:'critical',description:'Des mises à jour de sécurité Proxmox sont disponibles.'},
@@ -2684,6 +2709,16 @@ function mailTestScenario(type,username='admin'){
     'storage.critical':{subject:'Stockage critique',text:'Le stockage local-lvm dépasse le seuil critique configuré.',event:{...base,target:'local-lvm',details:['Utilisation : 96 %','Seuil critique : 95 %','Libre : 51 Go']}},
     'resources.cpu':{subject:'Charge CPU élevée',text:'La charge CPU moyenne du nœud PVE-PROD01 dépasse le seuil configuré.',event:{...base,target:'PVE-PROD01',details:['CPU : 91 %','Seuil warning : 85 %','Durée : 10 min']}},
     'resources.memory':{subject:'Utilisation mémoire élevée',text:'L’utilisation mémoire du nœud PVE-PROD01 dépasse le seuil configuré.',event:{...base,target:'PVE-PROD01',details:['RAM : 89 %','Utilisée : 114 Go / 128 Go','Seuil warning : 85 %']}},
+    'docker.portainer.unreachable':{subject:'Portainer inaccessible',text:'ProxPanel ne parvient plus à joindre Portainer.',event:{...base,serverName:'Portainer',target:'Portainer PROD',details:['URL : https://portainer.example:9443','Contrôles consécutifs : 2']}},
+    'docker.engine.unreachable':{subject:'Docker Engine inaccessible',text:'L’environnement Docker PROD ne répond plus via Portainer.',event:{...base,serverName:'Portainer',target:'Docker PROD',details:['Portainer : connecté','Docker Engine : inaccessible']}},
+    'docker.container.stopped':{subject:'Conteneur Docker arrêté',text:'vaultwarden était actif et est maintenant exited.',event:{...base,serverName:'Portainer',target:'vaultwarden · Docker PROD',details:['État précédent : running','État actuel : exited','Stack : vaultwarden']}},
+    'docker.container.unhealthy':{subject:'Conteneur Docker unhealthy',text:'nginx-proxy-manager est déclaré unhealthy par Docker.',event:{...base,serverName:'Portainer',target:'nginx-proxy-manager · Docker PROD',details:['Health : unhealthy','Image : jc21/nginx-proxy-manager:latest']}},
+    'docker.container.restarts':{subject:'Redémarrages Docker répétés',text:'uptime-kuma redémarre de façon répétée.',event:{...base,serverName:'Portainer',target:'uptime-kuma · Docker PROD',details:['Restart count : 8','Nouveaux redémarrages : 4']}},
+    'docker.resources.cpu':{subject:'CPU Docker élevée',text:'immich-server dépasse le seuil CPU configuré.',event:{...base,serverName:'Portainer',target:'immich-server · Docker PROD',details:['CPU : 92 %','Seuil : 85 %']}},
+    'docker.resources.memory':{subject:'RAM Docker élevée',text:'postgres dépasse le seuil mémoire configuré.',event:{...base,serverName:'Portainer',target:'postgres · Docker PROD',details:['RAM : 91 %','Seuil : 85 %']}},
+    'docker.storage.pressure':{subject:'Stockage Docker sous pression',text:'Docker PROD dépasse le seuil de stockage mesurable.',event:{...base,serverName:'Portainer',target:'Docker PROD',details:['Utilisé : 91 %','Source : Docker DriverStatus']}},
+    'docker.stack.degraded':{subject:'Stack Docker dégradée',text:'La stack monitoring contient un conteneur en défaut.',event:{...base,serverName:'Portainer',target:'monitoring · Docker PROD',details:['Conteneurs : 3','En défaut : grafana']}},
+    'docker.recovered':{subject:'Docker rétabli',text:'La ressource Docker répond de nouveau normalement.',event:{...base,severity:'info',serverName:'Portainer',target:'Docker PROD',details:['Incident résolu : Docker Engine inaccessible']}},
     'system.update.available':{subject:'Mise à jour ProxPanel disponible',text:`Une nouvelle version de ProxPanel est disponible sur le canal ${updateChannelLabel}.`,event:{...base,serverName:'ProxPanel',target:updateChannel==='stable'?'1.7.0':'1.7.0-beta.14',channel:updateChannel,details:[`Version installée : ${APP_VERSION}`,`Canal sélectionné : ${updateChannelLabel}`,'Signature : vérifiée']}},
     'pve.update.available':{subject:'Mises à jour Proxmox disponibles',text:'Des paquets peuvent être mis à jour sur le nœud PVE-PROD01.',event:{...base,target:'PVE-PROD01',details:['Paquets : 14','Sécurité : 0','Redémarrage : non détecté']}},
     'pve.update.security':{subject:'Correctifs de sécurité Proxmox disponibles',text:'Des mises à jour de sécurité sont disponibles sur le nœud PVE-PROD01.',event:{...base,target:'PVE-PROD01',details:['Paquets : 6','Correctifs sécurité : 3','Maintenance recommandée : oui']}},
@@ -4377,6 +4412,9 @@ async function handleApi(req, res, url) {
     audit(req,'integration.add',row.name,{type,url:row.url,environmentCount:row.environmentCount||0});
     return sendJson(res,201,redactIntegration(row));
   }
+  if(url.pathname==='/api/docker/alerts'&&req.method==='GET'){
+    return sendJson(res,200,{alerts:activeDockerAlerts(),checkedAt:dockerMonitorState().checkedAt||''});
+  }
   if(url.pathname==='/api/docker/overview'&&req.method==='GET'){
     if(DEMO_MODE)return sendJson(res,200,demoDockerOverview());
     const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
@@ -4439,6 +4477,7 @@ async function handleApi(req, res, url) {
         const map={start:'start',stop:'stop?t=10',restart:'restart?t=10',pause:'pause',resume:'unpause'};
         if(!map[action])return sendJson(res,400,{error:'Action conteneur invalide.'});
         await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/${map[action]}`,{method:'POST'});
+        if(['stop','pause','restart'].includes(action))recordDockerManualIntent(item.id,endpointId,containerId,action);
         audit(req,`docker.container.${action}`,containerId,{portainer:item.name,endpointId});
         PORTAINER_OVERVIEW_CACHE.delete(String(item.id));
         return sendJson(res,200,{ok:true,action});
@@ -4572,6 +4611,7 @@ async function buildBackgroundDashboard(server, auth) {
 async function runBackgroundAlerts() {
   const settings=getSettings(); if(settings.alerts?.enabled===false)return;
   const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000,now=Date.now();
+  try{await runDockerBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.docker.poll','Docker',{error:e.message},'error');}
   const alertState=jsonRead(ALERT_STATE_FILE,{}); let changed=false;
   for(const server of jsonRead(SERVERS_FILE,[])) {
     if(!(server.passwordEnc||server.apiTokenSecretEnc))continue;
