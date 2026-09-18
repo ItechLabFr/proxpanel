@@ -1,62 +1,42 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.1-beta.3",
-  "title": "ProxPanel 1.7.1-beta.3 — Performance & Administration UX",
-  "title_en": "ProxPanel 1.7.1-beta.3 — Performance & Administration UX",
-  "summary": "Accélère le chargement de ProxPanel, transforme Administration en centre de configuration, clarifie le menu latéral et ajoute six thèmes visuels complets.",
-  "summary_en": "Speeds up ProxPanel loading, turns Administration into a structured configuration center, clarifies the sidebar and adds six complete visual themes.",
+  "version": "1.7.1-beta.4",
+  "title": "ProxPanel 1.7.1-beta.4 — Urgent Proxmox Connection Hotfix",
+  "title_en": "ProxPanel 1.7.1-beta.4 — Urgent Proxmox Connection Hotfix",
+  "summary": "Correctif urgent de la connexion Proxmox après beta.3 et stabilisation du logo dans tous les thèmes.",
+  "summary_en": "Urgent Proxmox connection reliability hotfix after beta.3, plus stable logo identity across themes.",
   "improvements": [
-    "Chargement initial allégé : seules les données indispensables bloquent le premier écran.",
-    "Données Audit, utilisateurs, automatisations, restaurations et administration chargées uniquement à la demande.",
-    "Déduplication des requêtes GET simultanées afin de réduire les appels API inutiles.",
-    "Instrumentation des temps de réponse API et affichage des requêtes les plus lentes dans Administration > Application.",
-    "Navigation plus réactive : la page cible s’affiche immédiatement puis ses données se complètent en arrière-plan.",
-    "Refonte d’Administration en centre de configuration avec Général, Serveurs Proxmox, Interface & apparence, Supervision, Notifications, Utilisateurs & sécurité, Mises à jour, Application et Avancé.",
-    "Menu latéral mieux hiérarchisé avec sections repliables, état mémorisé, item actif renforcé et badges plus lisibles.",
-    "Ajout des thèmes ProxPanel Dark, Graphite Blue, Light, Neon / Cyber, Purple Control et High Contrast.",
-    "Ajout du mode sombre, clair ou automatique, d’un accent optionnel, de deux densités d’interface et de trois largeurs de menu.",
-    "Prévisualisation immédiate des changements de thème et d’apparence sans rechargement complet.",
-    "Support du mode réduction des animations et amélioration responsive de la nouvelle administration."
+    "Validation de la vue multi-nœuds sauvegardée avant le premier chargement du dashboard.",
+    "Retour automatique vers le serveur Proxmox sélectionné quand une vue multi-nœuds est invalide ou indisponible.",
+    "Logo ProxPanel orange fixe dans tous les thèmes."
   ],
   "improvements_en": [
-    "Reduces startup blocking work so only essential data is required for the first usable screen.",
-    "Loads Audit, users, automations, restore tests and administration data only when requested.",
-    "Deduplicates concurrent GET requests to reduce unnecessary API traffic.",
-    "Measures API response times and shows the slowest requests in Administration > Application.",
-    "Makes navigation more responsive by rendering the target page immediately and completing its data in the background.",
-    "Redesigns Administration as a configuration center with General, Proxmox Servers, Interface & Appearance, Monitoring, Notifications, Users & Security, Updates, Application and Advanced sections.",
-    "Adds a clearer hierarchical sidebar with collapsible persisted sections, stronger active state and cleaner badges.",
-    "Adds ProxPanel Dark, Graphite Blue, Light, Neon / Cyber, Purple Control and High Contrast themes.",
-    "Adds dark, light or automatic mode, optional custom accent, two UI densities and three menu widths.",
-    "Previews theme and appearance changes immediately without a full reload.",
-    "Adds reduced-motion support and responsive improvements for the new administration experience."
+    "Validates the saved multi-node view before the first dashboard load.",
+    "Automatically falls back to the selected Proxmox server when a multi-node view is invalid or unavailable.",
+    "Keeps the ProxPanel logo consistently orange in every theme."
   ],
   "fixes": [
-    "Réduit les temps d’attente causés par le préchargement de nombreuses API secondaires au démarrage.",
-    "Évite plusieurs requêtes GET identiques lorsqu’elles sont déclenchées simultanément.",
-    "Corrige le manque de hiérarchie visuelle du menu latéral.",
-    "Corrige la page Administration trop longue et difficile à parcourir.",
-    "Améliore le comportement des catégories du menu sur mobile sans fermer la sidebar lors du repli.",
-    "Versionne les assets PWA en 1.7.1-beta.3 afin d’éviter de conserver les anciens fichiers en cache."
+    "Corrige le cas où ProxPanel pouvait apparaître totalement déconnecté après beta.3 à cause d'une vue dashboard sauvegardée invalide.",
+    "Corrige l'échec initial du dashboard lorsqu'un ancien groupe multi-nœuds n'existe plus.",
+    "Empêche la récupération de session PVE de casser un dashboard déjà chargé.",
+    "Corrige le logo qui changeait de couleur avec le thème.",
+    "Force le renouvellement des assets PWA en version 1.7.1-beta.4."
   ],
   "fixes_en": [
-    "Reduces delays caused by eagerly loading many secondary APIs during startup.",
-    "Avoids duplicate GET requests when the same resource is requested concurrently.",
-    "Fixes the sidebar's weak visual hierarchy.",
-    "Fixes the oversized and difficult-to-navigate Administration page.",
-    "Improves collapsible sidebar behavior on mobile without closing the drawer.",
-    "Versions PWA assets as 1.7.1-beta.3 to prevent stale cached files."
+    "Fixes ProxPanel appearing fully disconnected after beta.3 because of an invalid persisted dashboard view.",
+    "Fixes initial dashboard failure when an old multi-node group no longer exists.",
+    "Prevents PVE session retrieval from breaking an already loaded dashboard.",
+    "Fixes the logo changing color with the selected theme.",
+    "Forces PWA assets to refresh as version 1.7.1-beta.4."
   ],
   "notes": [
-    "Cette beta est principalement centrée sur les performances et l’UX ; elle n’ajoute pas de nouveau gros module fonctionnel.",
-    "Tester les six thèmes sur desktop, tablette et iPhone PWA, notamment le thème Light et le thème High Contrast.",
-    "Vérifier le temps de premier affichage et la liste des API lentes dans Administration > Application.",
+    "Correctif prioritaire recommandé aux utilisateurs de 1.7.1-beta.3.",
+    "Après mise à jour PWA, relancer complètement l'application si l'ancien cache reste affiché.",
     "Série 1.7.1 : 10 betas maximum."
   ],
   "notes_en": [
-    "This beta primarily focuses on performance and UX rather than adding a large new functional module.",
-    "Test all six themes on desktop, tablet and iPhone PWA, especially Light and High Contrast.",
-    "Check first-render timing and the slow API list in Administration > Application.",
+    "Priority hotfix recommended for 1.7.1-beta.3 users.",
+    "After updating the PWA, fully relaunch the app if an old cached UI is still visible.",
     "1.7.1 series: maximum 10 beta releases."
   ],
   "breaking_changes": [],

@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.1-beta.3",
+  "version": "1.7.1-beta.4",
   "private": true,
-  "description": "ProxPanel 1.7.1-beta.3 - Performance, Administration UX, Navigation and Themes.",
+  "description": "ProxPanel 1.7.1-beta.4 - Proxmox connection reliability hotfix.",
   "scripts": {
     "start": "node server.js"
   },

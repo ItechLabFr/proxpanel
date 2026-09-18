@@ -1,3 +1,23 @@
+# ProxPanel 1.7.1-beta.4
+
+## Français
+- Correctif urgent de connexion Proxmox après la 1.7.1-beta.3.
+- Valide une vue multi-nœuds mémorisée avant le premier chargement du dashboard.
+- Si une vue multi-nœuds sauvegardée est supprimée, invalide ou indisponible, retour automatique sur le serveur Proxmox sélectionné.
+- Empêche une erreur de vue dashboard de faire apparaître toute l'application comme déconnectée.
+- Rend la récupération de session PVE non bloquante pour le dashboard déjà chargé.
+- Le logo ProxPanel conserve désormais son identité orange dans tous les thèmes et ne suit plus la couleur d'accent.
+- Cache PWA et assets navigateur passés en 1.7.1-beta.4 pour forcer la récupération du correctif.
+
+## English
+- Urgent Proxmox connection hotfix following 1.7.1-beta.3.
+- Validates a persisted multi-node view before the first dashboard request.
+- Automatically falls back to the selected Proxmox server when a saved multi-node view is deleted, invalid or unavailable.
+- Prevents a dashboard-view failure from making the whole application appear disconnected.
+- Makes PVE session retrieval non-blocking once the dashboard is already loaded.
+- Keeps the ProxPanel logo orange across every theme instead of inheriting the theme accent.
+- Bumps PWA cache and browser assets to 1.7.1-beta.4 so clients retrieve the hotfix.
+
 # ProxPanel 1.7.1-beta.3
 
 ## Français
