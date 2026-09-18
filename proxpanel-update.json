@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "product": "proxpanel",
-  "version": "1.7.0-beta.16",
+  "version": "1.7.1-beta.1",
   "minBootstrapVersion": "0.2.0",
   "channel": "beta",
   "notes": [
     "Compatibilité transitoire avec les anciens updaters ProxPanel",
     "release.json reste le manifeste officiel de la release"
   ],
-  "min_supported_version": "1.7.0-beta.15"
+  "min_supported_version": "1.7.0-beta.16"
 }
