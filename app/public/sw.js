@@ -1,11 +1,11 @@
-const CACHE='proxpanel-v1.7.1-beta.6';
+const CACHE='proxpanel-v1.7.1-beta.7';
 const CORE=[
   '/',
   '/index.html',
-  '/styles.css?v=1.7.1-beta.6',
-  '/auth-v15.css?v=1.7.1-beta.6',
-  '/auth-v15.js?v=1.7.1-beta.6',
-  '/app.js?v=1.7.1-beta.6',
+  '/styles.css?v=1.7.1-beta.7',
+  '/auth-v15.css?v=1.7.1-beta.7',
+  '/auth-v15.js?v=1.7.1-beta.7',
+  '/app.js?v=1.7.1-beta.7',
   '/manifest.webmanifest',
   '/proxpanel-logo-192.png',
   '/proxpanel-logo-256.png',
