@@ -1,27 +1,33 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.0-beta.14",
-  "title": "ProxPanel 1.7.0-beta.14 — Traduction FR/EN exhaustive",
-  "summary": "Passe i18n exhaustive : écrans, actions, confirmations, diagnostics, notifications et messages dynamiques basculent réellement entre Français et English.",
+  "version": "1.7.0-beta.15",
+  "title": "ProxPanel 1.7.0-beta.15 — Authentication & Mobile UX",
+  "summary": "Refonte du parcours de connexion et de double authentification, avec une expérience dédiée aux téléphones et tablettes.",
   "improvements": [
-    "Couverture English fortement étendue sur Dashboard, TV, Machines, Nœuds, Monitoring, Backups, OTA, Notifications, Utilisateurs et Administration.",
-    "Traduction des boutons, champs et options directement au rendu, en plus de la traduction DOM.",
-    "Traduction des confirmations, prompts, toasts, notifications navigateur et messages dynamiques.",
-    "Fusion automatique des libellés de navigation dans le dictionnaire i18n afin d’éviter les oublis futurs.",
-    "Bascule FR/EN toujours instantanée, sans rebuild ni redémarrage."
+    "Nouvel écran de connexion responsive avec comportement dédié desktop, tablette et téléphone.",
+    "Parcours de connexion en deux étapes visuelles : identifiants puis vérification 2FA.",
+    "Nouvel écran Authenticator avec champ OTP optimisé pour iOS et Android et validation automatique à 6 chiffres.",
+    "Méthodes de secours 2FA présentées sous forme de grandes actions tactiles : code de récupération et code par e-mail.",
+    "Secours e-mail avec adresse masquée, expiration visible et temporisation avant renvoi.",
+    "Ajout d’un bouton afficher/masquer le mot de passe et d’un avertissement Verr. Maj.",
+    "Première installation améliorée avec confirmation du mot de passe et indicateur de robustesse.",
+    "Messages d’erreur d’authentification intégrés au formulaire au lieu de dépendre uniquement des toasts.",
+    "Prise en charge de 100dvh, des safe areas iPhone, du clavier virtuel et des petits écrans.",
+    "Zones tactiles agrandies, meilleure accessibilité clavier et respect de prefers-reduced-motion."
   ],
   "fixes": [
-    "Corrige de nombreux textes restant en français dans la beta.13.",
-    "Corrige les libellés composés et dynamiques qui échappaient au dictionnaire exact.",
-    "Corrige les fragments certificat/signature et secours e-mail dans l’interface English."
+    "Corrige l’affichage trop compact du login sur téléphone et tablette.",
+    "Corrige les boutons MFA trop petits ou mal répartis sur les écrans étroits.",
+    "Corrige le débordement potentiel du formulaire lorsque le clavier mobile est affiché.",
+    "Corrige les changements de hauteur et de lisibilité pendant le passage Login vers MFA.",
+    "Corrige la perte de contexte visuel lors d’un échec de code Authenticator, e-mail ou récupération."
   ],
   "notes": [
-    "Français reste la langue par défaut des nouvelles installations.",
-    "Le choix rapide FR/EN reste mémorisé par navigateur et ne modifie pas la langue globale.",
-    "La langue par défaut globale reste persistante dans /app/data/settings.json."
+    "Le backend d’authentification existant reste utilisé : TOTP, codes de récupération et secours e-mail.",
+    "La version reste en canal Beta afin de valider le nouveau parcours sur iPhone, Android et tablette."
   ],
   "breaking_changes": [],
-  "min_supported_version": "1.7.0-beta.13",
+  "min_supported_version": "1.7.0-beta.14",
   "mandatory": false,
   "restart_required": true,
   "rollout": 100
