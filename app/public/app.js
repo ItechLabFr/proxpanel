@@ -353,7 +353,7 @@ function shell(content){
   const global=[['overview','◉',tr('overview')],['monitoring','⌁',tr('monitoring')],['problems','△',tr('problems'),x.problems?.length||'']];if(can('audit.view'))global.push(['audit','☷',tr('audit')]);
   const infrastructure=[['machines','⬡',tr('machines'),x.machines.length||''],['nodes','▤',tr('nodes'),x.nodes.length||''],['storage','▱',tr('storage'),x.storages.length||''],['backups','▣',tr('backups'),x.backup?.unprotectedCount||''],['dependencies','⌘',tr('dependencies')]];
   const operations=[['tasks','☷',tr('tasks'),x.health?.activeTasks||''],['templates','▧',tr('templates')]];if(can('machines.control'))operations.push(['changes','⇄',tr('changes'),state.changes.filter(c=>c.status==='pending').length||''],['maintenance','↻',tr('maintenance')],['automations','▶',tr('automations')]);if(can('pve.updates'))operations.push(['pveupdates','⬆',tr('pveupdates'),state.pveUpdates?.totalUpdates||'']);
-  const administration=[];if(can('admin.manage')||can('*'))administration.push(['admin','⚙',tr('admin')],['notifications','🔔',tr('notifications')]);if(can('admin.users')||can('*'))administration.push(['users','♙',tr('users')]);
+  const administration=[];if(can('admin.manage')||can('admin.users')||can('*'))administration.push(['admin','⚙',tr('admin')]);
   const collapsed=state.sidebarCollapsed?' collapsed':'';
   return`<div class="app-shell${collapsed}"><div class="mobile-overlay" data-action="close-menu"></div>
   <aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">${brandMarkSvg()}</div><div class="brand-copy"><strong>${esc(brand.name||'ProxPanel')} <span class="beta-badge">BETA</span></strong><small>${esc(brand.subtitle||'PROXMOX CONSOLE')}</small></div><button class="sidebar-close" data-action="close-menu">×</button></div>
@@ -705,18 +705,39 @@ const ADMIN_SECTIONS=[
   ['application','Application','PWA, version et diagnostic de performance','▣'],
   ['advanced','Avancé','Modules, ordre du menu et options moins fréquentes','⋯']
 ];
-function adminBack(title,subtitle=''){return`<div class="page-head admin-subhead"><div><button class="admin-back" data-action="admin-home">← Administration</button><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div></div>`}
+function adminBack(title,subtitle=''){return`<div class="page-head admin-subhead"><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div></div>`}
+function adminNavItems(){
+  return [
+    ['home','Accueil','⌂'],
+    ['general','Général','⚙'],
+    ['servers','Serveurs Proxmox','▤'],
+    ['interface','Interface & apparence','◐'],
+    ['monitoring','Supervision','⌁'],
+    ['notifications','Notifications','🔔'],
+    ['security','Utilisateurs & sécurité','♙'],
+    ['updates','Mises à jour','⬆'],
+    ['application','Application','▣'],
+    ['advanced','Avancé','⋯']
+  ];
+}
+function adminNav(){
+  const active=state.adminSection||'home';
+  return`<aside class="admin-nav-panel"><div class="admin-nav-head"><strong>Administration</strong><small>Configuration ProxPanel</small></div><div class="admin-nav-search"><span>⌕</span><input id="adminNavSearch" autocomplete="off" placeholder="Filtrer les rubriques…"></div><nav class="admin-nav-list">${adminNavItems().map(([key,label,icon])=>`<button type="button" class="admin-nav-item ${active===key?'active':''}" data-admin-nav-search="${esc(label.toLowerCase())}" data-action="admin-section:${key}"><span>${icon}</span><b>${esc(label)}</b></button>`).join('')}</nav></aside>`
+}
+function adminFrame(content){
+  return`<div class="admin-workspace">${adminNav()}<div class="admin-workspace-content">${content}</div></div>`
+}
 function adminHomePage(){
   const s=state.settings||{},remote=state.remoteUpdate||{},u=state.updates||{},serverOnline=state.servers.filter(x=>x.status==='online').length;
   return`<div class="page-head"><div><h1>Administration</h1><p>Centre de configuration ProxPanel. Les réglages sont maintenant regroupés par usage.</p></div><div>${button('Se déconnecter','logout','danger')}</div></div>
   <div class="admin-summary-grid">
-    <div class="admin-summary"><span>Version</span><strong>${esc(u.currentVersion||'1.7.1-beta.6')}</strong><small>${remote.available?'Mise à jour disponible':'Version installée'}</small></div>
+    <div class="admin-summary"><span>Version</span><strong>${esc(u.currentVersion||'1.7.1-beta.7')}</strong><small>${remote.available?'Mise à jour disponible':'Version installée'}</small></div>
     <div class="admin-summary"><span>Canal OTA</span><strong>${esc(String(s.updates?.otaChannel||'beta').toUpperCase())}</strong><small>${remote.lastCheckAt?'Vérifié '+fmtDate(remote.lastCheckAt):'Vérification différée'}</small></div>
     <div class="admin-summary"><span>Serveurs</span><strong>${serverOnline}/${state.servers.length}</strong><small>connecté(s)</small></div>
     <div class="admin-summary"><span>2FA</span><strong>${state.me?.totpEnabled?'Active':'À vérifier'}</strong><small>Compte courant</small></div>
   </div>
   <div class="admin-search"><span>⌕</span><input id="adminSearch" autocomplete="off" placeholder="Rechercher un réglage : thème, Discord, 2FA, OTA…"><button type="button" class="btn tiny" data-action="admin-search-clear">Effacer</button></div>
-  <div class="admin-hub-grid">${ADMIN_SECTIONS.map(([key,title,desc,icon])=>{const action=key==='notifications'?'admin-open-notifications':key==='security'?'admin-open-users':`admin-section:${key}`;return`<button class="admin-hub-card" data-admin-search="${esc((title+' '+desc+' '+key).toLowerCase())}" data-action="${action}"><span class="admin-hub-icon">${icon}</span><span><strong>${esc(title)}</strong><small>${esc(desc)}</small></span><b>→</b></button>`}).join('')}</div>`;
+  <div class="admin-hub-grid">${ADMIN_SECTIONS.map(([key,title,desc,icon])=>`<button class="admin-hub-card" data-admin-search="${esc((title+' '+desc+' '+key).toLowerCase())}" data-action="admin-section:${key}"><span class="admin-hub-icon">${icon}</span><span><strong>${esc(title)}</strong><small>${esc(desc)}</small></span><b>→</b></button>`).join('')}</div>`;
 }
 function adminGeneralPage(){
   const s=state.settings||{},moduleKeys=['overview','machines','nodes','monitoring','storage','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'];
@@ -754,14 +775,18 @@ function adminAdvancedPage(){
 }
 function adminPage(){
   const section=state.adminSection||'home';
-  if(section==='general')return adminGeneralPage();
-  if(section==='servers')return adminServersPage();
-  if(section==='interface')return adminInterfacePage();
-  if(section==='monitoring')return adminMonitoringPage();
-  if(section==='updates')return adminUpdatesPage();
-  if(section==='application')return adminApplicationPage();
-  if(section==='advanced')return adminAdvancedPage();
-  return adminHomePage();
+  let content;
+  if(section==='general')content=adminGeneralPage();
+  else if(section==='servers')content=adminServersPage();
+  else if(section==='interface')content=adminInterfacePage();
+  else if(section==='monitoring')content=adminMonitoringPage();
+  else if(section==='notifications')content=notificationsPage();
+  else if(section==='security')content=usersPage();
+  else if(section==='updates')content=adminUpdatesPage();
+  else if(section==='application')content=adminApplicationPage();
+  else if(section==='advanced')content=adminAdvancedPage();
+  else content=adminHomePage();
+  return adminFrame(content);
 }
 
 function renderPage(){if(state.tvMode){app.innerHTML=tvModePage();applyRuntimeLanguage(app);return}const pages={overview:overviewPage,machines:machinesPage,nodes:nodesPage,monitoring:monitoringPage,storage:storagePage,backups:backupsPage,tasks:tasksPage,templates:templatesPage,problems:problemsPage,dependencies:dependenciesPage,changes:changesPage,maintenance:maintenancePage,pveupdates:pveUpdatesPage,automations:automationsPage,audit:auditPage,notifications:notificationsPage,users:usersPage,admin:adminPage};app.innerHTML=shell((pages[state.currentPage]||overviewPage)());bindDrag();applyRuntimeLanguage(app);}
@@ -1073,6 +1098,7 @@ async function reloadSection(){
     if(page==='admin'){
       if(state.adminSection==='updates')[state.updates,state.remoteUpdate,state.otaLatest]=await Promise.all([api('/api/update/status'),api('/api/update/remote-status'),api('/api/update/ota/latest').catch(()=>state.otaLatest)]);
       if(state.adminSection==='application'&&!state.updates)state.updates=await api('/api/update/status').catch(()=>state.updates);
+      if(state.adminSection==='security'&&can('admin.users'))state.users=await api('/api/users');
     }
   }catch(e){toast(e.message,'error')}
 }
@@ -1108,8 +1134,8 @@ async function handleAction(action,el){try{
   if(action.startsWith('toggle-nav-group:')){const key=action.slice('toggle-nav-group:'.length);state.navGroupsCollapsed[key]=!state.navGroupsCollapsed[key];localStorage.setItem('proxpanel.navGroupsCollapsed',JSON.stringify(state.navGroupsCollapsed));const section=el?.closest?.('.nav-section');if(section){section.classList.toggle('collapsed',!!state.navGroupsCollapsed[key]);el.setAttribute('aria-expanded',state.navGroupsCollapsed[key]?'false':'true')}return}
   if(action==='admin-home'){state.adminSection='home';localStorage.setItem('proxpanel.adminSection','home');renderPage();return}
   if(action.startsWith('admin-section:')){state.adminSection=action.slice('admin-section:'.length)||'home';localStorage.setItem('proxpanel.adminSection',state.adminSection);renderPage();await reloadSection();if(state.currentPage==='admin')renderPage();return}
-  if(action==='admin-open-notifications'){state.currentPage='notifications';renderPage();await reloadSection();if(state.currentPage==='notifications')renderPage();return}
-  if(action==='admin-open-users'){state.currentPage='users';renderPage();await reloadSection();if(state.currentPage==='users')renderPage();return}
+  if(action==='admin-open-notifications'){state.currentPage='admin';state.adminSection='notifications';localStorage.setItem('proxpanel.adminSection','notifications');renderPage();await reloadSection();if(state.currentPage==='admin')renderPage();return}
+  if(action==='admin-open-users'){state.currentPage='admin';state.adminSection='security';localStorage.setItem('proxpanel.adminSection','security');renderPage();await reloadSection();if(state.currentPage==='admin')renderPage();return}
   if(action==='save-interface'){const theme=qs('input[name="uiThemeChoice"]:checked')?.value||state.settings?.ui?.theme||'default',accentEnabled=!!qs('#setAccentOverride')?.checked;const ui={theme,colorMode:qs('#setColorMode')?.value||'dark',density:qs('#setDensity')?.value||'comfortable',menuStyle:qs('#setMenuStyle')?.value||'standard',accent:accentEnabled?(qs('#setUiAccent')?.value||'#ff7a00'):'',reduceMotion:!!qs('#setReduceMotion')?.checked};const branding={name:qs('#setBrandName')?.value||state.settings?.branding?.name||'ProxPanel',subtitle:qs('#setBrandSubtitle')?.value||state.settings?.branding?.subtitle||'PROXMOX CONSOLE'};await api('/api/settings',{method:'PUT',body:JSON.stringify({ui,branding})});state.settings=await api('/api/settings');applyUiPreferences();toast('Apparence enregistrée.');renderPage();return}
   if(action==='install-pwa'){if(state.pwaInstalled){toast('ProxPanel est déjà installé.');return}if(!state.pwaInstallPrompt){toast('Utilise le bouton Installer de ton navigateur (Chrome/Edge) ou son menu Applications.','warning');return}const prompt=state.pwaInstallPrompt;prompt.prompt();const choice=await prompt.userChoice;state.pwaInstallPrompt=null;if(choice?.outcome==='accepted'){state.pwaInstalled=true;toast('ProxPanel est installé sur cet appareil.')}else toast('Installation annulée.','warning');renderPage();return}if(action==='open-menu'){qs('#sidebar')?.classList.add('open');qs('.mobile-overlay')?.classList.add('show');return}if(action==='close-menu'){qs('#sidebar')?.classList.remove('open');qs('.mobile-overlay')?.classList.remove('show');return}if(action==='toggle-sidebar'){state.sidebarCollapsed=!state.sidebarCollapsed;localStorage.setItem('proxpanel.sidebarCollapsed',state.sidebarCollapsed?'1':'0');renderPage();return}if(action==='close-modal'){closeModal();return}if(action==='refresh'){await refreshDashboard();return}if(action==='logout'){await api('/api/logout',{method:'POST',body:'{}'});location.reload();return}if(action==='notifications'){state.currentPage=can('admin.manage')?'notifications':'problems';await reloadSection();renderPage();return}if(action==='go-update-admin'){state.currentPage='admin';renderPage();setTimeout(()=>qs('#updateCenter')?.scrollIntoView({behavior:'smooth',block:'start'}),50);return}
   if(action==='go-problems'){state.currentPage='problems';renderPage();return}if(action.startsWith('problem-detail:')){openProblemDetail(decodeURIComponent(action.slice('problem-detail:'.length)));return}if(action.startsWith('problem-route:')){closeModal();state.currentPage=action.slice('problem-route:'.length);await reloadSection();renderPage();return}
@@ -1194,7 +1220,8 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('fullscreenchange',()=>{if(state.tvMode&&!document.fullscreenElement){/* keep wallboard active even when browser fullscreen is exited manually */}});
 document.addEventListener('click',e=>{if(!e.target.closest('.global-search'))qs('#globalSearchResults')?.classList.remove('show');const n=e.target.closest('[data-nav]');if(n){state.currentPage=n.dataset.nav;if(innerWidth<=820){qs('#sidebar')?.classList.remove('open');qs('.mobile-overlay')?.classList.remove('show')}renderPage();const page=n.dataset.nav;reloadSection().then(()=>{if(state.currentPage===page)renderPage()});return}const a=e.target.closest('[data-action]');if(a)handleAction(a.dataset.action,a)});
 function filterAdminSettings(value){const q=String(value||'').trim().toLowerCase();qsa('[data-admin-search]').forEach(card=>{card.hidden=!!q&&!String(card.dataset.adminSearch||'').includes(q)})}
-document.addEventListener('input',e=>{if(e.target.id==='globalSearch')updateGlobalSearch(e.target.value);if(e.target.id==='machineSearch')filterMachineTable();if(e.target.id==='adminSearch')filterAdminSettings(e.target.value)});
+function filterAdminNav(value){const q=String(value||'').trim().toLowerCase();qsa('[data-admin-nav-search]').forEach(item=>{item.hidden=!!q&&!String(item.dataset.adminNavSearch||'').includes(q)})}
+document.addEventListener('input',e=>{if(e.target.id==='globalSearch')updateGlobalSearch(e.target.value);if(e.target.id==='machineSearch')filterMachineTable();if(e.target.id==='adminSearch')filterAdminSettings(e.target.value);if(e.target.id==='adminNavSearch')filterAdminNav(e.target.value)});
 document.addEventListener('change',async e=>{if(['setColorMode','setDensity','setMenuStyle','setUiAccent','setAccentOverride'].includes(e.target.id)||e.target.name==='uiThemeChoice'){const accentEnabled=!!qs('#setAccentOverride')?.checked;if(qs('#setUiAccent'))qs('#setUiAccent').disabled=!accentEnabled;applyUiPreferences({theme:qs('input[name="uiThemeChoice"]:checked')?.value||state.settings?.ui?.theme||'default',colorMode:qs('#setColorMode')?.value||state.settings?.ui?.colorMode||'dark',density:qs('#setDensity')?.value||state.settings?.ui?.density||'comfortable',menuStyle:qs('#setMenuStyle')?.value||state.settings?.ui?.menuStyle||'standard',accent:accentEnabled?(qs('#setUiAccent')?.value||'#ff7a00'):''});return}if(e.target.id==='quickLanguage'){setUiLanguage(e.target.value,{remember:true,render:true});toast(e.target.value==='en'?'Language changed to English.':'Langue changée en français.');return}if(e.target.name==='otaChannel'){const channel=String(e.target.value||'stable');try{await api('/api/settings',{method:'PUT',body:JSON.stringify({updates:{otaChannel:channel}})});state.settings=await api('/api/settings');state.remoteUpdate=await api('/api/update/remote-status');toast(`Canal ${channel==='stable'?'Stable':'Beta'} enregistré · nouvelle recherche OTA lancée.`);renderPage();setTimeout(()=>refreshRemoteUpdateStatus(true),800);setTimeout(()=>refreshRemoteUpdateStatus(true),2500)}catch(err){toast(err.message||String(err),'error')}return}if(e.target.id==='panelUserRole'){const box=qs('#customPermissions');if(box)box.hidden=e.target.value!=='custom';return}if(e.target.id==='machineTypeFilter'||e.target.id==='machineStateFilter'){filterMachineTable();return}if(e.target.id==='dashboardViewSelect'){state.dashboardView=e.target.value||'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);if(state.dashboardView.startsWith('server:')){state.selectedServer=state.dashboardView.slice(7);localStorage.setItem('proxpanel.server',state.selectedServer||'')}state.dashboard=null;state.dashboardError=null;await refreshDashboard(true,true);return}if(e.target.id==='serverSelect'){state.selectedServer=e.target.value||null;localStorage.setItem('proxpanel.server',state.selectedServer||'');state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);state.dashboard=null;state.dashboardError=null;state.dependencies=null;state.tasks=[];await refreshDashboard();await loadTasks(false);return}if(e.target.id==='dashTimeframe'){state.dashboardTimeframe=e.target.value;localStorage.setItem('proxpanel.dashboardTimeframe',state.dashboardTimeframe);await refreshDashboard(false,true);return}});
 
 function registerServiceWorkerDeferred(){

@@ -1,51 +1,49 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.1-beta.6",
-  "title": "ProxPanel 1.7.1-beta.6 — Theme Polish & Productivity",
-  "title_en": "ProxPanel 1.7.1-beta.6 — Theme Polish & Productivity",
-  "summary": "Finalise le thème clair, améliore la fiabilité PWA, ajoute la recherche Administration, le diagnostic Proxmox et la conservation des dernières données valides.",
-  "summary_en": "Completes the Light theme, improves PWA update reliability, and adds Administration search, Proxmox diagnostics and stale-data retention.",
+  "version": "1.7.1-beta.7",
+  "title": "ProxPanel 1.7.1-beta.7 — Light Theme Completion & Admin Navigation",
+  "title_en": "ProxPanel 1.7.1-beta.7 — Light Theme Completion & Admin Navigation",
+  "summary": "Finalise le thème clair sur les composants encore sombres et transforme Administration en espace de configuration avec navigation secondaire persistante.",
+  "summary_en": "Completes the Light theme across remaining dark components and turns Administration into a configuration workspace with persistent secondary navigation.",
   "improvements": [
-    "Thème clair étendu à l'ensemble des principales surfaces de l'interface.",
-    "Barre navigateur/PWA synchronisée avec le thème sélectionné.",
-    "Recherche rapide dans le centre Administration.",
-    "Diagnostic de connexion Proxmox depuis l'état de connexion.",
-    "Conservation des dernières données valides en cas d'indisponibilité temporaire.",
-    "Bouton de réinitialisation de l'apparence.",
-    "Raccourcis clavier desktop pour les principales pages.",
-    "Détection d'une nouvelle version PWA prête à être rechargée."
+    "Navigation Administration persistante avec dix rubriques clairement séparées.",
+    "Notifications et Utilisateurs intégrés directement dans l'espace Administration.",
+    "Sous-menu Administration sticky sur desktop et horizontal défilable sur mobile.",
+    "Filtre rapide des rubriques Administration.",
+    "Toast de succès, avertissement et erreur adaptés au thème clair."
   ],
   "improvements_en": [
-    "Extends the Light theme across the main application surfaces.",
-    "Synchronizes browser/PWA chrome color with the selected theme.",
-    "Adds quick search to the Administration center.",
-    "Adds Proxmox connection diagnostics from the connection status.",
-    "Keeps the latest valid data during temporary outages.",
-    "Adds an appearance reset button.",
-    "Adds desktop keyboard shortcuts for main pages.",
-    "Detects when a new PWA version is ready to reload."
+    "Persistent Administration navigation with ten clearly separated sections.",
+    "Notifications and Users integrated directly into the Administration workspace.",
+    "Sticky Administration sub-navigation on desktop and horizontally scrollable navigation on mobile.",
+    "Quick Administration section filtering.",
+    "Success, warning and error toasts adapted to the Light theme."
   ],
   "fixes": [
-    "Corrige les composants qui restaient noirs en thème clair.",
-    "Corrige le cache PWA pouvant conserver un ancien app.js après une mise à jour.",
-    "Passe index.html, app.js, CSS et manifest en stratégie réseau prioritaire.",
-    "Renforce les en-têtes de cache de index.html, sw.js et manifest.webmanifest.",
-    "Évite de remplacer immédiatement le dashboard par une page d'erreur lorsque des données valides sont déjà disponibles."
+    "Corrige les tuiles sombres restantes du widget Températures.",
+    "Corrige les blocs sombres internes de Santé du cluster.",
+    "Corrige les fonds sombres de la fenêtre détail VM/LXC.",
+    "Corrige la barre Monitoring qui restait noire en thème Light.",
+    "Corrige les KPI sombres de la page Mises à jour PVE.",
+    "Corrige plusieurs surfaces OTA, SMTP, formulaires et diagnostics encore sombres.",
+    "Corrige les modales et boutons de fermeture qui ne suivaient pas entièrement le thème Light."
   ],
   "fixes_en": [
-    "Fixes components that remained dark while using the Light theme.",
-    "Fixes PWA caching that could keep an old app.js after an update.",
-    "Uses network-first behavior for index.html, app.js, CSS and manifest.",
-    "Strengthens cache headers for index.html, sw.js and manifest.webmanifest.",
-    "Avoids immediately replacing a valid dashboard with an error page during temporary failures."
+    "Fixes remaining dark Temperature widget tiles.",
+    "Fixes dark internal Cluster Health surfaces.",
+    "Fixes dark VM/LXC detail modal surfaces.",
+    "Fixes the Monitoring toolbar remaining black in Light mode.",
+    "Fixes dark PVE Updates KPI cards.",
+    "Fixes several OTA, SMTP, form and diagnostics surfaces that still remained dark.",
+    "Fixes modal headers and close buttons that did not fully follow the Light theme."
   ],
   "notes": [
-    "Les consoles noVNC et terminal restent volontairement sombres.",
-    "Après installation, la beta.6 renouvelle automatiquement le cache PWA critique."
+    "Les consoles noVNC/xterm restent volontairement sombres.",
+    "Le menu principal est simplifié : Notifications et Utilisateurs sont désormais dans Administration."
   ],
   "notes_en": [
-    "noVNC and terminal consoles intentionally remain dark.",
-    "After installation, beta.6 automatically refreshes critical PWA cache entries."
+    "noVNC/xterm consoles intentionally remain dark.",
+    "The primary sidebar is simplified: Notifications and Users now live inside Administration."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],

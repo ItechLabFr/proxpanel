@@ -1,3 +1,35 @@
+# ProxPanel 1.7.1-beta.7
+
+## Français
+- Finalisation du thème clair sur les composants qui restaient encore sombres.
+- Les notifications/toasts de validation, avertissement et erreur suivent maintenant correctement le thème Light.
+- Correction des tuiles Maximum/Moyenne du widget Températures.
+- Correction des blocs internes de Santé du cluster.
+- Correction des métriques, informations, snapshots et en-têtes de la fenêtre détail VM/LXC.
+- Correction de la barre de filtres du Monitoring.
+- Correction des cartes KPI Paquets/Critiques/Sécurité/Nœuds des mises à jour PVE.
+- Correction de plusieurs blocs OTA, SMTP, diagnostics et formulaires encore sombres en Light.
+- Refonte de la navigation Administration avec un menu secondaire permanent.
+- Administration regroupe désormais Accueil, Général, Serveurs Proxmox, Interface & apparence, Supervision, Notifications, Utilisateurs & sécurité, Mises à jour, Application et Avancé.
+- Notifications et Utilisateurs ne sont plus des entrées séparées dans le menu principal : ils sont intégrés dans Administration.
+- Le menu Administration reste visible pendant la navigation et devient horizontal/scrollable sur mobile.
+- Ajout d'un filtre rapide des rubriques Administration.
+
+## English
+- Completes the Light theme for components that still remained dark.
+- Success, warning and error toasts now correctly follow the Light theme.
+- Fixes Maximum/Average temperature summary tiles.
+- Fixes internal Cluster Health tiles.
+- Fixes VM/LXC detail metrics, information tiles, snapshots and modal headers.
+- Fixes the Monitoring filter toolbar.
+- Fixes PVE Updates KPI cards for Packages/Critical/Security/Nodes.
+- Fixes several OTA, SMTP, diagnostics and form surfaces that still remained dark in Light mode.
+- Redesigns Administration navigation with a persistent secondary menu.
+- Administration now groups Home, General, Proxmox Servers, Interface & Appearance, Monitoring, Notifications, Users & Security, Updates, Application and Advanced.
+- Notifications and Users are no longer separate primary sidebar items; they live inside Administration.
+- Administration navigation stays visible while browsing and becomes horizontal/scrollable on mobile.
+- Adds quick filtering for Administration sections.
+
 # ProxPanel 1.7.1-beta.6
 
 ## Français

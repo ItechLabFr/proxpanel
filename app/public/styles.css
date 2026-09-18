@@ -904,3 +904,209 @@ html[data-theme="light"] .xterm-viewport{
   .connection-diagnostic-grid{grid-template-columns:1fr}
   .stale-data-banner{align-items:flex-start}
 }
+
+
+/* v1.7.1-beta.7 — complete Light theme + persistent Administration navigation */
+.admin-workspace{
+  display:grid;grid-template-columns:250px minmax(0,1fr);gap:16px;align-items:start
+}
+.admin-nav-panel{
+  position:sticky;top:84px;display:grid;gap:10px;padding:12px;
+  border:1px solid var(--line);border-radius:14px;background:var(--panel)
+}
+.admin-nav-head{padding:4px 5px 8px;border-bottom:1px solid var(--line2)}
+.admin-nav-head strong,.admin-nav-head small{display:block}
+.admin-nav-head strong{font-size:15px}
+.admin-nav-head small{margin-top:3px;color:var(--muted);font-size:11px}
+.admin-nav-search{
+  display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;gap:7px;
+  min-height:40px;padding:0 9px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)
+}
+.admin-nav-search span{color:var(--muted)}
+.admin-nav-search input{min-width:0;border:0;background:transparent;color:var(--text)}
+.admin-nav-search input:focus{outline:0;box-shadow:none}
+.admin-nav-list{display:grid;gap:4px}
+.admin-nav-item{
+  width:100%;min-height:42px;display:grid;grid-template-columns:26px minmax(0,1fr);
+  align-items:center;gap:8px;padding:8px 10px;border:1px solid transparent;border-radius:10px;
+  background:transparent;color:var(--muted);text-align:left
+}
+.admin-nav-item>span{display:grid;place-items:center;color:var(--muted2)}
+.admin-nav-item>b{font-size:12px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.admin-nav-item:hover{background:var(--panel2);color:var(--text)}
+.admin-nav-item.active{
+  color:var(--text);background:color-mix(in srgb,var(--accent) 9%,var(--panel2));
+  border-color:color-mix(in srgb,var(--accent) 24%,var(--line))
+}
+.admin-nav-item.active>span{color:var(--accent)}
+.admin-nav-item[hidden]{display:none!important}
+.admin-workspace-content{min-width:0}
+.admin-workspace-content>.page-head:first-child{margin-top:0}
+
+/* Light theme: feedback / toasts */
+html[data-theme="light"] .toast{
+  background:#eefbf5!important;color:#0b5f46!important;
+  border-color:rgba(8,127,91,.22)!important;
+  box-shadow:0 14px 38px rgba(38,55,75,.15)!important
+}
+html[data-theme="light"] .toast.warning{
+  background:#fff8e6!important;color:#7a5512!important;border-color:rgba(169,104,0,.24)!important
+}
+html[data-theme="light"] .toast.error{
+  background:#fff0f2!important;color:#a61e32!important;border-color:rgba(201,42,61,.24)!important
+}
+
+/* Light theme: dashboard internals */
+html[data-theme="light"] .temperature-summary>div,
+html[data-theme="light"] .health-v2-grid>div,
+html[data-theme="light"] .stats-strip>div,
+html[data-theme="light"] .metric-strip>div,
+html[data-theme="light"] .machine-detail-metrics>div,
+html[data-theme="light"] .machine-info-grid>div,
+html[data-theme="light"] .snapshot-item,
+html[data-theme="light"] .detail-tile,
+html[data-theme="light"] .resource-card dl>div,
+html[data-theme="light"] .backup-machine,
+html[data-theme="light"] .mail-smtp-fallback,
+html[data-theme="light"] .mail-box,
+html[data-theme="light"] .manual-report-box,
+html[data-theme="light"] .ota-identity>div,
+html[data-theme="light"] .release-notes,
+html[data-theme="light"] .zip-drop,
+html[data-theme="light"] .update-current-grid>div{
+  background:#f8fafc!important;color:var(--text)!important;border-color:var(--line)!important
+}
+html[data-theme="light"] .temperature-summary>div strong,
+html[data-theme="light"] .health-v2-grid b,
+html[data-theme="light"] .metric-strip strong,
+html[data-theme="light"] .machine-detail-metrics strong,
+html[data-theme="light"] .machine-info-grid b,
+html[data-theme="light"] .detail-tile b,
+html[data-theme="light"] .stats-strip b{
+  color:var(--text)!important
+}
+html[data-theme="light"] .health-ring{
+  background:conic-gradient(var(--health-color) var(--health-score),#e3e9f0 0)!important
+}
+html[data-theme="light"] .health-ring-inner{
+  background:radial-gradient(circle at 50% 35%,#ffffff,#eef3f8 72%)!important;
+  box-shadow:inset 0 0 0 1px #d5dde7!important
+}
+html[data-theme="light"] .health-v2-grid span,
+html[data-theme="light"] .health-v2-grid small,
+html[data-theme="light"] .health-v2-kicker,
+html[data-theme="light"] .health-v2-summary p,
+html[data-theme="light"] .health-v2-footer small{
+  color:var(--muted)!important
+}
+html[data-theme="light"] .health-v2-footer{
+  background:#f8fafc!important;color:var(--text)!important;border-color:var(--line)!important
+}
+html[data-theme="light"] .health-v2-footer.ok{
+  background:#f1fbf7!important
+}
+html[data-theme="light"] .health-v2-footer.warning{
+  background:#fff9eb!important
+}
+html[data-theme="light"] .health-v2-footer.danger{
+  background:#fff1f2!important
+}
+html[data-theme="light"] .health-v2-footer.ok>span{color:#087f5b!important}
+html[data-theme="light"] .health-v2-footer.warning>span{color:#8a6400!important}
+html[data-theme="light"] .health-v2-footer.danger>span{color:#b42338!important}
+
+/* Light theme: machine detail modal */
+html[data-theme="light"] .modal-card .modal-head,
+html[data-theme="light"] .modal-card .modal-footer{
+  background:#f8fafc!important;color:var(--text)!important;border-color:var(--line)!important
+}
+html[data-theme="light"] .modal-close{
+  background:#fff!important;color:#344054!important;border-color:var(--line)!important
+}
+html[data-theme="light"] .modal-close:hover{
+  background:#eef3f8!important;color:#111827!important
+}
+html[data-theme="light"] .ip-list code{
+  background:#eef3f8!important;color:#344054!important;border-color:#d5dde7!important
+}
+html[data-theme="light"] .machine-detail-error{
+  background:#fff8e6!important;color:#5f4b20!important
+}
+
+/* Light theme: Monitoring */
+html[data-theme="light"] .beta2-monitor-toolbar{
+  background:rgba(255,255,255,.96)!important;border-color:var(--line)!important;
+  box-shadow:0 8px 24px rgba(38,55,75,.06)
+}
+html[data-theme="light"] .monitor-node-card,
+html[data-theme="light"] .monitor-storage-item,
+html[data-theme="light"] .monitor-status-card{
+  background:#fff!important;color:var(--text)!important;border-color:var(--line)!important
+}
+
+/* Light theme: PVE updates / OTA */
+html[data-theme="light"] .mail-smtp-fallback,
+html[data-theme="light"] .update-check-config,
+html[data-theme="light"] .update-remote,
+html[data-theme="light"] .mail-admin,
+html[data-theme="light"] .ota-release,
+html[data-theme="light"] .ota-empty,
+html[data-theme="light"] .official-ota-card,
+html[data-theme="light"] .update-channel-card,
+html[data-theme="light"] .auto-install-config,
+html[data-theme="light"] .ota-latest-release,
+html[data-theme="light"] .ota-dev,
+html[data-theme="light"] .zip-fallback{
+  background:#fff!important;color:var(--text)!important;border-color:var(--line)!important
+}
+html[data-theme="light"] .metric-strip>div{
+  background:#f8fafc!important
+}
+html[data-theme="light"] .security-callout{
+  background:#fff3f4!important;color:#7a2430!important
+}
+html[data-theme="light"] .security-callout strong,
+html[data-theme="light"] .security-callout p,
+html[data-theme="light"] .security-callout small{
+  color:inherit!important
+}
+html[data-theme="light"] .security-callout code,
+html[data-theme="light"] .cve-line code{
+  background:#fff0f2!important;color:#b42338!important
+}
+
+/* Light theme: admin navigation itself */
+html[data-theme="light"] .admin-nav-panel{
+  background:#fff!important;border-color:var(--line)!important;
+  box-shadow:0 8px 24px rgba(38,55,75,.045)
+}
+html[data-theme="light"] .admin-nav-search{
+  background:#f8fafc!important
+}
+html[data-theme="light"] .admin-nav-item:hover{
+  background:#eef3f8!important
+}
+html[data-theme="light"] .admin-nav-item.active{
+  background:color-mix(in srgb,var(--accent) 9%,#fff)!important
+}
+
+@media(max-width:1100px){
+  .admin-workspace{grid-template-columns:210px minmax(0,1fr);gap:12px}
+}
+@media(max-width:820px){
+  .admin-workspace{display:block}
+  .admin-nav-panel{
+    position:sticky;top:62px;z-index:10;margin:0 0 12px;padding:8px;
+    overflow:hidden;border-radius:12px
+  }
+  .admin-nav-head{display:none}
+  .admin-nav-search{margin-bottom:7px}
+  .admin-nav-list{
+    display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none
+  }
+  .admin-nav-list::-webkit-scrollbar{display:none}
+  .admin-nav-item{
+    flex:0 0 auto;width:auto;grid-template-columns:22px auto;min-height:40px;padding:7px 10px
+  }
+  .admin-nav-item>b{overflow:visible}
+}
