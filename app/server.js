@@ -2217,16 +2217,18 @@ async function dockerContainerMonitorDetails(item,endpointId,container,wantStats
 }
 async function monitorDockerEnvironment(item,env,previousSnapshot,state,settings,now,observed,checkedScopes) {
   const cfg=dockerMonitorConfig(settings),pid=item.id,eid=Number(env.id),containerScope=`containers:${pid}:${eid}`;
-  let containers,stacks,info;
+  let containers,stacks=null,info=null;
   try{
-    [containers,stacks,info]=await Promise.all([
+    [containers,info]=await Promise.all([
       portainerContainerList(item,eid),
-      portainerStackList(item,eid).catch(()=>[]),
       portainerDockerJson(item,eid,'/info').catch(()=>null)
     ]);
   }catch{return null}
+  try{stacks=await portainerStackList(item,eid);}catch{}
   checkedScopes.add(containerScope);
-  const activeStacks=new Map(stacks.map(s=>[s.name,s]));
+  const stackScope=`stacks:${pid}:${eid}`;
+  if(Array.isArray(stacks))checkedScopes.add(stackScope);
+  const activeStacks=new Map((Array.isArray(stacks)?stacks:[]).map(s=>[s.name,s]));
   const detailRows=[];
   for(let i=0;i<containers.length;i+=5){
     const batch=containers.slice(i,i+5);
@@ -2249,9 +2251,10 @@ async function monitorDockerEnvironment(item,env,previousSnapshot,state,settings
     }
 
     const stack=ct.stack?activeStacks.get(ct.stack):null;
+    const stackMetadataReliable=Array.isArray(stacks);
     const stackIntentionallyInactive=stack&&stack.active===false;
     const transitionedToStopped=previous&&['running','restarting'].includes(String(previous.state||''))&&!['running','restarting','paused'].includes(stateNow);
-    if(transitionedToStopped&&!stackIntentionallyInactive&&!dockerManualStopIsExpected(state,pid,eid,ct.id,now)){
+    if(transitionedToStopped&&(!ct.stack||stackMetadataReliable)&&!stackIntentionallyInactive&&!dockerManualStopIsExpected(state,pid,eid,ct.id,now)){
       await dockerMonitorObserve(state,observed,{
         id:dockerMonitorKey('docker.container.stopped',pid,eid,ct.id),type:'docker.container.stopped',scope:containerScope,severity:'critical',
         title:'Conteneur Docker arrêté',detail:`${ct.name||ct.id.slice(0,12)} était actif et est maintenant ${stateNow}.`,target,
@@ -2298,13 +2301,13 @@ async function monitorDockerEnvironment(item,env,previousSnapshot,state,settings
     }
   }
 
-  for(const stack of stacks.filter(s=>s.active)){
+  for(const stack of (Array.isArray(stacks)?stacks:[]).filter(s=>s.active)){
     const members=containers.filter(c=>c.stack===stack.name);
     if(members.length<2)continue;
     const bad=members.filter(c=>c.health==='unhealthy'||!['running','restarting','paused'].includes(String(c.state||'')));
     if(bad.length>0&&bad.length<members.length){
       await dockerMonitorObserve(state,observed,{
-        id:dockerMonitorKey('docker.stack.degraded',pid,eid,stack.id),type:'docker.stack.degraded',scope:containerScope,severity:'warning',
+        id:dockerMonitorKey('docker.stack.degraded',pid,eid,stack.id),type:'docker.stack.degraded',scope:stackScope,severity:'warning',
         title:'Stack Docker partiellement dégradée',detail:`${stack.name} a ${bad.length}/${members.length} conteneur(s) en défaut.`,target:`${stack.name} · ${env.name}`,
         portainerId:pid,portainerName:item.name,endpointId:eid,stackName:stack.name,
         recommendation:'Ouvre la stack et vérifie les conteneurs en défaut avant tout redeploy.',
