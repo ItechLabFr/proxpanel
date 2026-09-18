@@ -214,6 +214,112 @@ function demoProxmoxApi(server, apiPath, options) {
   return {};
 }
 
+
+function demoDockerContainers(endpointId=1) {
+  const now=Math.floor(Date.now()/1000);
+  const network=(name,ip)=>[{name,ip,gateway:'172.20.0.1',mac:''}];
+  const port=(privatePort,publicPort=0,type='tcp')=>({ip:publicPort?'0.0.0.0':'',privatePort,publicPort,type});
+  const rows1=[
+    {id:'demo-npm',name:'nginx-proxy-manager',image:'jc21/nginx-proxy-manager:latest',created:now-86400*46,state:'running',status:'Up 46 days (healthy)',health:'healthy',stack:'edge',labels:{'com.docker.compose.project':'edge'},ports:[port(80,80),port(81,81),port(443,443)],networks:network('edge_default','172.20.0.2')},
+    {id:'demo-portainer',name:'portainer',image:'portainer/portainer-ce:lts',created:now-86400*80,state:'running',status:'Up 28 days (healthy)',health:'healthy',stack:'management',labels:{'com.docker.compose.project':'management'},ports:[port(9443,9443),port(8000,8000)],networks:network('management_default','172.20.1.2')},
+    {id:'demo-uptime',name:'uptime-kuma',image:'louislam/uptime-kuma:2',created:now-86400*65,state:'running',status:'Up 20 days (healthy)',health:'healthy',stack:'monitoring',labels:{'com.docker.compose.project':'monitoring'},ports:[port(3001,3001)],networks:network('monitoring_default','172.20.2.2')},
+    {id:'demo-vaultwarden',name:'vaultwarden',image:'vaultwarden/server:latest',created:now-86400*52,state:'running',status:'Up 18 days (healthy)',health:'healthy',stack:'security',labels:{'com.docker.compose.project':'security'},ports:[port(80,8081)],networks:network('security_default','172.20.3.2')},
+    {id:'demo-bookstack',name:'bookstack',image:'lscr.io/linuxserver/bookstack:latest',created:now-86400*32,state:'running',status:'Up 9 days (unhealthy)',health:'unhealthy',stack:'docs',labels:{'com.docker.compose.project':'docs'},ports:[port(80,6875)],networks:network('docs_default','172.20.4.2')},
+    {id:'demo-mariadb',name:'bookstack-db',image:'mariadb:11',created:now-86400*32,state:'running',status:'Up 9 days (healthy)',health:'healthy',stack:'docs',labels:{'com.docker.compose.project':'docs'},ports:[port(3306)],networks:network('docs_default','172.20.4.3')},
+    {id:'demo-whoami',name:'whoami-test',image:'traefik/whoami:latest',created:now-86400*4,state:'exited',status:'Exited (0) 2 days ago',health:'',stack:'lab',labels:{'com.docker.compose.project':'lab'},ports:[port(80,8099)],networks:network('lab_default','172.20.5.2')}
+  ];
+  const rows2=[
+    {id:'demo-grafana',name:'grafana',image:'grafana/grafana:12.1.0',created:now-86400*58,state:'running',status:'Up 31 days (healthy)',health:'healthy',stack:'observability',labels:{'com.docker.compose.project':'observability'},ports:[port(3000,3000)],networks:network('observability_default','172.21.0.2')},
+    {id:'demo-influx',name:'influxdb',image:'influxdb:2.7',created:now-86400*58,state:'running',status:'Up 31 days (healthy)',health:'healthy',stack:'observability',labels:{'com.docker.compose.project':'observability'},ports:[port(8086,8086)],networks:network('observability_default','172.21.0.3')},
+    {id:'demo-n8n',name:'n8n',image:'n8nio/n8n:latest',created:now-86400*21,state:'running',status:'Up 12 days',health:'',stack:'automation',labels:{'com.docker.compose.project':'automation'},ports:[port(5678,5678)],networks:network('automation_default','172.21.1.2')},
+    {id:'demo-wiki',name:'wikijs',image:'requarks/wiki:2',created:now-86400*73,state:'running',status:'Up 42 days (healthy)',health:'healthy',stack:'wiki',labels:{'com.docker.compose.project':'wiki'},ports:[port(3000,3002)],networks:network('wiki_default','172.21.2.2')},
+    {id:'demo-minecraft',name:'minecraft-test',image:'itzg/minecraft-server:latest',created:now-86400*15,state:'exited',status:'Exited (0) 6 hours ago',health:'',stack:'lab-games',labels:{'com.docker.compose.project':'lab-games'},ports:[port(25565,25565)],networks:network('lab-games_default','172.21.3.2')}
+  ];
+  return Number(endpointId)===2?rows2:rows1;
+}
+
+function demoDockerStacks(endpointId=1) {
+  const now=Math.floor(Date.now()/1000);
+  const rows1=[
+    {id:11,name:'edge',endpointId:1,status:1,active:true,createdBy:'demo',creationDate:now-86400*46,entryPoint:'docker-compose.yml',envNames:['TZ'],git:true,autoUpdate:true,additionalFiles:[]},
+    {id:12,name:'monitoring',endpointId:1,status:1,active:true,createdBy:'demo',creationDate:now-86400*65,entryPoint:'compose.yml',envNames:['TZ'],git:false,autoUpdate:false,additionalFiles:[]},
+    {id:13,name:'security',endpointId:1,status:1,active:true,createdBy:'demo',creationDate:now-86400*52,entryPoint:'compose.yml',envNames:['DOMAIN','TZ'],git:false,autoUpdate:false,additionalFiles:[]},
+    {id:14,name:'docs',endpointId:1,status:1,active:true,createdBy:'demo',creationDate:now-86400*32,entryPoint:'docker-compose.yml',envNames:['APP_URL','DB_HOST','DB_DATABASE'],git:true,autoUpdate:false,additionalFiles:[]},
+    {id:15,name:'lab',endpointId:1,status:2,active:false,createdBy:'demo',creationDate:now-86400*4,entryPoint:'compose.yml',envNames:[],git:false,autoUpdate:false,additionalFiles:[]}
+  ];
+  const rows2=[
+    {id:21,name:'observability',endpointId:2,status:1,active:true,createdBy:'demo',creationDate:now-86400*58,entryPoint:'docker-compose.yml',envNames:['GF_SERVER_ROOT_URL','TZ'],git:true,autoUpdate:true,additionalFiles:[]},
+    {id:22,name:'automation',endpointId:2,status:1,active:true,createdBy:'demo',creationDate:now-86400*21,entryPoint:'compose.yml',envNames:['N8N_HOST','TZ'],git:false,autoUpdate:false,additionalFiles:[]},
+    {id:23,name:'wiki',endpointId:2,status:1,active:true,createdBy:'demo',creationDate:now-86400*73,entryPoint:'compose.yml',envNames:['DB_TYPE','DB_HOST'],git:false,autoUpdate:false,additionalFiles:[]},
+    {id:24,name:'lab-games',endpointId:2,status:2,active:false,createdBy:'demo',creationDate:now-86400*15,entryPoint:'compose.yml',envNames:['EULA','TYPE'],git:false,autoUpdate:false,additionalFiles:[]}
+  ];
+  return Number(endpointId)===2?rows2:rows1;
+}
+
+function demoDockerSummary(containers=[]) {
+  let running=0,stopped=0,healthy=0,unhealthy=0,restarting=0,paused=0;
+  for(const c of containers){
+    if(c.state==='running')running++;else stopped++;
+    if(c.health==='healthy')healthy++;
+    if(c.health==='unhealthy')unhealthy++;
+    if(c.state==='restarting')restarting++;
+    if(c.state==='paused')paused++;
+  }
+  return {total:containers.length,running,stopped,healthy,unhealthy,restarting,paused};
+}
+
+function demoDockerOverview() {
+  const c1=demoDockerContainers(1),c2=demoDockerContainers(2),s1=demoDockerSummary(c1),s2=demoDockerSummary(c2);
+  const environments=[
+    {id:1,name:'DOCKER-PROD',url:'tcp://10.20.30.40:2375',type:1,portainerStatus:1,groupId:1,reachable:true,supported:true,kind:'docker-standalone',kindLabel:'Docker Standalone',dockerVersion:'28.3.3',hostName:'ITL-DCK-PROD01',os:'Debian GNU/Linux 13',architecture:'x86_64',cpus:8,memoryTotal:gib(16),containers:s1,error:''},
+    {id:2,name:'DOCKER-LAB',url:'tcp://10.20.30.41:2375',type:1,portainerStatus:1,groupId:1,reachable:true,supported:true,kind:'docker-standalone',kindLabel:'Docker Standalone',dockerVersion:'28.3.3',hostName:'ITL-DCK-LAB01',os:'Debian GNU/Linux 13',architecture:'x86_64',cpus:6,memoryTotal:gib(12),containers:s2,error:''}
+  ];
+  const totals=demoDockerSummary([...c1,...c2]);
+  return {
+    configured:true,
+    portainers:[{
+      id:'demo-portainer',name:'Portainer CE · Démo',url:'https://portainer.demo.local',type:'portainer',
+      status:'online',error:'',version:'2.27.1',edition:'Community Edition',
+      environmentCount:2,reachableCount:2,supportedDockerCount:2,containers:totals,environments
+    }],
+    summary:{portainers:1,environments:2,reachable:2,supported:2,containers:totals.total,running:totals.running,stopped:totals.stopped,unhealthy:totals.unhealthy}
+  };
+}
+
+function demoDockerContainerDetails(endpointId,containerId) {
+  const row=demoDockerContainers(endpointId).find(c=>c.id===String(containerId));
+  if(!row)return null;
+  const running=row.state==='running';
+  const cpuMap={'demo-npm':1.8,'demo-portainer':0.7,'demo-uptime':2.4,'demo-vaultwarden':0.9,'demo-bookstack':4.8,'demo-mariadb':1.6,'demo-grafana':3.2,'demo-influx':2.7,'demo-n8n':5.1,'demo-wiki':1.3};
+  const memMap={'demo-npm':420,'demo-portainer':180,'demo-uptime':310,'demo-vaultwarden':95,'demo-bookstack':640,'demo-mariadb':520,'demo-grafana':390,'demo-influx':730,'demo-n8n':510,'demo-wiki':460};
+  const memMiB=memMap[row.id]||128,limitMiB=row.id==='demo-influx'?2048:1024;
+  return {
+    inspect:{
+      Id:row.id,Name:'/'+row.name,Created:new Date(row.created*1000).toISOString(),
+      Path:'/entrypoint.sh',Args:[],State:{Status:row.state,Running:running,Paused:row.state==='paused',Restarting:row.state==='restarting',ExitCode:running?0:0,Health:row.health?{Status:row.health}:undefined},
+      Image:row.image,RestartCount:row.id==='demo-bookstack'?3:0,
+      Config:{Image:row.image,Labels:row.labels,Env:['TZ=[redacted]','DEMO_SECRET=[redacted]']},
+      NetworkSettings:{Networks:Object.fromEntries((row.networks||[]).map(n=>[n.name,{IPAddress:n.ip,Gateway:n.gateway,MacAddress:n.mac}]))},
+      HostConfig:{RestartPolicy:{Name:'unless-stopped'}}
+    },
+    stats:running?{cpuPct:cpuMap[row.id]||1.1,memoryUsed:memMiB*1024*1024,memoryLimit:limitMiB*1024*1024,memoryPct:Number((memMiB/limitMiB*100).toFixed(1))}:null
+  };
+}
+
+function demoDockerLogs(endpointId,containerId,tail=300) {
+  const row=demoDockerContainers(endpointId).find(c=>c.id===String(containerId));
+  if(!row)return '';
+  const ts=new Date().toISOString();
+  const lines=[
+    `${ts} [info] ${row.name} started in ProxPanel public demo mode`,
+    `${ts} [info] image=${row.image} state=${row.state}`,
+    `${ts} [info] health=${row.health||'not-configured'} network=${row.networks?.[0]?.name||'bridge'}`
+  ];
+  if(row.health==='unhealthy')lines.push(`${ts} [warn] simulated healthcheck failure: HTTP 503 on /health`);
+  lines.push(`${ts} [info] These logs are fictitious and contain no production data.`);
+  return lines.slice(-Math.max(1,Math.min(Number(tail)||300,300))).join('\n');
+}
+
 function demoTemperatureForNode(node) {
   const values = { 'pve-demo-01':51.4, 'pve-demo-02':47.8, 'pve-demo-03':54.2 };
   return Object.prototype.hasOwnProperty.call(values, String(node)) ? values[String(node)] : 49.5;
@@ -225,5 +331,10 @@ module.exports = {
   DEMO_PASSWORD,
   DEMO_EMAIL,
   demoProxmoxApi,
-  demoTemperatureForNode
+  demoTemperatureForNode,
+  demoDockerOverview,
+  demoDockerContainers,
+  demoDockerStacks,
+  demoDockerContainerDetails,
+  demoDockerLogs
 };
