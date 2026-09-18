@@ -13,7 +13,10 @@ const execFileAsync = promisify(execFile);
 const { URL } = require('url');
 const QRCode = require('./vendor/QRCode');
 const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
-const { backupAlertDecision, summarizeDockerContainers, classifyPortainerEnvironment } = require('./lib/reliability');
+const {
+  backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
+  normalizeDockerContainer,normalizePortainerStack,redactDockerInspect
+} = require('./lib/reliability');
 const { DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL, demoProxmoxApi, demoTemperatureForNode } = require('./lib/demo-mode');
 
 const PORT = Number(process.env.PORT || 8080);
@@ -1061,6 +1064,40 @@ function rawRequest(baseUrl, reqPath, options = {}) {
     request.end();
   });
 }
+function rawBufferRequest(baseUrl, reqPath, options = {}) {
+  return new Promise((resolve,reject)=>{
+    const base=new URL(baseUrl),lib=base.protocol==='https:'?https:http,body=options.body||null;
+    const headers={Accept:'application/octet-stream',...(options.headers||{})};
+    if(body&&!headers['Content-Length'])headers['Content-Length']=Buffer.byteLength(body);
+    const request=lib.request({
+      protocol:base.protocol,hostname:base.hostname,port:base.port||(base.protocol==='https:'?443:80),
+      path:reqPath,method:options.method||'GET',headers,rejectUnauthorized:options.rejectUnauthorized!==false,timeout:15000
+    },response=>{
+      const chunks=[];let bytes=0;
+      response.on('data',chunk=>{const b=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);bytes+=b.length;if(bytes<=8*1024*1024)chunks.push(b)});
+      response.on('end',()=>{
+        const data=Buffer.concat(chunks);
+        if(response.statusCode>=200&&response.statusCode<300)return resolve({status:response.statusCode,data,headers:response.headers});
+        let message=`HTTP ${response.statusCode}`;try{const parsed=JSON.parse(data.toString('utf8'));message=parsed?.message||message}catch{}
+        reject(new Error(message));
+      });
+    });
+    request.on('timeout',()=>request.destroy(new Error('Timeout de connexion')));
+    request.on('error',reject);
+    if(body)request.write(body);
+    request.end();
+  });
+}
+function dockerStreamText(buffer) {
+  if(!Buffer.isBuffer(buffer)||!buffer.length)return '';
+  let offset=0,out='',framed=false;
+  while(offset+8<=buffer.length){
+    const stream=buffer[offset],len=buffer.readUInt32BE(offset+4);
+    if(![0,1,2,3].includes(stream)||len<0||offset+8+len>buffer.length)break;
+    framed=true;out+=buffer.subarray(offset+8,offset+8+len).toString('utf8');offset+=8+len;
+  }
+  return (framed?out:buffer.toString('utf8')).replace(/\u0000/g,'').slice(-1024*1024);
+}
 
 async function proxmoxPasswordLogin(server, username, password, otp = '') {
   await ensureCertificatePin(server);
@@ -2032,6 +2069,46 @@ async function cachedPortainerOverview(item,force=false) {
     PORTAINER_OVERVIEW_CACHE.delete(key);
     throw error;
   }
+}
+
+function findPortainerIntegration(id) {
+  return jsonRead(INTEGRATIONS_FILE,[]).find(x=>x.id===id&&x.type==='portainer'&&x.enabled!==false)||null;
+}
+function dockerEndpointId(value) {
+  const id=Number(value);if(!Number.isInteger(id)||id<=0)throw new Error('Environnement Portainer invalide.');return id;
+}
+function dockerObjectId(value) {
+  const id=String(value||'').trim();if(!/^[A-Za-z0-9_.:-]{1,128}$/.test(id))throw new Error('Identifiant Docker invalide.');return id;
+}
+async function portainerDockerJson(item,endpointId,dockerPath,options={}) {
+  const id=dockerEndpointId(endpointId),headers={...portainerHeaders(item),...(options.headers||{})};
+  return integrationJson(item.url,`/api/endpoints/${encodeURIComponent(id)}/docker${dockerPath}`,{...options,headers,rejectUnauthorized:!item.allowSelfSigned});
+}
+async function portainerDockerBuffer(item,endpointId,dockerPath,options={}) {
+  const id=dockerEndpointId(endpointId),headers={...portainerHeaders(item),...(options.headers||{})};
+  return rawBufferRequest(item.url,`/api/endpoints/${encodeURIComponent(id)}/docker${dockerPath}`,{...options,headers,rejectUnauthorized:!item.allowSelfSigned});
+}
+async function portainerContainerList(item,endpointId) {
+  const rows=await portainerDockerJson(item,endpointId,'/containers/json?all=1');
+  return (Array.isArray(rows)?rows:[]).map(normalizeDockerContainer);
+}
+async function portainerStackList(item,endpointId) {
+  const id=dockerEndpointId(endpointId),rows=await integrationJson(item.url,'/api/stacks',{headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
+  return (Array.isArray(rows)?rows:[]).map(normalizePortainerStack).filter(s=>s.endpointId===id);
+}
+async function dockerContainerStats(item,endpointId,containerId) {
+  try{
+    const id=dockerObjectId(containerId);
+    const s=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(id)}/stats?stream=false`);
+    const cpuTotal=Number(s?.cpu_stats?.cpu_usage?.total_usage||0),preCpu=Number(s?.precpu_stats?.cpu_usage?.total_usage||0);
+    const system=Number(s?.cpu_stats?.system_cpu_usage||0),preSystem=Number(s?.precpu_stats?.system_cpu_usage||0);
+    const online=Number(s?.cpu_stats?.online_cpus||s?.cpu_stats?.cpu_usage?.percpu_usage?.length||1);
+    const cpuDelta=cpuTotal-preCpu,systemDelta=system-preSystem;
+    const cpuPct=cpuDelta>0&&systemDelta>0?(cpuDelta/systemDelta)*online*100:0;
+    const mem=Number(s?.memory_stats?.usage||0),cache=Number(s?.memory_stats?.stats?.cache||s?.memory_stats?.stats?.inactive_file||0),limit=Number(s?.memory_stats?.limit||0);
+    const used=Math.max(0,mem-cache);
+    return {cpuPct:Number(cpuPct.toFixed(2)),memoryUsed:used,memoryLimit:limit,memoryPct:limit?Number((used/limit*100).toFixed(2)):0};
+  }catch{return null}
 }
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
@@ -4045,6 +4122,100 @@ async function handleApi(req, res, url) {
       return acc;
     },{portainers:0,environments:0,reachable:0,supported:0,containers:0,running:0,stopped:0,unhealthy:0});
     return sendJson(res,200,{configured:true,portainers,summary});
+  }
+  const dockerContainersMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/containers$/);
+  if(dockerContainersMatch&&req.method==='GET'){
+    const item=findPortainerIntegration(dockerContainersMatch[1]);if(!item)return sendJson(res,404,{error:'Portainer introuvable.'});
+    try{
+      const endpointId=dockerEndpointId(dockerContainersMatch[2]),containers=await portainerContainerList(item,endpointId);
+      const stacks=await portainerStackList(item,endpointId).catch(()=>[]);
+      const stackByName=Object.fromEntries(stacks.map(s=>[s.name,s]));
+      return sendJson(res,200,{endpointId,containers:containers.map(x=>({...x,stackInfo:x.stack?stackByName[x.stack]||null:null})),summary:summarizeDockerContainers(containers)});
+    }catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  const dockerContainerMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/containers\/([^/]+)(?:\/(logs|action|exec))?$/);
+  if(dockerContainerMatch){
+    const item=findPortainerIntegration(dockerContainerMatch[1]);if(!item)return sendJson(res,404,{error:'Portainer introuvable.'});
+    let endpointId,containerId;try{endpointId=dockerEndpointId(dockerContainerMatch[2]);containerId=dockerObjectId(decodeURIComponent(dockerContainerMatch[3]));}catch(e){return sendJson(res,400,{error:e.message});}
+    const op=dockerContainerMatch[4]||'inspect';
+    try{
+      if(req.method==='GET'&&op==='inspect'){
+        const inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/json`);
+        const stats=String(inspect?.State?.Status||'').toLowerCase()==='running'?await dockerContainerStats(item,endpointId,containerId):null;
+        return sendJson(res,200,{inspect:redactDockerInspect(inspect),stats});
+      }
+      if(req.method==='GET'&&op==='logs'){
+        const tail=Math.max(20,Math.min(1000,Number(url.searchParams.get('tail')||250)));
+        const r=await portainerDockerBuffer(item,endpointId,`/containers/${encodeURIComponent(containerId)}/logs?stdout=1&stderr=1&timestamps=1&tail=${tail}`);
+        return sendJson(res,200,{logs:dockerStreamText(r.data),tail});
+      }
+      if(req.method==='POST'&&op==='action'){
+        const body=await readBody(req),action=String(body.action||'').toLowerCase();
+        const map={start:'start',stop:'stop?t=10',restart:'restart?t=10',pause:'pause',resume:'unpause'};
+        if(!map[action])return sendJson(res,400,{error:'Action conteneur invalide.'});
+        await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/${map[action]}`,{method:'POST'});
+        audit(req,`docker.container.${action}`,containerId,{portainer:item.name,endpointId});
+        PORTAINER_OVERVIEW_CACHE.delete(String(item.id));
+        return sendJson(res,200,{ok:true,action});
+      }
+      if(req.method==='POST'&&op==='exec'){
+        const body=await readBody(req),command=String(body.command||'').trim();
+        if(!command||command.length>4000)return sendJson(res,400,{error:'Commande requise (4000 caractères maximum).'});
+        const created=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/exec`,{
+          method:'POST',body:{AttachStdout:true,AttachStderr:true,Tty:false,Cmd:['/bin/sh','-lc',command]}
+        });
+        const execId=dockerObjectId(created?.Id||created?.id||'');
+        const r=await portainerDockerBuffer(item,endpointId,`/exec/${encodeURIComponent(execId)}/start`,{
+          method:'POST',body:JSON.stringify({Detach:false,Tty:false}),headers:{'Content-Type':'application/json'}
+        });
+        audit(req,'docker.container.exec',containerId,{portainer:item.name,endpointId,command:command.slice(0,160)});
+        return sendJson(res,200,{ok:true,output:dockerStreamText(r.data)});
+      }
+    }catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  const dockerStacksMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/stacks(?:\/(\d+)(?:\/(action))?)?$/);
+  if(dockerStacksMatch){
+    const item=findPortainerIntegration(dockerStacksMatch[1]);if(!item)return sendJson(res,404,{error:'Portainer introuvable.'});
+    let endpointId;try{endpointId=dockerEndpointId(dockerStacksMatch[2]);}catch(e){return sendJson(res,400,{error:e.message});}
+    const stackId=Number(dockerStacksMatch[3]||0),op=dockerStacksMatch[4]||'';
+    try{
+      if(req.method==='GET'&&!stackId){
+        const stacks=await portainerStackList(item,endpointId),containers=await portainerContainerList(item,endpointId).catch(()=>[]);
+        const counts={};for(const ct of containers)if(ct.stack)counts[ct.stack]=(counts[ct.stack]||0)+1;
+        return sendJson(res,200,{endpointId,stacks:stacks.map(s=>({...s,containerCount:Number(counts[s.name]||0)}))});
+      }
+      if(req.method==='GET'&&stackId&&!op){
+        const rows=await integrationJson(item.url,'/api/stacks',{headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
+        const raw=(Array.isArray(rows)?rows:[]).find(x=>Number(x.Id||x.id)===stackId&&Number(x.EndpointId||x.EndpointID)===endpointId);
+        if(!raw)return sendJson(res,404,{error:'Stack introuvable.'});
+        return sendJson(res,200,{stack:normalizePortainerStack(raw)});
+      }
+      if(req.method==='POST'&&stackId&&op==='action'){
+        const body=await readBody(req),action=String(body.action||'').toLowerCase();
+        if(!['start','stop','redeploy'].includes(action))return sendJson(res,400,{error:'Action stack invalide.'});
+        const baseHeaders=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
+        if(action==='start'||action==='stop'){
+          await integrationJson(item.url,`/api/stacks/${stackId}/${action}?endpointId=${endpointId}`,{method:'POST',headers:baseHeaders,rejectUnauthorized});
+        }else{
+          const rows=await integrationJson(item.url,'/api/stacks',{headers:baseHeaders,rejectUnauthorized});
+          const raw=(Array.isArray(rows)?rows:[]).find(x=>Number(x.Id||x.id)===stackId&&Number(x.EndpointId||x.EndpointID)===endpointId);
+          if(!raw)throw new Error('Stack introuvable.');
+          if(raw.GitConfig){
+            await integrationJson(item.url,`/api/stacks/${stackId}/git/redeploy?endpointId=${endpointId}`,{method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{PullImage:true,Prune:false}});
+          }else{
+            const file=await integrationJson(item.url,`/api/stacks/${stackId}/file`,{headers:baseHeaders,rejectUnauthorized});
+            const stackFile=String(file?.StackFileContent||file?.stackFileContent||'');
+            if(!stackFile)throw new Error('Contenu Compose indisponible pour le redeploy.');
+            await integrationJson(item.url,`/api/stacks/${stackId}?endpointId=${endpointId}`,{
+              method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{StackFileContent:stackFile,Env:Array.isArray(raw.Env)?raw.Env:[],PullImage:true,Prune:false}
+            });
+          }
+        }
+        audit(req,`docker.stack.${action}`,String(stackId),{portainer:item.name,endpointId});
+        PORTAINER_OVERVIEW_CACHE.delete(String(item.id));
+        return sendJson(res,200,{ok:true,action});
+      }
+    }catch(e){return sendJson(res,502,{error:e.message});}
   }
   const integrationMatch=url.pathname.match(/^\/api\/integrations\/([^/]+)(?:\/(test))?$/);
   if(integrationMatch&&req.method==='DELETE'&&!integrationMatch[2]){
