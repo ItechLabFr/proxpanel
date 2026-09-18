@@ -57,7 +57,7 @@ docker run -d \
   -p 8080:8080 \
   -v proxpanel_data:/app/data \
   -v proxpanel_runtime:/opt/proxpanel-runtime \
-  itechlab/proxpanel:1.7.0-beta.14
+  itechlab/proxpanel:1.7.0-beta.15
 ```
 
 Puis ouvre :
@@ -106,7 +106,7 @@ Seules ces informations sont envoyées :
 ```json
 {
   "installation_id": "uuid-local-persistant",
-  "version": "1.7.0-beta.14",
+  "version": "1.7.0-beta.15",
   "update_channel": "beta"
 }
 ```
@@ -125,7 +125,7 @@ Les rapports de bugs, demandes de fonctions ciblées et pull requests revues son
 
 ## Statut
 
-Version actuelle : **1.7.0-beta.14**
+Version actuelle : **1.7.0-beta.15**
 
 ProxPanel est actuellement un projet personnel en bêta.
 
