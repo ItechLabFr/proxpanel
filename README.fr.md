@@ -12,7 +12,7 @@
   <a href="https://proxpanel.fr">Site officiel</a> ·
   <a href="README.md">English</a> ·
   <a href="https://hub.docker.com/r/itechlab/proxpanel">Docker Hub</a> ·
-  <a href="ROADMAP.md">Roadmap</a>
+  <a href="ROADMAP.md">Roadmap</a> ·\n  <a href="HISTORY.md">Historique des versions</a>
 </p>
 
 > **Logiciel en bêta.** ProxPanel est encore en développement actif. Sauvegarde ta configuration avant de tester une nouvelle version.
