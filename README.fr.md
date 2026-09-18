@@ -109,7 +109,7 @@ Seules ces informations sont envoyées :
 ```json
 {
   "installation_id": "uuid-local-persistant",
-  "version": "1.7.1-beta.10",
+  "version": "1.7.2-beta.1",
   "update_channel": "beta"
 }
 ```
@@ -140,11 +140,14 @@ Les rapports de bugs, demandes de fonctions ciblées et pull requests revues son
 
 L'historique public de la branche 1.7 est disponible dans [`HISTORY.md`](HISTORY.md).
 
-Les notes historiques sont disponibles depuis **1.7.0-beta.1**. **v1.7.0-beta.14** est la première GitHub Release reproductible. La dernière prerelease publiée est **v1.7.1-beta.10**, avec ZIP complet, ZIP OTA, `release.json` et sommes SHA-256.
+Les notes historiques sont disponibles depuis **1.7.0-beta.1**. **v1.7.0-beta.14** est la première GitHub Release reproductible. La dernière prerelease publiée est **v1.7.2-beta.1**, avec ZIP complet, ZIP OTA, `release.json` et sommes SHA-256.
 
 Les images restent distribuées via [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), tandis que `updates.proxpanel.fr` reste responsable des canaux OTA, du rollout et des révocations.
 
 ## Roadmap 1.7.2
+
+**1.7.2-beta.1 est maintenant la première version active de cette série.** Portainer devient la première intégration externe officiellement supportée. Portainer CE est testé en priorité ; la compatibilité avec Business Edition est conservée lorsque les API utilisées restent compatibles.
+
 
 La prochaine série **1.7.2-beta.x** est centrée sur l'exploitation HomeLab multi-plateforme :
 
@@ -162,11 +165,11 @@ Voir [`ROADMAP.md`](ROADMAP.md) pour le détail beta.1 → beta.10.
 
 ## Statut
 
-Dernière version de développement publiée : **1.7.1-beta.10**
+Dernière version de développement publiée : **1.7.2-beta.1**
 
-Dernière GitHub Release publiée : **1.7.1-beta.10**
+Dernière GitHub Release publiée : **1.7.2-beta.1**
 
-Prochaine série de développement : **1.7.2-beta.x** — Portainer/Docker, PBS optionnel, automatisations, RBAC/Audit et Health Center. Maximum 10 betas par version.
+Série de développement actuelle : **1.7.2-beta.x** — Portainer/Docker, PBS optionnel, automatisations, RBAC/Audit et Health Center. Maximum 10 betas par version.
 
 Docker Hub reste le canal de distribution des images ; les tags versionnés doivent utiliser le même numéro de version que la Release GitHub et l’OTA.
 
