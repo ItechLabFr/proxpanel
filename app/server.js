@@ -3942,16 +3942,75 @@ async function handleApi(req, res, url) {
     try{const auth=await resolveProxmoxAuth(server,session);const task=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/status`,{method:'POST',auth,body:{command:'reboot'}});audit(req,'maintenance.reboot',node,{task});return sendJson(res,200,{ok:true,task});}catch(e){return sendJson(res,502,{error:e.message});}
   }
 
-  // ----- Integrations + dependency map -----
+  // ----- Integrations + Docker / Portainer -----
   if(url.pathname==='/api/integrations'&&req.method==='GET')return sendJson(res,200,jsonRead(INTEGRATIONS_FILE,[]).map(redactIntegration));
   if(url.pathname==='/api/integrations'&&req.method==='POST'){
-    const body=await readBody(req);const type=String(body.type||'');if(!['pbs','uptimekuma','portainer','npm','grafana'].includes(type))return sendJson(res,400,{error:'Type d’intégration invalide.'});
-    const row={id:crypto.randomUUID(),type,name:String(body.name||type),url:String(body.url||'').replace(/\/$/,''),username:String(body.username||''),statusPageSlug:String(body.statusPageSlug||''),allowSelfSigned:!!body.allowSelfSigned,enabled:body.enabled!==false,createdAt:new Date().toISOString()};
-    if(body.password)row.passwordEnc=encryptText(String(body.password));if(body.apiKey)row.apiKeyEnc=encryptText(String(body.apiKey));if(body.token)row.tokenEnc=encryptText(String(body.token));const all=jsonRead(INTEGRATIONS_FILE,[]);all.push(row);jsonWrite(INTEGRATIONS_FILE,all);audit(req,'integration.add',row.name,{type});return sendJson(res,201,redactIntegration(row));
+    const body=await readBody(req),type=String(body.type||'').toLowerCase();
+    if(!['pbs','uptimekuma','portainer','npm','grafana'].includes(type))return sendJson(res,400,{error:'Type d’intégration invalide.'});
+    let cleanUrl;try{cleanUrl=validateIntegrationUrl(body.url);}catch(e){return sendJson(res,400,{error:e.message});}
+    if(type==='portainer'&&!String(body.apiKey||body.token||'').trim())return sendJson(res,400,{error:'Une API Key Portainer est requise.'});
+    const row={
+      id:crypto.randomUUID(),type,name:String(body.name||type).trim()||type,url:cleanUrl,
+      username:String(body.username||''),statusPageSlug:String(body.statusPageSlug||''),
+      allowSelfSigned:!!body.allowSelfSigned,enabled:body.enabled!==false,createdAt:new Date().toISOString(),
+      lastStatus:'pending',lastTestAt:'',lastError:''
+    };
+    if(body.password)row.passwordEnc=encryptText(String(body.password));
+    if(body.apiKey)row.apiKeyEnc=encryptText(String(body.apiKey));
+    if(body.token)row.tokenEnc=encryptText(String(body.token));
+    try{
+      if(type==='portainer'){
+        const test=await testIntegration(row);
+        row.lastStatus='ok';row.lastTestAt=new Date().toISOString();row.lastError='';
+        row.portainerVersion=String(test.version||'');row.portainerEdition=String(test.edition||'');
+        row.environmentCount=Number(test.environmentCount||0);row.supportedDockerCount=Number(test.supportedDockerCount||0);
+      }
+    }catch(error){
+      return sendJson(res,502,{error:`Connexion Portainer impossible : ${error.message}`});
+    }
+    const all=jsonRead(INTEGRATIONS_FILE,[]);all.push(row);jsonWrite(INTEGRATIONS_FILE,all);
+    audit(req,'integration.add',row.name,{type,url:row.url,environmentCount:row.environmentCount||0});
+    return sendJson(res,201,redactIntegration(row));
+  }
+  if(url.pathname==='/api/docker/overview'&&req.method==='GET'){
+    const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
+    if(!rows.length)return sendJson(res,200,{configured:false,portainers:[],summary:{portainers:0,environments:0,reachable:0,supported:0,containers:0,running:0,stopped:0,unhealthy:0}});
+    const force=url.searchParams.get('force')==='1';
+    const portainers=await Promise.all(rows.map(async item=>{
+      try{return {...await cachedPortainerOverview(item,force),status:'online',error:''};}
+      catch(error){return {id:item.id,name:item.name||'Portainer',url:item.url,type:'portainer',status:'error',error:String(error?.message||error),version:item.portainerVersion||'',edition:item.portainerEdition||'',environmentCount:Number(item.environmentCount||0),reachableCount:0,supportedDockerCount:Number(item.supportedDockerCount||0),containers:{total:0,running:0,stopped:0,healthy:0,unhealthy:0,restarting:0,paused:0},environments:[]};}
+    }));
+    const summary=portainers.reduce((acc,p)=>{
+      acc.portainers++;acc.environments+=Number(p.environmentCount||0);acc.reachable+=Number(p.reachableCount||0);acc.supported+=Number(p.supportedDockerCount||0);
+      acc.containers+=Number(p.containers?.total||0);acc.running+=Number(p.containers?.running||0);acc.stopped+=Number(p.containers?.stopped||0);acc.unhealthy+=Number(p.containers?.unhealthy||0);
+      return acc;
+    },{portainers:0,environments:0,reachable:0,supported:0,containers:0,running:0,stopped:0,unhealthy:0});
+    return sendJson(res,200,{configured:true,portainers,summary});
   }
   const integrationMatch=url.pathname.match(/^\/api\/integrations\/([^/]+)(?:\/(test))?$/);
-  if(integrationMatch&&req.method==='DELETE'&&!integrationMatch[2]){const all=jsonRead(INTEGRATIONS_FILE,[]);const row=all.find(x=>x.id===integrationMatch[1]);if(!row)return sendJson(res,404,{error:'Intégration introuvable.'});jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));audit(req,'integration.delete',row.name);return sendJson(res,200,{ok:true});}
-  if(integrationMatch&&req.method==='POST'&&integrationMatch[2]==='test'){const row=jsonRead(INTEGRATIONS_FILE,[]).find(x=>x.id===integrationMatch[1]);if(!row)return sendJson(res,404,{error:'Intégration introuvable.'});try{const result=await testIntegration(row);audit(req,'integration.test',row.name,result);return sendJson(res,200,result);}catch(e){return sendJson(res,502,{error:e.message});}}
+  if(integrationMatch&&req.method==='DELETE'&&!integrationMatch[2]){
+    const all=jsonRead(INTEGRATIONS_FILE,[]),row=all.find(x=>x.id===integrationMatch[1]);
+    if(!row)return sendJson(res,404,{error:'Intégration introuvable.'});
+    jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));PORTAINER_OVERVIEW_CACHE.delete(String(row.id));
+    audit(req,'integration.delete',row.name,{type:row.type});return sendJson(res,200,{ok:true});
+  }
+  if(integrationMatch&&req.method==='POST'&&integrationMatch[2]==='test'){
+    const all=jsonRead(INTEGRATIONS_FILE,[]),row=all.find(x=>x.id===integrationMatch[1]);
+    if(!row)return sendJson(res,404,{error:'Intégration introuvable.'});
+    try{
+      const result=await testIntegration(row);
+      row.lastStatus='ok';row.lastTestAt=new Date().toISOString();row.lastError='';
+      if(row.type==='portainer'){
+        row.portainerVersion=String(result.version||'');row.portainerEdition=String(result.edition||'');
+        row.environmentCount=Number(result.environmentCount||0);row.supportedDockerCount=Number(result.supportedDockerCount||0);
+      }
+      jsonWrite(INTEGRATIONS_FILE,all);audit(req,'integration.test',row.name,{...result,containers:undefined});
+      return sendJson(res,200,result);
+    }catch(e){
+      row.lastStatus='error';row.lastTestAt=new Date().toISOString();row.lastError=String(e.message||e);jsonWrite(INTEGRATIONS_FILE,all);
+      audit(req,'integration.test',row.name,{error:row.lastError},'error');return sendJson(res,502,{error:e.message});
+    }
+  }
   if(url.pathname==='/api/dependencies/manual'&&req.method==='GET')return sendJson(res,200,jsonRead(DEPENDENCIES_FILE,[]));
   if(url.pathname==='/api/dependencies/manual'&&req.method==='POST'){const body=await readBody(req);if(!body.from||!body.to)return sendJson(res,400,{error:'from et to requis.'});const row={id:crypto.randomUUID(),from:String(body.from),to:String(body.to),fromType:String(body.fromType||'service'),toType:String(body.toType||'machine'),label:String(body.label||'dépend de')};const all=jsonRead(DEPENDENCIES_FILE,[]);all.push(row);jsonWrite(DEPENDENCIES_FILE,all);audit(req,'dependency.add',`${row.from} → ${row.to}`);return sendJson(res,201,row);}
   const depDelete=url.pathname.match(/^\/api\/dependencies\/manual\/([^/]+)$/);if(depDelete&&req.method==='DELETE'){const all=jsonRead(DEPENDENCIES_FILE,[]);jsonWrite(DEPENDENCIES_FILE,all.filter(x=>x.id!==depDelete[1]));return sendJson(res,200,{ok:true});}
