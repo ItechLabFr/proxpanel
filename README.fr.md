@@ -165,9 +165,9 @@ Voir [`ROADMAP.md`](ROADMAP.md) pour le détail beta.1 → beta.10.
 
 ## Statut
 
-Dernière version de développement publiée : **1.7.2-beta.1**
+Dernière version de développement publiée : **1.7.2-beta.2**
 
-Dernière GitHub Release publiée : **1.7.2-beta.1**
+Dernière GitHub Release publiée : **1.7.2-beta.2**
 
 Série de développement actuelle : **1.7.2-beta.x** — Portainer/Docker, PBS optionnel, automatisations, RBAC/Audit et Health Center. Maximum 10 betas par version.
 

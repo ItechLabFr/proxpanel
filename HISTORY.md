@@ -66,3 +66,6 @@ Les versions suivantes utiliseront le même format.
 ## Série actuelle — 1.7.2
 
 La série `1.7.1-beta.x` a atteint `beta.10`. Le cycle de développement actif est **`1.7.2-beta.x`**, avec Portainer/Docker comme première intégration officielle, PBS optionnel, Automations 2.0, RBAC/Audit 2.0 et Health Center 2.0. Voir [`ROADMAP.md`](ROADMAP.md).
+
+| [1.7.2-beta.1.1](docs/releases/1.7.2-beta.1.1.md) | Hotfix Beta | Révoquée après beta.2 | Correctif packaging OTA / 502 |
+| [1.7.2-beta.2](docs/releases/1.7.2-beta.2.md) | Beta | **Release active** | Docker Containers & Stacks |
