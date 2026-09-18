@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish, for example 1.7.0-beta.15'
+        description: 'Version to publish, for example 1.7.0-beta.16'
         required: true
         type: string
       publish_docker:
@@ -72,12 +72,14 @@ jobs:
           node --check launcher.js
           node --check app/server.js
           node --check app/public/app.js
-          node --check app/public/auth-v15.js
+          if [ -f app/public/auth-v15.js ]; then node --check app/public/auth-v15.js; fi
           node --check app/public/sw.js
 
       - name: Build Docker image
         run: |
-          docker build --pull             --build-arg VERSION="${{ steps.version.outputs.version }}"             -t "proxpanel-release-test:${{ steps.version.outputs.version }}" .
+          docker build --pull \
+            --build-arg VERSION="${{ steps.version.outputs.version }}" \
+            -t "proxpanel-release-test:${{ steps.version.outputs.version }}" .
 
       - name: Build release assets
         shell: bash
@@ -86,19 +88,25 @@ jobs:
           version="${{ steps.version.outputs.version }}"
           mkdir -p dist
 
-          git archive             --format=zip             --prefix="proxpanel-v${version}/"             --output="dist/proxpanel-v${version}.zip"             HEAD
+          git archive \
+            --format=zip \
+            --prefix="proxpanel-v${version}/" \
+            --output="dist/proxpanel-v${version}.zip" \
+            HEAD
 
           chmod +x tools-build-update.sh
           ./tools-build-update.sh ./app ./dist
-
           cp release.json dist/release.json
 
           (
             cd dist
-            sha256sum               "proxpanel-v${version}.zip"               "proxpanel-update-v${version}.zip"               release.json > SHA256SUMS.txt
+            sha256sum \
+              "proxpanel-v${version}.zip" \
+              "proxpanel-update-v${version}.zip" \
+              release.json > SHA256SUMS.txt
           )
 
-      - name: Prepare release notes
+      - name: Prepare bilingual release notes
         shell: bash
         run: |
           set -euo pipefail
@@ -110,46 +118,57 @@ jobs:
           else
             node <<'NODE' > dist/RELEASE_NOTES.md
           const r = require('./release.json');
+
+          const list = (title, values) => {
+            if (!Array.isArray(values) || !values.length) return;
+            console.log('### ' + title);
+            console.log('');
+            for (const item of values) console.log('- ' + item);
+            console.log('');
+          };
+
+          if (!r.summary_en || !Array.isArray(r.improvements_en) || !Array.isArray(r.fixes_en)) {
+            throw new Error('A bilingual docs/releases/<version>.md file or English release.json fields are required.');
+          }
+
           console.log('# ' + r.title);
+          console.log('');
+          console.log('## 🇫🇷 Français');
           console.log('');
           if (r.summary) {
             console.log(r.summary);
             console.log('');
           }
-          if (Array.isArray(r.improvements) && r.improvements.length) {
-            console.log('## Improvements');
-            console.log('');
-            for (const item of r.improvements) console.log('- ' + item);
-            console.log('');
-          }
-          if (Array.isArray(r.fixes) && r.fixes.length) {
-            console.log('## Fixes');
-            console.log('');
-            for (const item of r.fixes) console.log('- ' + item);
-            console.log('');
-          }
-          if (Array.isArray(r.notes) && r.notes.length) {
-            console.log('## Notes');
-            console.log('');
-            for (const item of r.notes) console.log('- ' + item);
+          list('Nouveautés et améliorations', r.improvements);
+          list('Correctifs', r.fixes);
+          list('Notes', r.notes);
+          list('Changements incompatibles', r.breaking_changes);
+
+          console.log('## 🇬🇧 English');
+          console.log('');
+          if (r.summary_en) {
+            console.log(r.summary_en);
             console.log('');
           }
+          list('New features and improvements', r.improvements_en);
+          list('Fixes', r.fixes_en);
+          list('Notes', r.notes_en);
+          list('Breaking changes', r.breaking_changes_en);
           NODE
           fi
 
           cat >> dist/RELEASE_NOTES.md <<EOF
 
-          ## Downloads
+          ## Téléchargements / Downloads
 
-          - `proxpanel-v${version}.zip` — complete source/deployment package
-          - `proxpanel-update-v${version}.zip` — OTA update package
-          - `release.json` — release metadata
-          - `SHA256SUMS.txt` — SHA-256 checksums
+          - \`proxpanel-v${version}.zip\` — package complet / full source and deployment package
+          - \`proxpanel-update-v${version}.zip\` — mise à jour OTA / OTA update package
+          - \`release.json\` — métadonnées de version / release metadata
+          - \`SHA256SUMS.txt\` — sommes SHA-256 / SHA-256 checksums
 
-          Docker Hub remains the official container image distribution channel:
-          `itechlab/proxpanel:${version}`
+          **FR :** Docker Hub reste le canal officiel de distribution des images conteneur : \`itechlab/proxpanel:${version}\`. Le rollout et la révocation OTA restent gérés par \`updates.proxpanel.fr\`.
 
-          OTA rollout and revocation remain managed by `updates.proxpanel.fr`.
+          **EN:** Docker Hub remains the official container image distribution channel: \`itechlab/proxpanel:${version}\`. OTA rollout and revocation remain managed by \`updates.proxpanel.fr\`.
           EOF
 
       - name: Create or update GitHub Release
@@ -161,8 +180,15 @@ jobs:
           title="ProxPanel ${version}"
 
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag"               --title "$title"               --notes-file dist/RELEASE_NOTES.md
-            gh release upload "$tag"               "dist/proxpanel-v${version}.zip"               "dist/proxpanel-update-v${version}.zip"               dist/release.json               dist/SHA256SUMS.txt               --clobber
+            gh release edit "$tag" \
+              --title "$title" \
+              --notes-file dist/RELEASE_NOTES.md
+            gh release upload "$tag" \
+              "dist/proxpanel-v${version}.zip" \
+              "dist/proxpanel-update-v${version}.zip" \
+              dist/release.json \
+              dist/SHA256SUMS.txt \
+              --clobber
           else
             args=(release create "$tag"
               --target "$GITHUB_SHA"
@@ -173,7 +199,11 @@ jobs:
               args+=(--prerelease)
             fi
 
-            gh "${args[@]}"               "dist/proxpanel-v${version}.zip"               "dist/proxpanel-update-v${version}.zip"               dist/release.json               dist/SHA256SUMS.txt
+            gh "${args[@]}" \
+              "dist/proxpanel-v${version}.zip" \
+              "dist/proxpanel-update-v${version}.zip" \
+              dist/release.json \
+              dist/SHA256SUMS.txt
           fi
 
       - name: Setup QEMU
@@ -208,4 +238,11 @@ jobs:
             tags+=("-t" "itechlab/proxpanel:latest")
           fi
 
-          docker buildx build             --pull             --platform linux/amd64,linux/arm64             --build-arg VERSION="$version"             "${tags[@]}"             --provenance=true             --sbom=true             --push .
+          docker buildx build \
+            --pull \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$version" \
+            "${tags[@]}" \
+            --provenance=true \
+            --sbom=true \
+            --push .
