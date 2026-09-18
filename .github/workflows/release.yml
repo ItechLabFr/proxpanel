@@ -1,0 +1,210 @@
+name: Release ProxPanel
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, for example 1.7.0-beta.15'
+        required: true
+        type: string
+      publish_docker:
+        description: 'Also publish immutable + channel tags to Docker Hub'
+        required: true
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          release_version="$(node -p "require('./release.json').version")"
+          package_version="$(node -p "require('./app/package.json').version")"
+
+          if [ "$version" != "$release_version" ]; then
+            echo "Requested/tag version $version does not match release.json $release_version" >&2
+            exit 1
+          fi
+          if [ "$version" != "$package_version" ]; then
+            echo "app/package.json $package_version does not match release.json $release_version" >&2
+            exit 1
+          fi
+
+          if printf '%s' "$version" | grep -q -- '-'; then
+            prerelease=true
+            channel=beta
+          else
+            prerelease=false
+            channel=stable
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Validate JavaScript
+        run: |
+          node --check launcher.js
+          node --check app/server.js
+          node --check app/public/app.js
+          node --check app/public/sw.js
+
+      - name: Build Docker image
+        run: |
+          docker build --pull             --build-arg VERSION="${{ steps.version.outputs.version }}"             -t "proxpanel-release-test:${{ steps.version.outputs.version }}" .
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+
+          git archive             --format=zip             --prefix="proxpanel-v${version}/"             --output="dist/proxpanel-v${version}.zip"             HEAD
+
+          chmod +x tools-build-update.sh
+          ./tools-build-update.sh ./app ./dist
+
+          cp release.json dist/release.json
+
+          (
+            cd dist
+            sha256sum               "proxpanel-v${version}.zip"               "proxpanel-update-v${version}.zip"               release.json > SHA256SUMS.txt
+          )
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          notes="docs/releases/${version}.md"
+
+          if [ -f "$notes" ]; then
+            cp "$notes" dist/RELEASE_NOTES.md
+          else
+            node <<'NODE' > dist/RELEASE_NOTES.md
+          const r = require('./release.json');
+          console.log('# ' + r.title);
+          console.log('');
+          if (r.summary) {
+            console.log(r.summary);
+            console.log('');
+          }
+          if (Array.isArray(r.improvements) && r.improvements.length) {
+            console.log('## Improvements');
+            console.log('');
+            for (const item of r.improvements) console.log('- ' + item);
+            console.log('');
+          }
+          if (Array.isArray(r.fixes) && r.fixes.length) {
+            console.log('## Fixes');
+            console.log('');
+            for (const item of r.fixes) console.log('- ' + item);
+            console.log('');
+          }
+          if (Array.isArray(r.notes) && r.notes.length) {
+            console.log('## Notes');
+            console.log('');
+            for (const item of r.notes) console.log('- ' + item);
+            console.log('');
+          }
+          NODE
+          fi
+
+          cat >> dist/RELEASE_NOTES.md <<EOF
+
+          ## Downloads
+
+          - `proxpanel-v${version}.zip` — complete source/deployment package
+          - `proxpanel-update-v${version}.zip` — OTA update package
+          - `release.json` — release metadata
+          - `SHA256SUMS.txt` — SHA-256 checksums
+
+          Docker Hub remains the official container image distribution channel:
+          `itechlab/proxpanel:${version}`
+
+          OTA rollout and revocation remain managed by `updates.proxpanel.fr`.
+          EOF
+
+      - name: Create or update GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          tag="${{ steps.version.outputs.tag }}"
+          title="ProxPanel ${version}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag"               --title "$title"               --notes-file dist/RELEASE_NOTES.md
+            gh release upload "$tag"               "dist/proxpanel-v${version}.zip"               "dist/proxpanel-update-v${version}.zip"               dist/release.json               dist/SHA256SUMS.txt               --clobber
+          else
+            args=(release create "$tag"
+              --target "$GITHUB_SHA"
+              --title "$title"
+              --notes-file dist/RELEASE_NOTES.md)
+
+            if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+              args+=(--prerelease)
+            fi
+
+            gh "${args[@]}"               "dist/proxpanel-v${version}.zip"               "dist/proxpanel-update-v${version}.zip"               dist/release.json               dist/SHA256SUMS.txt
+          fi
+
+      - name: Setup QEMU
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_docker }}
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_docker }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_docker }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish Docker Hub image
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_docker }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          channel="${{ steps.version.outputs.channel }}"
+
+          tags=(
+            "-t" "itechlab/proxpanel:${version}"
+            "-t" "itechlab/proxpanel:${channel}"
+          )
+
+          if [ "$channel" = "stable" ]; then
+            tags+=("-t" "itechlab/proxpanel:latest")
+          fi
+
+          docker buildx build             --pull             --platform linux/amd64,linux/arm64             --build-arg VERSION="$version"             "${tags[@]}"             --provenance=true             --sbom=true             --push .
