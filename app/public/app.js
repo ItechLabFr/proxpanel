@@ -218,8 +218,34 @@ function selectedServer(){return state.servers.find(s=>s.id===state.selectedServ
 function d(){return state.dashboard||{metrics:{},history:{cpu:[],memory:[],storage:[],network:[]},health:{},nodes:[],machines:[],storages:[],tasks:[],backup:{jobs:[],unprotected:[],machines:[],inventory:[]},problems:[],capacity:{},energy:{nodes:[]}}}
 function moduleEnabled(k){return state.settings?.modules?.[k]!==false}
 function can(perm){const p=state.me?.permissions||[];return p.includes('*')||p.includes(perm)}
-function diskDisplay(m){const total=Number(m?.maxdisk||0),used=Number(m?.disk||0),source=String(m?.diskSource||'');const known=m?.diskUsedKnown===true||source==='guest-agent'||used>0;if(!total&&!used)return '—';if(total&&!known)return `N/D / ${fmtBytes(total)}`;if(total)return `${fmtBytes(used)} / ${fmtBytes(total)}`;return known?fmtBytes(used):'N/D'}
-function diskSourceLabel(m){const s=String(m?.diskSource||'');if(s==='guest-agent')return 'Usage invité · QEMU Guest Agent';if(s==='guest-agent-no-size')return 'Guest Agent détecté · compteurs d’espace indisponibles';if(['capacity','config'].includes(s))return 'Capacité connue · usage invité indisponible';if(s==='status+config'||s==='status')return 'Données Proxmox';return 'Données de stockage indisponibles'}
+function diskDisplay(m){
+  const total=Number(m?.maxdisk||0),used=Number(m?.disk||0),free=Number(m?.diskFree),source=String(m?.diskSource||'');
+  const known=m?.diskUsedKnown===true||source==='guest-agent'||used>0;
+  if(!total&&!used)return '—';
+  if(total&&!known)return `${fmtBytes(total)} alloués`;
+  if(total&&Number.isFinite(free)&&free>=0)return `${fmtBytes(used)} utilisés · ${fmtBytes(free)} libres`;
+  if(total)return `${fmtBytes(used)} / ${fmtBytes(total)}`;
+  return known?fmtBytes(used):'N/D';
+}
+function diskSourceLabel(m){
+  const s=String(m?.diskSource||'');
+  if(s==='guest-agent')return 'Occupation réelle · QEMU Guest Agent';
+  if(s==='guest-agent-no-size')return 'Guest Agent détecté · compteurs d’espace indisponibles';
+  if(['capacity','config'].includes(s))return 'Capacité Proxmox · occupation invitée indisponible';
+  if(s==='status+config'||s==='status')return 'Données Proxmox';
+  return 'Données de stockage indisponibles';
+}
+function storageStateLabel(m){
+  const state=m?.storageState||{};
+  return state.label||diskSourceLabel(m);
+}
+function storageStateTone(m){
+  const tone=String(m?.storageState?.tone||'');
+  if(tone==='ok')return 'ok';
+  if(tone==='warning')return 'warning';
+  if(tone==='danger')return 'danger';
+  return 'neutral';
+}
 function isConnected(){return !!(state.selectedServer&&state.dashboard&&!state.dashboardError)}
 function wsUrl(path){const u=new URL(path,location.href);u.protocol=location.protocol==='https:'?'wss:':'ws:';return u.toString()}
 function brandMarkSvg(){return`<svg class="brand-symbol" viewBox="0 0 48 48" aria-hidden="true"><path d="M8 14 24 5l16 9v20l-16 9-16-9z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><path d="m14 19 10-6 10 6-10 6zM14 29l10 6 10-6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`}
@@ -393,9 +419,14 @@ function tvModePage(){
   const body=state.tvView==='graphs'?tvGraphsBody(x):state.tvView==='custom'?tvCustomBody(x):tvClassicBody(x);
   return`<div id="tvWallboard" class="tv-wallboard ${wallClass}"><header class="tv-header"><div class="tv-brand"><div class="brand-mark">${brandMarkSvg()}</div><div><strong>${esc(state.settings?.branding?.name||'ProxPanel')} <span>BETA</span></strong><small>${esc(sourceLabel)} · supervision temps réel</small></div></div><div class="tv-header-status">${tvViewSwitch()}${state.tvView==='custom'?`<button class="btn secondary" data-action="open-tv-studio">⚙ Studio TV</button>`:''}<span class="tv-live"><i></i> LIVE · ${state.dashboardLiveSeconds}s</span><span>Actualisé ${state.liveUpdatedAt?new Date(state.liveUpdatedAt).toLocaleTimeString():'—'}</span><button class="btn secondary" data-action="exit-tv">Quitter</button></div></header>${stats}${body}</div>`;
 }
-function machineTable(rows,actions=true){if(!rows.length)return'<div class="empty-inline">Aucune machine.</div>';return`<div class="table-scroll"><table class="machine-table"><thead><tr>${actions?'<th></th>':''}<th>Machine</th><th>État</th><th>CPU</th><th>Mémoire</th><th>Disque</th><th>Nœud</th>${actions?'<th>Actions</th>':''}</tr></thead><tbody>${rows.map(m=>{const sid=m.serverId||state.selectedServer||'',node=String(m.node||'');return`<tr data-machine-row data-name="${esc(String(m.name||'').toLowerCase())}" data-vmid="${m.vmid}" data-type="${m.type}" data-status="${m.status||''}" data-node="${esc(node.toLowerCase())}" data-server="${esc(sid)}">${actions?`<td data-label="Sélection"><input type="checkbox" class="machine-check" value="${m.vmid}" data-type="${m.type}" data-server="${esc(sid)}"></td>`:''}<td data-label="Machine"><button class="machine-name machine-link" data-action="machine-details:${esc(sid)}:${m.type}:${m.vmid}:${encodeURIComponent(node)}"><span class="machine-icon ${m.type}">◇</span><span><strong>${esc(m.name)}</strong><small>${m.vmid} · ${m.type.toUpperCase()}${m.serverName?` · ${esc(m.serverName)}`:''}${m.tags?` · ${esc(m.tags)}`:''}</small></span></button></td><td data-label="État">${badge(m.status==='running'?'En ligne':m.status,m.status==='running'?'ok':'neutral')}</td><td data-label="CPU">${fmtPct(m.cpu)}</td><td data-label="Mémoire">${fmtBytes(m.mem)} / ${fmtBytes(m.maxmem)}</td><td data-label="Disque" title="${esc(m.diskSource||'Proxmox')}">${diskDisplay(m)}</td><td data-label="Nœud">${esc(node)}</td>${actions?`<td data-label="Actions"><div class="row-actions">${button('Console',`console:${sid}:${m.type}:${m.vmid}:${node}`,'tiny')}${button('Actions',`machine-menu:${sid}:${m.type}:${m.vmid}:${encodeURIComponent(node)}`,'tiny')}</div></td>`:''}</tr>`}).join('')}</tbody></table></div>`}
-
-
+function machineTable(rows,actions=true){
+  if(!rows.length)return'<div class="empty-inline">Aucune machine.</div>';
+  return`<div class="table-scroll"><table class="machine-table beta2-machine-table"><thead><tr>${actions?'<th></th>':''}<th>Machine</th><th>État</th><th>CPU</th><th>Mémoire</th><th>Stockage</th><th>Nœud</th>${actions?'<th>Actions</th>':''}</tr></thead><tbody>${rows.map(m=>{
+    const sid=m.serverId||state.selectedServer||'',node=String(m.node||''),qemu=m.type==='qemu';
+    const storageMeta=qemu?`<small class="machine-storage-state">${badge(storageStateLabel(m),storageStateTone(m))}</small>`:'';
+    return`<tr data-machine-row data-name="${esc(String(m.name||'').toLowerCase())}" data-vmid="${m.vmid}" data-type="${m.type}" data-status="${m.status||''}" data-node="${esc(node.toLowerCase())}" data-server="${esc(sid)}">${actions?`<td data-label="Sélection"><input type="checkbox" class="machine-check" value="${m.vmid}" data-type="${m.type}" data-server="${esc(sid)}"></td>`:''}<td data-label="Machine"><button class="machine-name machine-link" data-action="machine-details:${esc(sid)}:${m.type}:${m.vmid}:${encodeURIComponent(node)}"><span class="machine-icon ${m.type}">◇</span><span><strong>${esc(m.name)}</strong><small>${m.vmid} · ${m.type.toUpperCase()}${m.serverName?` · ${esc(m.serverName)}`:''}${m.tags?` · ${esc(m.tags)}`:''}</small></span></button></td><td data-label="État">${badge(m.status==='running'?'En ligne':m.status,m.status==='running'?'ok':'neutral')}</td><td data-label="CPU">${fmtPct(m.cpu)}</td><td data-label="Mémoire">${fmtBytes(m.mem)} / ${fmtBytes(m.maxmem)}</td><td data-label="Stockage" title="${esc(diskSourceLabel(m))}"><div class="machine-storage-cell"><strong>${diskDisplay(m)}</strong>${storageMeta}</div></td><td data-label="Nœud"><span class="node-source">${esc(node)}${m.serverName?`<small>${esc(m.serverName)}</small>`:''}</span></td>${actions?`<td data-label="Actions"><div class="row-actions">${button('Console',`console:${sid}:${m.type}:${m.vmid}:${node}`,'tiny')}${button('Actions',`machine-menu:${sid}:${m.type}:${m.vmid}:${encodeURIComponent(node)}`,'tiny')}</div></td>`:''}</tr>`;
+  }).join('')}</tbody></table></div>`;
+}
 function dashboardMachineCards(rows,mode='cards'){
   if(mode==='table')return machineTable(rows.slice(0,8),false);
   if(!rows.length)return'<div class="empty-inline">Aucune machine active.</div>';
