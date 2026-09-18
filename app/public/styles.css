@@ -1829,3 +1829,12 @@ html[data-theme="light"] .docker-tabs button.active{background:#fff!important}
 @media(max-width:390px){
   .docker-workspace-kpis,.docker-detail-kpis,.docker-row-actions{grid-template-columns:1fr}
 }
+
+/* 1.7.2-beta.3 · Docker Monitoring & Alerts */
+.docker-alerts-panel{margin:0 0 14px;border-color:color-mix(in srgb,var(--warning) 28%,var(--line))}
+.docker-alerts-panel.healthy{border-color:color-mix(in srgb,var(--green) 20%,var(--line))}
+.docker-alerts-panel .problem-list{margin-top:8px}
+.docker-monitor-config .admin-form-grid{margin-top:12px}
+@media(max-width:620px){
+  .docker-monitor-config .admin-form-grid{grid-template-columns:1fr}
+}
