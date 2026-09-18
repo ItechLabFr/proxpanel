@@ -61,7 +61,7 @@ docker run -d \
   -p 8080:8080 \
   -v proxpanel_data:/app/data \
   -v proxpanel_runtime:/opt/proxpanel-runtime \
-  itechlab/proxpanel:1.7.0-beta.14
+  itechlab/proxpanel:1.7.0-beta.15
 ```
 
 Open:
@@ -125,7 +125,7 @@ The OTA service receives only:
 ```json
 {
   "installation_id": "persistent-local-uuid",
-  "version": "1.7.0-beta.14",
+  "version": "1.7.0-beta.15",
   "update_channel": "beta"
 }
 ```
@@ -185,7 +185,7 @@ Bug reports, focused feature requests and reviewed pull requests are welcome. Se
 
 ## Project status
 
-Current release: **1.7.0-beta.14**
+Current release: **1.7.0-beta.15**
 
 ProxPanel is currently a beta personal project. APIs, UI elements and internal implementation details may still change before a stable release.
 
