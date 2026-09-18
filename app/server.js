@@ -1651,17 +1651,33 @@ function computeProblems(dashboard, settings) {
   for (const g of dashboard?.backup?.machines || []) {
     if (!g.protectedByJob) continue;
     const ctime = Number(g.lastBackup?.ctime || 0);
-    if (!ctime) add('warning','backup-stale','Sauvegarde attendue absente', `${g.name} (${g.vmid}) est protégée par un job mais aucun backup n’a été trouvé`, String(g.vmid), {
-      route:'backups', recommendation:'Vérifie le job, le stockage de destination et les logs de la dernière exécution.',
-      facts:[{label:'Machine',value:`${g.name} (${g.vmid})`},{label:'Nœud',value:g.node||'—'},{label:'Âge maximum attendu',value:`${maxAgeHours} h`}]
-    });
-    else {
-      const ageHours = (nowSec - ctime) / 3600;
-      if (ageHours > maxAgeHours) add('warning','backup-stale','Sauvegarde en retard', `${g.name} (${g.vmid}) : dernière sauvegarde il y a ${ageHours.toFixed(1)} h`, String(g.vmid), {
-        route:'backups', recommendation:'Ouvre la page Sauvegardes pour vérifier le dernier job et relancer une sauvegarde si nécessaire.',
-        facts:[{label:'Machine',value:`${g.name} (${g.vmid})`},{label:'Dernier backup',value:new Date(ctime*1000).toLocaleString('fr-FR')},{label:'Âge',value:`${ageHours.toFixed(1)} h`},{label:'Seuil',value:`${maxAgeHours} h`}]
+    if (!ctime) {
+      // Never turn a temporary/partial inventory failure into "no backup found".
+      // Missing-backup alerts are only valid when every backup storage query
+      // completed successfully and there is no successful vzdump task evidence.
+      if (g.backupAbsenceReliable) add('warning','backup-absent','Sauvegarde attendue absente', `${g.name} (${g.vmid}) est protégée par un job mais aucun backup confirmé n’a été trouvé`, String(g.vmid), {
+        route:'backups', recommendation:'Vérifie le job, le stockage de destination et les logs de la dernière exécution.',
+        facts:[
+          {label:'Machine',value:`${g.name} (${g.vmid})`},
+          {label:'Nœud',value:g.node||'—'},
+          {label:'Âge maximum attendu',value:`${maxAgeHours} h`},
+          {label:'Inventaire backup',value:'Vérifié sur tous les stockages détectés'}
+        ]
       });
+      continue;
     }
+    const ageHours = Math.max(0,(nowSec - ctime) / 3600);
+    if (ageHours > maxAgeHours) add('warning','backup-stale','Sauvegarde en retard', `${g.name} (${g.vmid}) : dernière sauvegarde il y a ${ageHours.toFixed(1)} h`, String(g.vmid), {
+      route:'backups', recommendation:'Ouvre la page Sauvegardes pour vérifier le dernier job et relancer une sauvegarde si nécessaire.',
+      facts:[
+        {label:'Machine',value:`${g.name} (${g.vmid})`},
+        {label:'Dernier backup',value:new Date(ctime*1000).toLocaleString('fr-FR')},
+        {label:'Âge',value:`${ageHours.toFixed(1)} h`},
+        {label:'Seuil',value:`${maxAgeHours} h`},
+        {label:'Source',value:g.lastBackup?.source==='task'?'Tâche vzdump réussie':'Inventaire stockage'},
+        {label:'Points de restauration détectés',value:String(g.restorePointCount||0)}
+      ]
+    });
   }
   const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&String(t.status).toUpperCase()!=='OK').slice(0,12);
   if (failed.length) add('warning','tasks-failed','Tâches en erreur', `${failed.length} tâche(s) récente(s) en échec`, 'cluster', {
@@ -1699,44 +1715,144 @@ async function waitForTask(server, auth, upid, timeoutMs = 15 * 60 * 1000) {
   }
   throw new Error('Timeout en attendant la tâche Proxmox.');
 }
+function backupVmidFromEntry(row={}) {
+  const direct=Number(row.vmid||0);
+  if(Number.isInteger(direct)&&direct>0)return direct;
+  const volid=String(row.volid||row.volume||row.name||'');
+  const patterns=[
+    /vzdump-(?:qemu|lxc|openvz)-(\d+)-/i,
+    /(?:^|[/:_-])(?:vm|qemu|lxc|ct)[/:_-](\d+)(?:[/:_-]|$)/i,
+    /backup[/:_-](?:vm|ct)[/:_-](\d+)(?:[/:_-]|$)/i
+  ];
+  for(const re of patterns){
+    const m=volid.match(re),id=Number(m?.[1]||0);
+    if(Number.isInteger(id)&&id>0)return id;
+  }
+  return null;
+}
+function successfulBackupTasks(tasks=[]){
+  const latest={};
+  for(const t of Array.isArray(tasks)?tasks:[]){
+    if(String(t.type||'').toLowerCase()!=='vzdump')continue;
+    if(Number(t.endtime||0)<=0||String(t.status||'').toUpperCase()!=='OK')continue;
+    const vmid=Number(t.id||t.vmid||0);
+    if(!Number.isInteger(vmid)||vmid<=0)continue;
+    if(!latest[vmid]||Number(t.endtime||0)>Number(latest[vmid].endtime||0))latest[vmid]=t;
+  }
+  return latest;
+}
 async function fetchBackupInventory(server, auth, dashboard) {
-  const storages = (dashboard?.storages || []).filter(s => String(s.content || '').includes('backup')).slice(0, 20);
-  const signature = storages.map(s => `${s.node}:${s.storage}`).sort().join('|');
-  const cacheKey = `${server.id || ''}|${signature}`;
-  const cached = BACKUP_INVENTORY_CACHE.get(cacheKey);
-  if (cached?.value && cached.expiresAt > Date.now()) return cached.value;
-  if (cached?.promise) return cached.promise;
-  const promise = (async () => {
-    const out = [];
-    // Query backup storages in small parallel batches: much faster than the old
-    // sequential loop while avoiding a request storm on a single PVE node.
-    for (let i=0; i<storages.length; i+=5) {
-      const batch = await Promise.all(storages.slice(i,i+5).map(async s => {
-        try {
-          const rows = await proxmoxApi(server, `/nodes/${encodeURIComponent(s.node)}/storage/${encodeURIComponent(s.storage)}/content?content=backup`, { auth });
-          return (Array.isArray(rows) ? rows : []).map(r => ({ node: s.node, storage: s.storage, volid: r.volid, vmid: r.vmid || null, size: r.size || 0, ctime: r.ctime || 0, notes: r.notes || '', format: r.format || '' }));
-        } catch { return []; }
-      }));
-      batch.forEach(rows => out.push(...rows));
+  const storages=(dashboard?.storages||[]).filter(s=>String(s.content||'').split(',').map(x=>x.trim()).includes('backup')).slice(0,20);
+  const signature=storages.map(s=>`${s.node}:${s.storage}`).sort().join('|');
+  const cacheKey=`${server.id||''}|${signature}`;
+  const cached=BACKUP_INVENTORY_CACHE.get(cacheKey);
+  if(cached?.value&&cached.expiresAt>Date.now())return cached.value;
+  if(cached?.promise)return cached.promise;
+
+  const previous=cached?.value&&Array.isArray(cached.value.rows)?cached.value:null;
+  const promise=(async()=>{
+    const checkedAt=Date.now();
+    if(!storages.length){
+      return {
+        rows:previous?.rows||[],complete:false,absenceReliable:false,stale:!!previous?.rows?.length,
+        source:previous?.rows?.length?'stale-cache':'no-backup-storage',
+        failedStorages:[],successfulStorages:0,totalStorages:0,checkedAt
+      };
     }
-    out.sort((a,b)=>Number(b.ctime||0)-Number(a.ctime||0));
-    return out.slice(0, 500);
+
+    const results=[];
+    for(let i=0;i<storages.length;i+=5){
+      const batch=await Promise.all(storages.slice(i,i+5).map(async s=>{
+        const key=`${s.node}:${s.storage}`;
+        try{
+          const rows=await proxmoxApi(server,`/nodes/${encodeURIComponent(s.node)}/storage/${encodeURIComponent(s.storage)}/content?content=backup`,{auth});
+          return {
+            ok:true,key,node:s.node,storage:s.storage,
+            rows:(Array.isArray(rows)?rows:[]).map(r=>({
+              node:s.node,storage:s.storage,volid:r.volid||'',vmid:backupVmidFromEntry(r),
+              size:r.size||0,ctime:r.ctime||0,notes:r.notes||'',format:r.format||'',source:'inventory'
+            }))
+          };
+        }catch(error){
+          return {ok:false,key,node:s.node,storage:s.storage,error:String(error?.message||error||'Inventaire indisponible'),rows:[]};
+        }
+      }));
+      results.push(...batch);
+    }
+
+    const successful=results.filter(r=>r.ok),failed=results.filter(r=>!r.ok);
+    const failedKeys=new Set(failed.map(r=>r.key));
+    const freshRows=successful.flatMap(r=>r.rows);
+    const fallbackRows=(previous?.rows||[]).filter(r=>failedKeys.has(`${r.node}:${r.storage}`));
+    const merged=new Map();
+    for(const row of [...fallbackRows,...freshRows]){
+      const key=`${row.node||''}|${row.storage||''}|${row.volid||''}|${row.vmid||''}|${row.ctime||''}`;
+      merged.set(key,row);
+    }
+    const rows=[...merged.values()].sort((a,b)=>Number(b.ctime||0)-Number(a.ctime||0)).slice(0,1000);
+    const complete=failed.length===0;
+    return {
+      rows,complete,absenceReliable:complete&&successful.length===storages.length,
+      stale:failed.length>0&&fallbackRows.length>0,
+      source:complete?'fresh':fallbackRows.length?'partial-stale':'partial',
+      failedStorages:failed.map(r=>({node:r.node,storage:r.storage,error:r.error})),
+      successfulStorages:successful.length,totalStorages:storages.length,checkedAt
+    };
   })();
-  BACKUP_INVENTORY_CACHE.set(cacheKey,{promise,expiresAt:Date.now()+BACKUP_INVENTORY_CACHE_MS});
-  try {
+
+  BACKUP_INVENTORY_CACHE.set(cacheKey,{promise,value:previous,expiresAt:Date.now()+BACKUP_INVENTORY_CACHE_MS});
+  try{
     const value=await promise;
+    // Keep the last useful inventory in memory beyond its TTL. It can prove
+    // that a backup exists during a temporary storage/API outage, but it is
+    // never considered reliable evidence that a backup is absent.
     BACKUP_INVENTORY_CACHE.set(cacheKey,{value,expiresAt:Date.now()+BACKUP_INVENTORY_CACHE_MS});
     return value;
-  } catch(e) { BACKUP_INVENTORY_CACHE.delete(cacheKey); throw e; }
+  }catch(error){
+    if(previous){
+      const fallback={...previous,complete:false,absenceReliable:false,stale:true,source:'stale-cache',checkedAt:Date.now()};
+      BACKUP_INVENTORY_CACHE.set(cacheKey,{value:fallback,expiresAt:Date.now()+BACKUP_INVENTORY_CACHE_MS});
+      return fallback;
+    }
+    BACKUP_INVENTORY_CACHE.delete(cacheKey);
+    return {rows:[],complete:false,absenceReliable:false,stale:false,source:'unavailable',failedStorages:[],successfulStorages:0,totalStorages:storages.length,checkedAt:Date.now(),error:String(error?.message||error||'Inventaire indisponible')};
+  }
 }
 
-function enrichBackupState(dashboard, inventory) {
-  const latest = {};
-  for (const b of inventory || []) if (b.vmid && (!latest[b.vmid] || Number(b.ctime) > Number(latest[b.vmid].ctime))) latest[b.vmid] = b;
-  dashboard.backup = dashboard.backup || {};
-  dashboard.backup.inventory = inventory || [];
-  dashboard.backup.latestByVmid = latest;
-  dashboard.backup.machines = (dashboard.machines || []).map(m => ({ vmid: m.vmid, name: m.name, type: m.type, node: m.node, lastBackup: latest[m.vmid] || null, protectedByJob: !(dashboard.backup.unprotected || []).some(x => Number(x.vmid) === Number(m.vmid)) }));
+function enrichBackupState(dashboard, inventoryResult) {
+  const info=Array.isArray(inventoryResult)
+    ? {rows:inventoryResult,complete:true,absenceReliable:true,stale:false,source:'legacy'}
+    : (inventoryResult||{rows:[],complete:false,absenceReliable:false,stale:false,source:'unavailable'});
+  const inventory=Array.isArray(info.rows)?info.rows:[];
+  const latest={},counts={};
+  for(const raw of inventory){
+    const vmid=backupVmidFromEntry(raw);
+    if(!vmid)continue;
+    const b={...raw,vmid,source:raw.source||'inventory'};
+    counts[vmid]=(counts[vmid]||0)+1;
+    if(!latest[vmid]||Number(b.ctime||0)>Number(latest[vmid].ctime||0))latest[vmid]=b;
+  }
+  const latestTasks=successfulBackupTasks(dashboard?.tasks||[]);
+  dashboard.backup=dashboard.backup||{};
+  dashboard.backup.inventory=inventory;
+  dashboard.backup.inventoryStatus={
+    complete:!!info.complete,absenceReliable:!!info.absenceReliable,stale:!!info.stale,
+    source:info.source||'unknown',failedStorages:info.failedStorages||[],
+    successfulStorages:Number(info.successfulStorages||0),totalStorages:Number(info.totalStorages||0),checkedAt:info.checkedAt||Date.now()
+  };
+  dashboard.backup.latestByVmid=latest;
+  dashboard.backup.restorePointsByVmid=counts;
+  dashboard.backup.machines=(dashboard.machines||[]).map(m=>{
+    const vmid=Number(m.vmid),inventoryBackup=latest[vmid]||null,task=latestTasks[vmid]||null;
+    const taskBackup=task?{vmid,node:task.node||m.node,storage:'',volid:'',ctime:Number(task.endtime||0),size:0,format:'',notes:'',source:'task',taskStatus:'OK'}:null;
+    const lastBackup=Number(taskBackup?.ctime||0)>Number(inventoryBackup?.ctime||0)?taskBackup:inventoryBackup;
+    return {
+      vmid:m.vmid,name:m.name,type:m.type,node:m.node,lastBackup,
+      inventoryBackup,lastSuccessfulTask:task||null,restorePointCount:Number(counts[vmid]||0),
+      protectedByJob:!(dashboard.backup.unprotected||[]).some(x=>Number(x.vmid)===vmid),
+      backupAbsenceReliable:!!info.absenceReliable
+    };
+  });
   return dashboard;
 }
 async function getGuestIps(server, auth, machine) {
@@ -1855,7 +1971,7 @@ function redactDiscordChannel(row) {
 function problemEventType(problem) {
   const code = String(problem?.code || '');
   if (code === 'backup-missing') return 'backup.unprotected';
-  if (code === 'backup-stale') return 'backup.stale';
+  if (code === 'backup-stale' || code === 'backup-absent') return 'backup.stale';
   if (code === 'node-offline') return 'node.offline';
   if (code === 'tasks-failed') return 'task.failed';
   if (code === 'storage-critical' || code === 'storage-offline') return 'storage.critical';
@@ -3772,9 +3888,14 @@ async function runBackgroundAlerts() {
     if(now-Number(BACKGROUND_POLL_STATE.get(server.id)||0)<interval)continue;
     BACKGROUND_POLL_STATE.set(server.id,now);
     try {
-      const auth=await proxmoxLogin(server); const dashboard=await buildBackgroundDashboard(server,auth); const problems=listAlertsForDashboard(dashboard,settings);
+      const auth=await proxmoxLogin(server); const dashboard=await buildBackgroundDashboard(server,auth); const rawProblems=listAlertsForDashboard(dashboard,settings);
       const previousState=alertState[server.id]||{};
       const previousProblems=Array.isArray(previousState.problems)?previousState.problems:[];
+      const missingConfirmations={...(previousState.backupMissingConfirmations||{})};
+      const absentTargets=new Set(rawProblems.filter(p=>p.code==='backup-absent').map(p=>String(p.target||'')));
+      for(const target of Object.keys(missingConfirmations))if(!absentTargets.has(target))delete missingConfirmations[target];
+      for(const target of absentTargets)missingConfirmations[target]=Math.min(10,Number(missingConfirmations[target]||0)+1);
+      const problems=rawProblems.filter(p=>p.code!=='backup-absent'||Number(missingConfirmations[String(p.target||'')]||0)>=2);
       const previousIds=new Set(Array.isArray(previousState.ids)?previousState.ids:previousProblems.map(p=>p.id));
       const fresh=problems.filter(p=>!previousIds.has(p.id));
       for(const p of fresh){
@@ -3805,6 +3926,8 @@ async function runBackgroundAlerts() {
         ids:problems.map(p=>p.id),
         problems:problems.map(p=>({id:p.id,code:p.code,title:p.title,detail:p.detail,target:p.target,severity:p.severity})),
         backupTaskIds:backupTasks.slice(0,100).map(t=>t.upid),
+        backupMissingConfirmations:missingConfirmations,
+        backupInventoryStatus:dashboard.backup?.inventoryStatus||null,
         checkedAt:new Date().toISOString()
       }; changed=true;
     } catch(e){addAuditSystem('alerts.poll',server.name,{error:e.message},'error');}
