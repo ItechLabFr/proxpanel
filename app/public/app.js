@@ -1015,7 +1015,7 @@ function bindDrag(){if(!state.editDashboard)return;const grid=qs('#dashboardGrid
 
 const nativeConfirm=window.confirm.bind(window);function confirmUi(message){return nativeConfirm(translateUiString(message))}
 async function handleAction(action,el){try{
-  if(action.startsWith('toggle-nav-group:')){const key=action.slice('toggle-nav-group:'.length);state.navGroupsCollapsed[key]=!state.navGroupsCollapsed[key];localStorage.setItem('proxpanel.navGroupsCollapsed',JSON.stringify(state.navGroupsCollapsed));renderPage();return}
+  if(action.startsWith('toggle-nav-group:')){const key=action.slice('toggle-nav-group:'.length);state.navGroupsCollapsed[key]=!state.navGroupsCollapsed[key];localStorage.setItem('proxpanel.navGroupsCollapsed',JSON.stringify(state.navGroupsCollapsed));const section=el?.closest?.('.nav-section');if(section){section.classList.toggle('collapsed',!!state.navGroupsCollapsed[key]);el.setAttribute('aria-expanded',state.navGroupsCollapsed[key]?'false':'true')}return}
   if(action==='admin-home'){state.adminSection='home';localStorage.setItem('proxpanel.adminSection','home');renderPage();return}
   if(action.startsWith('admin-section:')){state.adminSection=action.slice('admin-section:'.length)||'home';localStorage.setItem('proxpanel.adminSection',state.adminSection);renderPage();await reloadSection();if(state.currentPage==='admin')renderPage();return}
   if(action==='admin-open-notifications'){state.currentPage='notifications';renderPage();await reloadSection();if(state.currentPage==='notifications')renderPage();return}
