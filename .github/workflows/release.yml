@@ -68,15 +68,26 @@ jobs:
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Enforce beta numbering policy
-        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-          if [ "$version" = "1.7.0-beta.16" ]; then
-            echo "Grandfathered historical exception: $version"
-            exit 0
-          fi
-          if printf '%s' "$version" | grep -Eq -- '-beta\.[0-9]+
+          node - <<'NODE'
+          const version = process.env.VERSION || '';
+          if (version === '1.7.0-beta.16') {
+            console.log('Grandfathered historical exception:', version);
+            process.exit(0);
+          }
+          const marker = '-beta.';
+          const pos = version.lastIndexOf(marker);
+          if (pos !== -1) {
+            const betaNo = Number(version.slice(pos + marker.length));
+            if (!Number.isInteger(betaNo) || betaNo < 1 || betaNo > 10) {
+              throw new Error('ProxPanel permits beta.1 through beta.10 per version series.');
+            }
+          }
+          NODE
+
+      - name: Validate JavaScript
         run: |
           node --check launcher.js
           node --check app/server.js
