@@ -1,0 +1,89 @@
+name: Revoke old ProxPanel releases
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/revoke-old-releases.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: proxpanel-release-revocation
+  cancel-in-progress: false
+
+jobs:
+  revoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Revoke every older release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RELEASE_ID: ${{ github.event.release.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          WARNING='⚠️ Cette version a été révoquée. Ne pas installer. Utilisez la version suivante.'
+
+          gh api "repos/$REPO/releases?per_page=100" > /tmp/releases.json
+
+          if [[ "$EVENT_NAME" == "release" && -n "${EVENT_RELEASE_ID:-}" && "${EVENT_RELEASE_ID}" != "null" ]]; then
+            CURRENT_ID="$EVENT_RELEASE_ID"
+          else
+            CURRENT_ID="$(jq -r '
+              map(select(.draft == false and .published_at != null))
+              | sort_by(.published_at)
+              | reverse
+              | .[0].id // empty
+            ' /tmp/releases.json)"
+          fi
+
+          if [[ -z "${CURRENT_ID:-}" ]]; then
+            echo "No current published release found."
+            exit 1
+          fi
+
+          CURRENT_TAG="$(jq -r --argjson id "$CURRENT_ID" '.[] | select(.id == $id) | .tag_name' /tmp/releases.json)"
+          echo "Current release kept active: $CURRENT_TAG (#$CURRENT_ID)"
+
+          jq -c --argjson current "$CURRENT_ID" '
+            .[]
+            | select(.draft == false)
+            | select(.id != $current)
+          ' /tmp/releases.json | while IFS= read -r release; do
+            id="$(jq -r '.id' <<<"$release")"
+            tag="$(jq -r '.tag_name' <<<"$release")"
+            version="${tag#v}"
+            current_name="$(jq -r '.name // ""' <<<"$release")"
+            current_body="$(jq -r '.body // ""' <<<"$release")"
+            target_name="$version — REVOKED"
+
+            if [[ "$current_body" == "$WARNING"* ]]; then
+              target_body="$current_body"
+            else
+              target_body="$WARNING"$'\n\n'"$current_body"
+            fi
+
+            if [[ "$current_name" != "$target_name" || "$current_body" != "$target_body" ]]; then
+              jq -n                 --arg name "$target_name"                 --arg body "$target_body"                 '{name:$name, body:$body}'               | gh api --method PATCH "repos/$REPO/releases/$id" --input - >/dev/null
+              echo "Revoked metadata: $tag"
+            else
+              echo "Already revoked: $tag"
+            fi
+
+            asset_count="$(jq '.assets | length' <<<"$release")"
+            if [[ "$asset_count" -gt 0 ]]; then
+              jq -r '.assets[].id' <<<"$release" | while IFS= read -r asset_id; do
+                gh api --method DELETE "repos/$REPO/releases/assets/$asset_id"
+              done
+              echo "Deleted $asset_count asset(s): $tag"
+            fi
+          done
+
+          echo "Release revocation policy applied successfully."
