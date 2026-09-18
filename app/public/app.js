@@ -1058,6 +1058,7 @@ function openFirewallRule(pos=null){const r=pos==null?{}:state.firewallRules.fin
 
 async function loadDeferredBaseData(){
   const loaders=[['remoteUpdate',()=>api('/api/update/remote-status')],['pveUpdates',()=>api('/api/pve-updates/status')]];
+  if(hasPortainerIntegration())loaders.push(['dockerOverview',()=>api('/api/docker/overview')]);
   const results=await Promise.all(loaders.map(async([key,load])=>{try{return[key,await load()]}catch(e){console.warn('Startup deferred',key,e.message);return[key,null]}}));
   for(const [key,value] of results)if(value!==null)state[key]=value;
   patchConnectionDom();
