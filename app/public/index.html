@@ -12,12 +12,22 @@
   <link rel="icon" href="/proxpanel-logo-256.png" type="image/png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <title>ProxPanel BETA</title>
-  <link rel="stylesheet" href="/styles.css?v=1.7.0-beta.16" />
-  <link rel="stylesheet" href="/auth-v15.css?v=1.7.0-beta.16" />
+  <style>
+    #app>.startup-shell{min-height:100dvh;display:grid;place-items:center;padding:24px;background:#080a0d;color:#f4f6f8;font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .startup-card{display:grid;justify-items:center;gap:14px;text-align:center}
+    .startup-logo{width:62px;height:62px;border-radius:17px;display:grid;place-items:center;background:linear-gradient(145deg,#ff8a28,#e95d00);box-shadow:0 18px 45px rgba(0,0,0,.35)}
+    .startup-logo img{width:48px;height:48px;object-fit:contain}
+    .startup-card strong{font-size:19px}.startup-card small{color:#9099a8}
+    .startup-loader{width:34px;height:34px;border:3px solid #252c36;border-top-color:#ff7a00;border-radius:50%;animation:startup-spin .8s linear infinite}
+    @keyframes startup-spin{to{transform:rotate(360deg)}}
+    @media(prefers-reduced-motion:reduce){.startup-loader{animation:none;border-top-color:#252c36}}
+  </style>
+  <link rel="stylesheet" href="/styles.css?v=1.7.1-beta.1" />
+  <link rel="stylesheet" href="/auth-v15.css?v=1.7.1-beta.1" />
 </head>
 <body>
-  <div id="app"></div>
-  <script src="/auth-v15.js?v=1.7.0-beta.16" defer></script>
-  <script src="/app.js?v=1.7.0-beta.16" defer></script>
+  <div id="app"><div class="startup-shell" role="status" aria-live="polite"><div class="startup-card"><div class="startup-logo"><img src="/proxpanel-logo-192.png" alt=""></div><strong>ProxPanel</strong><div class="startup-loader" aria-hidden="true"></div><small>Chargement de la console…</small></div></div></div>
+  <script src="/auth-v15.js?v=1.7.1-beta.1" defer></script>
+  <script src="/app.js?v=1.7.1-beta.1" defer></script>
 </body>
 </html>
