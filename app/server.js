@@ -76,9 +76,10 @@ const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
 const CONSOLE_SESSIONS = new Map();
 const CONSOLE_ERRORS = new Map();
+const CONSOLE_STATES = new Map();
 const PVE_USER_SESSIONS = new Map();
 const AUTOMATION_RUNS = new Map();
-const CONSOLE_TTL_MS = 60 * 1000;
+const CONSOLE_TTL_MS = 5 * 60 * 1000;
 const LOGIN_ATTEMPTS = new Map();
 const EMAIL_2FA_CODES = new Map();
 const GUEST_STORAGE_CACHE = new Map();
@@ -2710,6 +2711,21 @@ async function runAutomation(server, auth, scenario, reqForAudit=null) {
   })();
   return run;
 }
+function consoleDiagnosticsSnapshot(token){
+  const state=CONSOLE_STATES.get(token);
+  return state?.steps ? state.steps.map(step=>({...step})) : [];
+}
+function setConsoleDiagnostic(token,key,status,detail=''){
+  const state=CONSOLE_STATES.get(token);
+  if(!state)return;
+  const step=state.steps.find(item=>item.key===key);
+  if(step){
+    step.status=status;
+    step.detail=String(detail||'');
+    step.at=Date.now();
+  }
+  state.updatedAt=Date.now();
+}
 async function createQemuVncProxy(server,auth,node,vmid){
   const endpoint=`/nodes/${encodeURIComponent(node)}/qemu/${vmid}/vncproxy`;
   const attempts=[
@@ -2749,9 +2765,18 @@ async function createConsoleSession(server, auth, ownerSession, body) {
   const token=crypto.randomBytes(32).toString('hex');
   const password=consoleKind==='vnc'?(proxy.password||proxy.ticket):'';
   CONSOLE_ERRORS.delete(token);
-  CONSOLE_SESSIONS.set(token,{token,serverId:server.id,node,type,vmid,kind:consoleKind,port:proxy.port,vncticket:proxy.ticket,password,auth,authMode:auth.consoleAuthMode||auth.authType||'unknown',proxyOptions,ownerNonce:ownerSession.nonce,expiresAt:Date.now()+CONSOLE_TTL_MS});
-  setTimeout(()=>{CONSOLE_SESSIONS.delete(token);CONSOLE_ERRORS.delete(token)},CONSOLE_TTL_MS+30000).unref();
-  return {token,kind:consoleKind,password,termTicket:consoleKind==='term'?proxy.ticket:'',user:auth.username||server.username||'',authMode:auth.consoleAuthMode||auth.authType||'unknown',expiresInSeconds:Math.round(CONSOLE_TTL_MS/1000),websocketPath:`/ws/console?token=${token}`};
+  const authMode=auth.consoleAuthMode||auth.authType||'unknown';
+  const steps=[
+    {key:'auth',label:'Authentification Proxmox',status:'ok',detail:authMode},
+    {key:'proxy',label:consoleKind==='vnc'?'Proxy VNC Proxmox':'Proxy terminal Proxmox',status:'ok',detail:`port ${proxy.port}`},
+    {key:'network',label:'Connexion réseau au nœud',status:'pending',detail:''},
+    {key:'websocket',label:'WebSocket Proxmox',status:'pending',detail:''},
+    {key:'client',label:consoleKind==='vnc'?'noVNC navigateur':'Terminal navigateur',status:'pending',detail:''}
+  ];
+  CONSOLE_STATES.set(token,{steps,createdAt:Date.now(),updatedAt:Date.now()});
+  CONSOLE_SESSIONS.set(token,{token,serverId:server.id,node,type,vmid,kind:consoleKind,port:proxy.port,vncticket:proxy.ticket,password,auth,authMode,proxyOptions,ownerNonce:ownerSession.nonce,expiresAt:Date.now()+CONSOLE_TTL_MS});
+  setTimeout(()=>{CONSOLE_SESSIONS.delete(token);CONSOLE_ERRORS.delete(token);CONSOLE_STATES.delete(token)},CONSOLE_TTL_MS+30000).unref();
+  return {token,kind:consoleKind,password,termTicket:consoleKind==='term'?proxy.ticket:'',user:auth.username||server.username||'',authMode,expiresInSeconds:Math.round(CONSOLE_TTL_MS/1000),websocketPath:`/ws/console?token=${token}`,diagnostics:consoleDiagnosticsSnapshot(token)};
 }
 
 function buildMaintenancePlan(dashboard,node) {
@@ -2775,17 +2800,23 @@ function handleConsoleUpgrade(req, clientSocket, head) {
   const base=new URL(server.url); const port=Number(base.port||(base.protocol==='https:'?443:80)); const connectOpts={host:base.hostname,port};
   const upstream=base.protocol==='https:'?tls.connect({...connectOpts,servername:net.isIP(base.hostname)?undefined:base.hostname,rejectUnauthorized:!server.allowSelfSigned}):net.connect(connectOpts);
   let failed=false;
-  const rememberError=(message)=>{CONSOLE_ERRORS.set(token,{message:String(message||'Connexion console interrompue'),at:Date.now(),authMode:item.authMode||'unknown'});};
-  const fail=(message='Connexion au WebSocket Proxmox interrompue')=>{if(failed)return;failed=true;rememberError(message);try{clientSocket.destroy()}catch{};try{upstream.destroy()}catch{}};
-  upstream.setTimeout(15000,()=>fail('Timeout lors de la connexion au WebSocket Proxmox.')); clientSocket.on('error',()=>fail('Connexion navigateur interrompue.')); upstream.on('error',e=>fail(`WebSocket Proxmox : ${e.message}`));
+  const rememberError=(message,stage='websocket')=>{
+    CONSOLE_ERRORS.set(token,{message:String(message||'Connexion console interrompue'),at:Date.now(),authMode:item.authMode||'unknown',stage});
+    setConsoleDiagnostic(token,stage,'error',message);
+  };
+  const fail=(message='Connexion au WebSocket Proxmox interrompue',stage='websocket')=>{if(failed)return;failed=true;rememberError(message,stage);try{clientSocket.destroy()}catch{};try{upstream.destroy()}catch{}};
+  setConsoleDiagnostic(token,'network','pending','Connexion au nœud Proxmox…');
+  upstream.setTimeout(20000,()=>fail('Timeout lors de la connexion au nœud Proxmox.','network')); clientSocket.on('error',()=>fail('Connexion navigateur interrompue.','client')); upstream.on('error',e=>fail(`Connexion Proxmox : ${e.message}`,'network'));
   const onConnected=()=>{
+    setConsoleDiagnostic(token,'network','ok',`${base.hostname}:${port}`);
+    setConsoleDiagnostic(token,'websocket','pending','Handshake WebSocket en cours…');
     const wsKey=req.headers['sec-websocket-key']||crypto.randomBytes(16).toString('base64');
     // PVE vncwebsocket requires the `binary` websocket subprotocol. Do not
     // invent it server-side: browsers reject a selected subprotocol they did
     // not offer. noVNC is configured to explicitly offer `binary`.
     const offeredProtocols=String(req.headers['sec-websocket-protocol']||'').split(',').map(x=>x.trim()).filter(Boolean);
     if(!offeredProtocols.includes('binary')){
-      rememberError('Console noVNC : le navigateur n’a pas négocié le sous-protocole WebSocket « binary ». Recharge ProxPanel (Ctrl+F5) puis réessaie.');
+      rememberError('Console noVNC : le navigateur n’a pas négocié le sous-protocole WebSocket « binary ». Recharge ProxPanel puis réessaie.','client');
       clientSocket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain\r\nContent-Length: 27\r\n\r\nWebSocket binary required');
       return fail('Sous-protocole WebSocket binary absent côté navigateur.');
     }
@@ -2793,7 +2824,7 @@ function handleConsoleUpgrade(req, clientSocket, head) {
     const headers=[`GET ${consoleUpstreamPath(item)} HTTP/1.1`,`Host: ${base.host}`,'Upgrade: websocket','Connection: Upgrade',`Sec-WebSocket-Key: ${wsKey}`,'Sec-WebSocket-Version: 13',`Sec-WebSocket-Protocol: ${requestedProtocol}`,`Origin: ${base.protocol}//${base.host}`,'Pragma: no-cache','Cache-Control: no-cache'];
     const ah=proxmoxAuthHeaders(item.auth,'GET'); for(const [k,v] of Object.entries(ah))headers.push(`${k}: ${v}`);
     headers.push('\r\n'); upstream.write(headers.join('\r\n'));
-    let buf=Buffer.alloc(0); const onData=chunk=>{buf=Buffer.concat([buf,chunk]);const idx=buf.indexOf('\r\n\r\n');if(idx<0)return;const headerText=buf.slice(0,idx).toString();if(!/^HTTP\/1\.1 101 /i.test(headerText)){const status=headerText.split('\r\n')[0]||'Réponse non-101';return fail(`Handshake console refusé par Proxmox (${status}).${item.authMode==='api-token'?' Cette version de PVE peut exiger un ticket utilisateur plutôt qu’un API Token pour les consoles.':''}`);} upstream.removeListener('data',onData);CONSOLE_ERRORS.delete(token);clientSocket.write(buf); if(head&&head.length)upstream.write(head);
+    let buf=Buffer.alloc(0); const onData=chunk=>{buf=Buffer.concat([buf,chunk]);const idx=buf.indexOf('\r\n\r\n');if(idx<0)return;const headerText=buf.slice(0,idx).toString();if(!/^HTTP\/1\.1 101 /i.test(headerText)){const status=headerText.split('\r\n')[0]||'Réponse non-101';return fail(`Handshake console refusé par Proxmox (${status}).${item.authMode==='api-token'?' Cette version de PVE peut exiger un ticket utilisateur plutôt qu’un API Token pour les consoles.':''}`,'websocket');} upstream.removeListener('data',onData);CONSOLE_ERRORS.delete(token);setConsoleDiagnostic(token,'websocket','ok','Handshake 101 Switching Protocols');clientSocket.write(buf); if(head&&head.length)upstream.write(head);
       let tunnelEstablished=true;
       upstream.on('close',()=>{if(tunnelEstablished)rememberError('Le tunnel WebSocket Proxmox a été fermé après le handshake. Si l’écran reste noir, vérifie le mot de passe VNC retourné par vncproxy et les logs pveproxy/qemu-server.');});
       clientSocket.on('close',()=>{tunnelEstablished=false;});
@@ -3376,7 +3407,7 @@ async function handleApi(req, res, url) {
   if(consoleStatusMatch&&req.method==='GET'){
     const token=String(url.searchParams.get('token')||'');const item=CONSOLE_SESSIONS.get(token);const err=CONSOLE_ERRORS.get(token);
     if(item&&item.ownerNonce!==session.nonce)return sendJson(res,403,{error:'Session console invalide.'});
-    return sendJson(res,200,{error:err?.message||'',authMode:err?.authMode||item?.authMode||'',at:err?.at||null});
+    return sendJson(res,200,{error:err?.message||'',stage:err?.stage||'',authMode:err?.authMode||item?.authMode||'',at:err?.at||null,diagnostics:consoleDiagnosticsSnapshot(token)});
   }
 
 
