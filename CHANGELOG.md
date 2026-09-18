@@ -1,3 +1,19 @@
+# ProxPanel 1.7.1-beta.5
+
+## Français
+- Corrige immédiatement l'erreur `notifyProblems is not defined` qui empêchait le dashboard de terminer son chargement.
+- Restaure le gestionnaire de notifications supprimé accidentellement lors de la refonte Administration/chargement.
+- Le chargement des données Proxmox ne bascule plus en erreur après récupération réussie du dashboard.
+- Durcit la lecture de l'historique local des notifications pour éviter qu'une valeur localStorage invalide provoque une nouvelle erreur.
+- Cache PWA et assets navigateur passés en 1.7.1-beta.5.
+
+## English
+- Immediately fixes the `notifyProblems is not defined` error that prevented dashboard loading from completing.
+- Restores the notification handler accidentally removed during the Administration/loading refactor.
+- Proxmox data loading no longer falls into an error state after a successful dashboard fetch.
+- Hardens local notification-history parsing to avoid malformed localStorage values causing another error.
+- Bumps PWA cache and browser assets to 1.7.1-beta.5.
+
 # ProxPanel 1.7.1-beta.4
 
 ## Français
