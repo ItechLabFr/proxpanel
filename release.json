@@ -1,53 +1,55 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.1-beta.8",
-  "title": "ProxPanel 1.7.1-beta.8 — TV Mode & Administration Redesign",
-  "title_en": "ProxPanel 1.7.1-beta.8 — TV Mode & Administration Redesign",
-  "summary": "Refonte complète du Mode TV et des pages Administration Supervision, Avancé et installation automatique, avec responsive réellement adapté au desktop, tablette et mobile/PWA.",
-  "summary_en": "Complete TV Mode and Administration redesign for Monitoring, Advanced and automatic updates, with true responsive layouts for desktop, tablet and mobile/PWA.",
+  "version": "1.7.1-beta.9",
+  "title": "ProxPanel 1.7.1-beta.9 — Mobile UX & Cluster Health",
+  "title_en": "ProxPanel 1.7.1-beta.9 — Mobile UX & Cluster Health",
+  "summary": "Refonte mobile de Machines, actions groupées adaptées au tactile, modales plein écran mobile et nouveau widget Santé du cluster sans le gros cercle 100/100.",
+  "summary_en": "Redesigns mobile Machines UX, touch-friendly bulk actions, full-screen mobile modals and a new Cluster Health widget without the oversized 100/100 ring.",
   "improvements": [
-    "Nouvelle vue TV Synthèse conçue pour la lecture à distance.",
-    "Six KPI TV principaux avec historique et états visuels.",
-    "Panneaux TV dédiés aux alertes, nœuds, sauvegardes, mises à jour et capacité.",
-    "Header Mode TV entièrement repensé avec horloge, état LIVE et sélecteur de vue.",
-    "Layouts TV dédiés desktop, tablette et mobile/PWA.",
-    "Page Supervision Administration entièrement restructurée.",
-    "Page Avancé Administration compactée et réorganisée.",
-    "Créneaux d'installation automatique OTA modernisés.",
-    "Réduction des espaces vides dans les formulaires et cartes."
+    "Cartes Machines réellement adaptées au mobile.",
+    "Sélection multiple intégrée dans chaque carte.",
+    "Barre d’actions groupées fixe et tactile.",
+    "Conservation de la sélection pendant les rafraîchissements.",
+    "Modales détail VM/LXC plein écran sur téléphone.",
+    "Passe responsive globale sur plusieurs composants communs.",
+    "Nouveau widget Santé du cluster avec score compact et barre de progression.",
+    "Résumé santé plus lisible avec états Nœuds et Stockages séparés."
   ],
   "improvements_en": [
-    "New TV Summary view designed for distance readability.",
-    "Six primary TV KPIs with history and visual state indicators.",
-    "Dedicated TV panels for alerts, nodes, backups, updates and capacity.",
-    "Fully redesigned TV header with clock, LIVE state and view switcher.",
-    "Dedicated TV layouts for desktop, tablet and mobile/PWA.",
-    "Administration Monitoring page fully restructured.",
-    "Administration Advanced page compacted and reorganized.",
-    "Modernized OTA automatic-install scheduling.",
-    "Reduced unused whitespace in forms and cards."
+    "Machine cards redesigned for true mobile usage.",
+    "Multi-selection integrated into each card.",
+    "Fixed touch-friendly bulk action bar.",
+    "Selection persists across refreshes.",
+    "Full-screen VM/LXC detail modals on phones.",
+    "Broader responsive pass across shared components.",
+    "New Cluster Health widget with compact score and progress bar.",
+    "Cleaner health summary with separate Nodes and Storage states."
   ],
   "fixes": [
-    "Corrige les formulaires Supervision trop étirés et peu lisibles.",
-    "Supprime l'affichage brut de l'ordre des modules dans Avancé.",
-    "Corrige l'énorme bloc sombre des créneaux OTA dans le thème clair en utilisant des surfaces thémées.",
-    "Corrige le Mode TV qui se contentait de réduire la mise en page desktop sur petits écrans.",
-    "Améliore la densité et la lisibilité du Mode TV sur grands écrans."
+    "Corrige la zone Sélection qui débordait à gauche sur mobile.",
+    "Corrige la checkbox qui sortait de la carte.",
+    "Corrige les chevauchements Mémoire/Stockage/CPU/Nœud sur les cartes Machines.",
+    "Corrige les boutons Console/Actions trop serrés sur téléphone.",
+    "Réduit les débordements horizontaux sur les écrans étroits.",
+    "Supprime le gros anneau Santé du cluster jugé trop massif.",
+    "Corrige la présentation mobile des modales et panneaux de détails."
   ],
   "fixes_en": [
-    "Fixes stretched and hard-to-scan Monitoring forms.",
-    "Removes the raw module-order field from the visible Advanced UI.",
-    "Fixes the oversized dark OTA scheduling block in Light mode by using themed surfaces.",
-    "Fixes TV Mode simply shrinking desktop layout on smaller screens.",
-    "Improves TV Mode density and readability on large displays."
+    "Fixes the Selection label overflowing on the left in mobile view.",
+    "Fixes the checkbox rendering outside the machine card.",
+    "Fixes Memory/Storage/CPU/Node collisions on mobile machine cards.",
+    "Fixes Console/Actions buttons being too cramped on phones.",
+    "Reduces horizontal overflow on narrow screens.",
+    "Removes the oversized Cluster Health ring.",
+    "Fixes mobile presentation of detail modals and panels."
   ],
   "notes": [
-    "Le Mode TV conserve volontairement une identité sombre à fort contraste, indépendamment du thème principal.",
-    "Les consoles noVNC/xterm restent inchangées."
+    "La beta.10 sera principalement consacrée à la stabilisation finale de la branche 1.7.1.",
+    "Tester en priorité la page Machines et le dashboard sur iPhone/PWA."
   ],
   "notes_en": [
-    "TV Mode intentionally keeps a dedicated high-contrast dark identity regardless of the main theme.",
-    "noVNC/xterm consoles remain unchanged."
+    "beta.10 will primarily focus on final stabilization of the 1.7.1 branch.",
+    "Prioritize testing Machines and the dashboard on iPhone/PWA."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
