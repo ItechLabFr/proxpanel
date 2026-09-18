@@ -3724,13 +3724,19 @@ function serveStatic(req, res, url) {
     }
     const ext = path.extname(candidate).toLowerCase();
     const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+    const isVersionedStatic = url.searchParams.has('v') && ['.js','.css'].includes(ext);
+    const cacheControl = isVersionedStatic
+      ? 'public, max-age=31536000, immutable'
+      : ['.html','.webmanifest','.json','.js','.css'].includes(ext)
+        ? 'no-cache'
+        : 'public, max-age=86400';
     if (String(req.headers['if-none-match'] || '') === etag) {
-      res.writeHead(304, { ETag: etag, 'Cache-Control': ['.html','.js','.css','.webmanifest','.json'].includes(ext) ? 'no-cache' : 'public, max-age=86400' });
+      res.writeHead(304, { ETag: etag, 'Cache-Control': cacheControl });
       return res.end();
     }
     const headers = {
       'Content-Type': mime[ext] || 'application/octet-stream',
-      'Cache-Control': ['.html','.js','.css','.webmanifest','.json'].includes(ext) ? 'no-cache' : 'public, max-age=86400',
+      'Cache-Control': cacheControl,
       'ETag': etag
     };
     const compressible = ['.html','.js','.css','.svg','.json','.webmanifest'].includes(ext);
