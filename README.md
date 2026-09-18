@@ -196,7 +196,7 @@ Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/i
 
 Current development version: **1.7.1-beta.1**
 
-Latest published GitHub Release: **1.7.0-beta.16**
+Latest published GitHub Release: **1.7.1-beta.1**
 
 Current series: **1.7.1-beta.x** — maximum 10 betas per version series.
 
