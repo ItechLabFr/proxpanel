@@ -223,9 +223,9 @@ See [`ROADMAP.md`](ROADMAP.md) for the beta.1 → beta.10 plan.
 
 ## Project status
 
-Latest published development release: **1.7.2-beta.1**
+Latest published development release: **1.7.2-beta.2**
 
-Latest published GitHub Release: **1.7.2-beta.1**
+Latest published GitHub Release: **1.7.2-beta.2**
 
 Current development series: **1.7.2-beta.x** — Portainer/Docker, optional PBS, Automations, RBAC/Audit and Health Center. Maximum 10 betas per version series.
 
