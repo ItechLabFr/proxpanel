@@ -1,3 +1,37 @@
+# ProxPanel 1.7.2-beta.5
+
+## Français
+- Nouveau centre Docker **Images & Updates** par environnement Portainer.
+- Inventaire des images utilisées, inutilisées et dangling.
+- Détection des mises à jour par digest lorsque l’information distante est fiable.
+- États séparés : mise à jour disponible, pull possible et redeploy requis.
+- Pull manuel sans redémarrage implicite.
+- Aperçu avant redeploy avec conteneurs/stacks concernés.
+- Contrôle de santé après redeploy des stacks et conteneurs autonomes.
+- Remplacement sécurisé des conteneurs autonomes avec tentative de rollback.
+- Refus du redeploy autonome si IP/MAC statique ou réseau avancé est détecté.
+- Historique/audit des checks, pulls, redeploys et suppressions.
+- Fenêtres de maintenance et file planifiée explicite, désactivées par défaut.
+- Aucun prune global automatique et aucun comportement Watchtower.
+- Notifications Docker update/failure et données de démo déterministes.
+- Responsive téléphone/tablette/PWA.
+
+## English
+- New per-environment Docker **Images & Updates** center.
+- Used, unused and dangling image inventory.
+- Digest-based update detection when remote information is reliable.
+- Separate update available, pull available and redeploy required states.
+- Manual pull with no implicit restart.
+- Pre-redeploy preview for affected containers/stacks.
+- Post-redeploy health verification for stacks and standalone containers.
+- Safe standalone-container replacement with rollback attempt.
+- Automatic refusal when static IP/MAC or advanced networking is detected.
+- Check, pull, redeploy and removal history/audit.
+- Maintenance windows and explicit scheduled queue, disabled by default.
+- No automatic global prune and no Watchtower-style behavior.
+- Docker update/failure notifications and deterministic demo fixtures.
+- Responsive phone/tablet/PWA UI.
+
 # ProxPanel 1.7.2-beta.4.3
 
 ## Français
