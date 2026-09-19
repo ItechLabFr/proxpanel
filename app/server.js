@@ -1803,6 +1803,18 @@ function computeProblems(dashboard, settings) {
       ]
     });
   }
+  const backupWarnings=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&String(t.type||'').toLowerCase()==='vzdump'&&classifyProxmoxTaskStatus(t.status).kind==='warning').slice(0,12);
+  if(backupWarnings.length)add('warning','backup-task-warning','Sauvegarde avec avertissement',`${backupWarnings.length} job(s) vzdump récent(s) terminé(s) avec avertissement`,'backup',{
+    route:'backups',recommendation:'Consulte le log du job pour identifier les avertissements et confirmer que toutes les machines attendues ont bien été sauvegardées.',
+    facts:[{label:'Jobs avec avertissement',value:String(backupWarnings.length)},{label:'Dernier statut',value:String(backupWarnings[0]?.status||'WARNINGS')}],
+    items:backupWarnings.map(t=>({label:t.id?`VM/LXC ${t.id}`:'Job vzdump',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'warning'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
+  });
+  const backupFailures=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&String(t.type||'').toLowerCase()==='vzdump'&&classifyProxmoxTaskStatus(t.status).kind==='failure').slice(0,12);
+  if(backupFailures.length)add('critical','backup-task-failed','Sauvegarde échouée',`${backupFailures.length} job(s) vzdump récent(s) en échec`,'backup',{
+    route:'backups',recommendation:'Consulte immédiatement les logs du job et vérifie le stockage de destination avant la prochaine fenêtre de sauvegarde.',
+    facts:[{label:'Jobs en échec',value:String(backupFailures.length)},{label:'Dernier statut',value:String(backupFailures[0]?.status||'ERROR')}],
+    items:backupFailures.map(t=>({label:t.id?`VM/LXC ${t.id}`:'Job vzdump',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'erreur'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
+  });
   const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&classifyProxmoxTaskStatus(t.status).kind==='failure'&&String(t.type||'').toLowerCase()!=='vzdump').slice(0,12);
   if (failed.length) add('critical','tasks-failed','Tâches en erreur', `${failed.length} tâche(s) récente(s) en échec`, 'cluster', {
     route:'tasks', recommendation:'Consulte les logs des tâches ci-dessous. Les erreurs de backup, migration ou stockage sont souvent explicites dans les dernières lignes.',
@@ -2681,6 +2693,8 @@ function problemEventType(problem) {
   const code = String(problem?.code || '');
   if (code === 'backup-missing') return 'backup.unprotected';
   if (code === 'backup-stale' || code === 'backup-absent') return 'backup.stale';
+  if (code === 'backup-task-warning') return 'backup.warning';
+  if (code === 'backup-task-failed') return 'backup.failed';
   if (code === 'node-offline') return 'node.offline';
   if (code === 'tasks-failed') return 'task.failed';
   if (code === 'tasks-warning') return 'task.warning';
@@ -4949,7 +4963,7 @@ async function runBackgroundAlerts() {
       for(const target of absentTargets)missingConfirmations[target]=Math.min(10,Number(missingConfirmations[target]||0)+1);
       const problems=rawProblems.filter(p=>p.code!=='backup-absent'||Number(missingConfirmations[String(p.target||'')]||0)>=2);
       const previousIds=new Set(Array.isArray(previousState.ids)?previousState.ids:previousProblems.map(p=>p.id));
-      const fresh=problems.filter(p=>!previousIds.has(p.id));
+      const fresh=problems.filter(p=>!previousIds.has(p.id)&&!['backup-task-warning','backup-task-failed'].includes(String(p.code||'')));
       for(const p of fresh){
         const type=problemEventType(p);
         const upids=(p.items||[]).map(i=>i.upid).filter(Boolean).slice(0,3);
