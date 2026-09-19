@@ -62,5 +62,11 @@ jobs:
         run: |
           node -e "const fs=require('fs'); const r=JSON.parse(fs.readFileSync('release.json')); const p=JSON.parse(fs.readFileSync('app/package.json')); if(r.product!=='ProxPanel') throw new Error('Invalid product'); if(r.version!==p.version) throw new Error('release.json and package.json versions differ'); console.log('Version:', r.version);"
 
+      - name: Validate Docker helper files
+        run: |
+          sh -n docker-publish.sh
+          docker compose -f docker-compose.yml config >/dev/null
+          docker compose -f docker-compose.build.yml config >/dev/null
+
       - name: Docker build
         run: docker build --pull -t proxpanel-ci .
