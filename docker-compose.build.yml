@@ -3,5 +3,5 @@ services:
     build:
       context: .
       args:
-        VERSION: 1.7.1-beta.2
-    image: itechlab/proxpanel:1.7.1-beta.2
+        VERSION: 1.7.2-beta.5
+    image: itechlab/proxpanel:1.7.2-beta.5
