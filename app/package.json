@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.2-beta.3",
+  "version": "1.7.2-beta.4",
   "private": true,
-  "description": "ProxPanel 1.7.2-beta.3 - Docker Monitoring & Alerts.",
+  "description": "ProxPanel 1.7.2-beta.4 - Docker Dashboard & Proxmox Topology.",
   "scripts": {
     "start": "node server.js"
   },
