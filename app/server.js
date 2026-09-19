@@ -2151,6 +2151,153 @@ async function portainerStackList(item,endpointId) {
   const id=dockerEndpointId(endpointId),rows=await integrationJson(item.url,'/api/stacks',{headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
   return (Array.isArray(rows)?rows:[]).map(normalizePortainerStack).filter(s=>s.endpointId===id);
 }
+
+function dockerUpdateState() {
+  const raw=jsonRead(DOCKER_UPDATE_STATE_FILE,{});
+  return {checks:raw?.checks&&typeof raw.checks==='object'?raw.checks:{},queue:Array.isArray(raw?.queue)?raw.queue:[],lastAutoCheckAt:Number(raw?.lastAutoCheckAt||0),lastAutoCheckError:String(raw?.lastAutoCheckError||'')};
+}
+function saveDockerUpdateState(state){jsonWrite(DOCKER_UPDATE_STATE_FILE,state);}
+function dockerImageCheckKey(portainerId,endpointId,reference){return `${String(portainerId||'')}:${Number(endpointId||0)}:${String(reference||'')}`;}
+function recordDockerUpdateHistory(row={}) {
+  const rows=jsonRead(DOCKER_UPDATE_HISTORY_FILE,[]);
+  rows.unshift({id:row.id||crypto.randomUUID(),at:row.at||new Date().toISOString(),action:String(row.action||''),status:String(row.status||'ok'),portainerId:String(row.portainerId||''),portainerName:String(row.portainerName||''),endpointId:Number(row.endpointId||0),environmentName:String(row.environmentName||''),reference:String(row.reference||''),target:String(row.target||''),details:row.details&&typeof row.details==='object'?row.details:{}});
+  jsonWrite(DOCKER_UPDATE_HISTORY_FILE,rows.slice(0,1500));
+  return rows[0];
+}
+function dockerUpdateHistory({portainerId='',endpointId=0,limit=100}={}) {
+  return jsonRead(DOCKER_UPDATE_HISTORY_FILE,[]).filter(x=>(!portainerId||String(x.portainerId)===String(portainerId))&&(!endpointId||Number(x.endpointId)===Number(endpointId))).slice(0,Math.max(1,Math.min(500,Number(limit||100))));
+}
+function dockerUpdateWindowMatch(settings=getSettings(),date=new Date()) {
+  const cfg=settings?.dockerUpdates||{},tz=settings?.timezone||'UTC',parts=zonedParts(date,tz),day=dayIndexFromParts(parts),minute=Number(parts.hour)*60+Number(parts.minute),prevDay=(day+6)%7;
+  for(const window of (cfg.maintenanceWindows||[]).map(normalizeDockerUpdateWindow)){
+    const start=clockMinutes(window.start),end=clockMinutes(window.end);if(start===end)continue;
+    const same=start<end&&window.days.includes(day)&&minute>=start&&minute<end;
+    const overnight=start>end&&((window.days.includes(day)&&minute>=start)||(window.days.includes(prevDay)&&minute<end));
+    if(same||overnight)return {open:true,window,timeZone:tz,localTime:`${parts.hour}:${parts.minute}`,day};
+  }
+  return {open:false,window:null,timeZone:tz,localTime:`${parts.hour}:${parts.minute}`,day};
+}
+async function portainerImageList(item,endpointId) {
+  const rows=await portainerDockerJson(item,endpointId,'/images/json?all=1&digests=1');
+  return (Array.isArray(rows)?rows:[]).map(normalizeDockerImage);
+}
+async function portainerImageInspect(item,endpointId,reference) {
+  try{return await portainerDockerJson(item,endpointId,`/images/${encodeURIComponent(String(reference||''))}/json`);}catch{return null;}
+}
+function dockerImagePrimaryRef(image={}) {return String((image.repoTags||[])[0]||(image.repoDigests||[])[0]||'');}
+async function dockerImageInventory(item,endpointId,{checkRemote=false,notify=false,settings=getSettings()}={}) {
+  const [containers,images]=await Promise.all([portainerContainerList(item,endpointId),portainerImageList(item,endpointId)]);
+  const byId=new Map(images.map(img=>[normalizeDockerImageId(img.id),img]));
+  const groups=new Map();
+  for(const c of containers){const reference=String(c.image||'').trim();if(!reference)continue;if(!groups.has(reference))groups.set(reference,[]);groups.get(reference).push(c);}
+  const updateState=dockerUpdateState(),rows=[],consumed=new Set();
+  for(const [reference,usagesRaw] of [...groups.entries()].slice(0,80)){
+    const parsed=splitDockerImageReference(reference),usageIds=[...new Set(usagesRaw.map(x=>normalizeDockerImageId(x.imageId)).filter(Boolean))];
+    const currentImages=usageIds.map(id=>byId.get(id)).filter(Boolean);currentImages.forEach(x=>consumed.add(normalizeDockerImageId(x.id)));
+    const taggedRaw=await portainerImageInspect(item,endpointId,reference),tagged=taggedRaw?normalizeDockerImage(taggedRaw):null;
+    if(tagged?.id)consumed.add(normalizeDockerImageId(tagged.id));
+    const currentImage=currentImages[0]||tagged||null,currentDigest=currentImage?currentDigestForReference(currentImage,reference):'';
+    const pulledImageId=String(tagged?.id||''),pulledDigest=tagged?currentDigestForReference(tagged,reference):'';
+    const key=dockerImageCheckKey(item.id,endpointId,reference),previous=updateState.checks[key]||{};
+    let check={...previous};
+    if(checkRemote){
+      const checkedAt=new Date().toISOString();let remoteDigest='',error='';
+      if(parsed.digest)remoteDigest=parsed.digest;
+      else if(parsed.repository){
+        try{const dist=await portainerDockerJson(item,endpointId,`/distribution/${encodeURIComponent(parsed.pullRef)}/json`);remoteDigest=distributionDigest(dist);if(!remoteDigest)error='Le registre n’a pas fourni de digest exploitable.';}
+        catch(e){error=String(e?.message||e||'Vérification registre impossible.');}
+      }else error='Référence image invalide.';
+      check={...previous,remoteDigest,error,checkedAt,localDigest:pulledDigest||currentDigest,pulledImageId};
+      updateState.checks[key]=check;
+    }
+    const mismatch=!!pulledImageId&&usageIds.some(id=>id&&id!==normalizeDockerImageId(pulledImageId));
+    let status=mismatch
+      ?{kind:'redeploy-required',label:'Image téléchargée · redeploy requis',tone:'warning',updateAvailable:true,pullAvailable:false,redeployRequired:true,localDigest:currentDigest,remoteDigest:String(check.remoteDigest||''),checkedAt:String(check.checkedAt||'')}
+      :classifyDockerImageUpdate({localDigest:pulledDigest||currentDigest,remoteDigest:check.remoteDigest,currentImageId:usageIds[0]||'',pulledImageId:pulledImageId||usageIds[0]||'',checkedAt:check.checkedAt,error:check.error});
+    const usages=imageUsages(currentImage||{id:usagesRaw[0]?.imageId,repoTags:[reference]},usagesRaw);
+    const normalizedUsages=usagesRaw.map(c=>({id:c.id,name:c.name,image:c.image,imageId:c.imageId,stack:c.stack||'',state:c.state||'',needsRedeploy:!!pulledImageId&&normalizeDockerImageId(c.imageId)!==normalizeDockerImageId(pulledImageId)}));
+    const stacks=[...new Set(normalizedUsages.map(x=>x.stack).filter(Boolean))];
+    const row={key,reference,pullRef:parsed.pullRef,repository:parsed.repository,tag:parsed.tag,digest:parsed.digest,currentImageIds:usageIds,currentImageId:usageIds[0]||'',currentDigest,pulledImageId,pulledDigest,remoteDigest:String(check.remoteDigest||''),checkedAt:String(check.checkedAt||''),checkError:String(check.error||''),status,usages:normalizedUsages,stacks,used:true,dangling:false,size:Number(tagged?.size||currentImage?.size||0),created:Number(tagged?.created||currentImage?.created||0)};
+    rows.push(row);
+    if(checkRemote&&notify&&status.kind==='update-available'&&check.remoteDigest&&check.notifiedRemoteDigest!==check.remoteDigest&&settings?.dockerUpdates?.notifyOnAvailable!==false){
+      await sendAlertChannels(settings,'Mise à jour Docker disponible',`${reference} possède une nouvelle image disponible sur le registre.`,{type:'docker.image.update',severity:'warning',serverName:item.name||'Portainer',target:reference,details:[`Endpoint Portainer: ${endpointId}`,`Conteneurs concernés: ${normalizedUsages.map(x=>x.name).join(', ')||'—'}`,`Stacks: ${stacks.join(', ')||'—'}`,`Digest local: ${pulledDigest||currentDigest||'indisponible'}`,`Digest distant: ${check.remoteDigest}`],source:'Docker Registry via Portainer',recommendation:'Vérifie le changement puis utilise le workflow ProxPanel : aperçu → pull → redeploy explicite.'});
+      updateState.checks[key]={...check,notifiedRemoteDigest:check.remoteDigest};
+    }
+  }
+  for(const image of images){
+    const id=normalizeDockerImageId(image.id);if(consumed.has(id))continue;
+    const ref=dockerImagePrimaryRef(image)||`sha256:${image.shortId}`;
+    rows.push({key:`image:${id}`,reference:ref,pullRef:dockerImagePrimaryRef(image),repository:'',tag:'',digest:'',currentImageIds:[],currentImageId:'',currentDigest:'',pulledImageId:image.id,pulledDigest:currentDigestForReference(image,ref),remoteDigest:'',checkedAt:'',checkError:'',status:{kind:'unused',label:image.dangling?'Dangling':'Inutilisée',tone:'neutral',updateAvailable:false,pullAvailable:!!dockerImagePrimaryRef(image),redeployRequired:false},usages:[],stacks:[],used:false,dangling:!!image.dangling,size:image.size,created:image.created,repoTags:image.repoTags,repoDigests:image.repoDigests});
+  }
+  if(checkRemote)saveDockerUpdateState(updateState);
+  rows.sort((a,b)=>{const rank=x=>x.status?.kind==='update-available'?0:x.status?.kind==='redeploy-required'?1:x.used?2:x.dangling?4:3;return rank(a)-rank(b)||String(a.reference).localeCompare(String(b.reference));});
+  const summary={total:rows.length,used:rows.filter(x=>x.used).length,updateAvailable:rows.filter(x=>x.status?.kind==='update-available').length,redeployRequired:rows.filter(x=>x.status?.kind==='redeploy-required').length,unused:rows.filter(x=>!x.used).length,dangling:rows.filter(x=>x.dangling).length,unknown:rows.filter(x=>x.status?.kind==='unknown').length};
+  return {generatedAt:new Date().toISOString(),portainerId:item.id,portainerName:item.name||'Portainer',endpointId:Number(endpointId),summary,images:rows,window:dockerUpdateWindowMatch(settings)};
+}
+function dockerPullStreamSummary(buffer) {
+  const text=Buffer.isBuffer(buffer)?buffer.toString('utf8'):String(buffer||''),rows=[];let error='';
+  for(const line of text.split(/\r?\n/).filter(Boolean)){try{const row=JSON.parse(line);if(row?.error||row?.errorDetail?.message)error=String(row.error||row.errorDetail.message);if(row?.status)rows.push(String(row.status)+(row.id?` · ${row.id}`:''));}catch{if(line.trim())rows.push(line.trim());}}
+  return {error,lines:rows.slice(-12)};
+}
+async function dockerPullImage(item,endpointId,reference) {
+  const parsed=splitDockerImageReference(reference);if(!parsed.repository)throw new Error('Référence image invalide.');
+  const query=parsed.digest?`fromImage=${encodeURIComponent(parsed.repository+'@'+parsed.digest)}`:`fromImage=${encodeURIComponent(parsed.repository)}&tag=${encodeURIComponent(parsed.tag||'latest')}`;
+  const result=await portainerDockerBuffer(item,endpointId,`/images/create?${query}`,{method:'POST',headers:{Accept:'application/json'}});
+  const summary=dockerPullStreamSummary(result.data);if(summary.error)throw new Error(summary.error);
+  const inspect=await portainerImageInspect(item,endpointId,parsed.pullRef||reference);if(!inspect)throw new Error('Image téléchargée mais impossible à relire depuis Docker.');
+  return {reference:parsed.pullRef||reference,image:normalizeDockerImage(inspect),log:summary.lines};
+}
+async function portainerRawStack(item,endpointId,stackId) {
+  const rows=await integrationJson(item.url,'/api/stacks',{headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
+  return (Array.isArray(rows)?rows:[]).find(x=>Number(x.Id||x.id)===Number(stackId)&&Number(x.EndpointId||x.EndpointID)===Number(endpointId))||null;
+}
+async function verifyDockerStackHealth(item,endpointId,stackName,timeoutMs=30000) {
+  const until=Date.now()+Math.max(5000,Math.min(60000,Number(timeoutMs||30000)));let last=[];
+  do{last=(await portainerContainerList(item,endpointId)).filter(c=>String(c.stack||'')===String(stackName||''));const summary=summarizeDockerRedeployHealth(last);if(summary.ok)return {...summary,containers:last.map(c=>({id:c.id,name:c.name,state:c.state,health:c.health}))};await sleep(2000);}while(Date.now()<until);
+  const summary=summarizeDockerRedeployHealth(last);return {...summary,containers:last.map(c=>({id:c.id,name:c.name,state:c.state,health:c.health}))};
+}
+async function redeployPortainerStack(item,endpointId,stackId,{pullImage=true,verify=true}={}) {
+  const raw=await portainerRawStack(item,endpointId,stackId);if(!raw)throw new Error('Stack introuvable.');
+  const stack=normalizePortainerStack(raw),baseHeaders=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
+  if(raw.GitConfig){await integrationJson(item.url,`/api/stacks/${stackId}/git/redeploy?endpointId=${endpointId}`,{method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{PullImage:!!pullImage,Prune:false}});}
+  else{const file=await integrationJson(item.url,`/api/stacks/${stackId}/file`,{headers:baseHeaders,rejectUnauthorized});const stackFile=String(file?.StackFileContent||file?.stackFileContent||'');if(!stackFile)throw new Error('Contenu Compose indisponible pour le redeploy.');await integrationJson(item.url,`/api/stacks/${stackId}?endpointId=${endpointId}`,{method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{StackFileContent:stackFile,Env:Array.isArray(raw.Env)?raw.Env:[],PullImage:!!pullImage,Prune:false}});}
+  const health=verify?await verifyDockerStackHealth(item,endpointId,stack.name,30000):null;
+  return {stack,health};
+}
+function dockerContainerNetworkingConfig(inspect={}) {
+  const rows=inspect?.NetworkSettings?.Networks||{},out={};
+  for(const [name,n] of Object.entries(rows)){out[name]={Aliases:Array.isArray(n?.Aliases)?n.Aliases:undefined,Links:Array.isArray(n?.Links)?n.Links:undefined,IPAMConfig:n?.IPAMConfig||undefined,MacAddress:n?.MacAddress||undefined,DriverOpts:n?.DriverOpts||undefined};}
+  return {EndpointsConfig:out};
+}
+async function verifyDockerContainerHealth(item,endpointId,containerId,timeoutMs=30000) {
+  const until=Date.now()+Math.max(5000,Math.min(60000,Number(timeoutMs||30000)));let state={};
+  do{const inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/json`);state=inspect?.State||{};const status=String(state.Status||'').toLowerCase(),health=String(state.Health?.Status||'').toLowerCase();if(status==='running'&&(!health||health==='healthy'))return {ok:true,status,health:health||'not-configured'};if(status==='exited'||status==='dead'||health==='unhealthy')break;await sleep(2000);}while(Date.now()<until);
+  return {ok:false,status:String(state.Status||'unknown').toLowerCase(),health:String(state.Health?.Status||'').toLowerCase()||'not-configured',exitCode:Number(state.ExitCode||0),error:String(state.Error||'')};
+}
+async function redeployStandaloneContainer(item,endpointId,containerId,{reference=''}={}) {
+  const inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/json`),labels=inspect?.Config?.Labels||{};
+  if(labels['com.docker.compose.project']||labels['io.portainer.stack.name'])throw new Error('Ce conteneur appartient à une stack. Utilise le redeploy de la stack pour conserver la définition Compose.');
+  if(inspect?.HostConfig?.AutoRemove)throw new Error('Redeploy sécurisé indisponible pour un conteneur AutoRemove.');
+  const originalName=String(inspect?.Name||'').replace(/^\//,'');if(!originalName)throw new Error('Nom du conteneur introuvable.');
+  const imageRef=String(reference||inspect?.Config?.Image||'').trim();if(!imageRef)throw new Error('Référence image introuvable.');
+  const targetImage=await portainerImageInspect(item,endpointId,imageRef);if(!targetImage)throw new Error('Image cible absente localement. Effectue d’abord le pull.');
+  const wasRunning=!!inspect?.State?.Running,backupName=`${originalName}.proxpanel-${Date.now()}`.slice(0,120);let createdId='',renamed=false;
+  const config=JSON.parse(JSON.stringify(inspect.Config||{}));config.Image=imageRef;
+  const body={...config,HostConfig:JSON.parse(JSON.stringify(inspect.HostConfig||{})),NetworkingConfig:dockerContainerNetworkingConfig(inspect)};
+  try{
+    if(wasRunning)await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/stop?t=15`,{method:'POST'});
+    await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/rename?name=${encodeURIComponent(backupName)}`,{method:'POST'});renamed=true;
+    const created=await portainerDockerJson(item,endpointId,`/containers/create?name=${encodeURIComponent(originalName)}`,{method:'POST',body});createdId=String(created?.Id||created?.id||'');if(!createdId)throw new Error('Docker n’a pas retourné l’identifiant du nouveau conteneur.');
+    await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(createdId)}/start`,{method:'POST'});
+    const health=await verifyDockerContainerHealth(item,endpointId,createdId,30000);if(!health.ok)throw new Error(`Le nouveau conteneur n’est pas sain (${health.status}/${health.health}).`);
+    await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}?v=0&force=0`,{method:'DELETE'});
+    return {ok:true,oldContainerId:containerId,newContainerId:createdId,name:originalName,image:imageRef,health,rollback:false};
+  }catch(error){
+    if(createdId){try{await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(createdId)}?v=0&force=1`,{method:'DELETE'});}catch{}}
+    if(renamed){try{await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/rename?name=${encodeURIComponent(originalName)}`,{method:'POST'});if(wasRunning)await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/start`,{method:'POST'});}catch{}}
+    const e=new Error(String(error?.message||error));e.rollbackAttempted=renamed;throw e;
+  }
+}
 function dockerTopologyMappings() {
   const rows=jsonRead(DOCKER_TOPOLOGY_FILE,{});
   return rows&&typeof rows==='object'&&!Array.isArray(rows)?rows:{};
