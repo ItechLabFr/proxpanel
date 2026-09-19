@@ -13,8 +13,6 @@ on:
         default: false
         type: boolean
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
@@ -33,11 +31,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: One-shot beta.4.3 source checkout
-        if: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
-        shell: bash
-        run: git checkout "${GITHUB_SHA}^"
-
       - name: Resolve and validate version
         id: version
         shell: bash
@@ -45,10 +38,8 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             version="${{ inputs.version }}"
-          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
           else
-            version="$(node -p "require('./release.json').version")"
+            version="${GITHUB_REF_NAME#v}"
           fi
 
           release_version="$(node -p "require('./release.json').version")"
@@ -168,9 +159,8 @@ jobs:
               dist/SHA256SUMS.txt \
               --clobber
           else
-            target_sha="$(git rev-parse HEAD)"
             args=(release create "$tag"
-              --target "$target_sha"
+              --target "$GITHUB_SHA"
               --title "ProxPanel $version"
               --notes-file dist/RELEASE_NOTES.md)
 
