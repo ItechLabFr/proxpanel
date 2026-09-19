@@ -27,6 +27,9 @@ const {
   normalizeDockerUpdateWindow
 } = require('./lib/docker-images');
 const {
+  normalizeReauthCode,strongReauthAllowed,nextSensitiveAttempt,sensitiveAttemptBlocked
+} = require('./lib/auth-security');
+const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
   demoDockerOverview, demoDockerContainers, demoDockerStacks,
@@ -106,6 +109,7 @@ const PVE_USER_SESSIONS = new Map();
 const AUTOMATION_RUNS = new Map();
 const CONSOLE_TTL_MS = 5 * 60 * 1000;
 const LOGIN_ATTEMPTS = new Map();
+const SENSITIVE_REAUTH_ATTEMPTS = new Map();
 const EMAIL_2FA_CODES = new Map();
 const GUEST_STORAGE_CACHE = new Map();
 const GUEST_STORAGE_CACHE_OK_MS = 5 * 60 * 1000;
@@ -576,6 +580,28 @@ function loginAttemptKey(req,username){return `${clientIp(req)}|${String(usernam
 function checkLoginAllowed(req,username){const row=LOGIN_ATTEMPTS.get(loginAttemptKey(req,username));if(!row)return true;if(row.blockedUntil&&row.blockedUntil>Date.now())return false;if(row.blockedUntil&&row.blockedUntil<=Date.now())LOGIN_ATTEMPTS.delete(loginAttemptKey(req,username));return true;}
 function recordLoginFailure(req,username){const k=loginAttemptKey(req,username),now=Date.now(),old=LOGIN_ATTEMPTS.get(k)||{count:0,firstAt:now};const within=now-old.firstAt<15*60*1000;const count=within?old.count+1:1;LOGIN_ATTEMPTS.set(k,{count,firstAt:within?old.firstAt:now,blockedUntil:count>=5?now+15*60*1000:0});}
 function clearLoginFailures(req,username){LOGIN_ATTEMPTS.delete(loginAttemptKey(req,username));}
+function sensitiveReauthKey(req,user,action='sensitive'){return `${clientIp(req)}|${String(user?.id||user?.username||'unknown')}|${String(action||'sensitive')}`;}
+function sensitiveReauthAllowed(req,user,action='sensitive'){
+  const key=sensitiveReauthKey(req,user,action),row=SENSITIVE_REAUTH_ATTEMPTS.get(key);
+  if(!row)return true;
+  if(sensitiveAttemptBlocked(row)){return false;}
+  if(row.blockedUntil&&Number(row.blockedUntil)<=Date.now())SENSITIVE_REAUTH_ATTEMPTS.delete(key);
+  return true;
+}
+function recordSensitiveReauthFailure(req,user,action='sensitive'){
+  const key=sensitiveReauthKey(req,user,action),next=nextSensitiveAttempt(SENSITIVE_REAUTH_ATTEMPTS.get(key),Date.now());
+  SENSITIVE_REAUTH_ATTEMPTS.set(key,next);return next;
+}
+function clearSensitiveReauthFailures(req,user,action='sensitive'){SENSITIVE_REAUTH_ATTEMPTS.delete(sensitiveReauthKey(req,user,action));}
+function verifyStrongReauth(req,user,body={},action='sensitive'){
+  if(!sensitiveReauthAllowed(req,user,action))return {ok:false,status:429,error:'Ré-authentification temporairement bloquée. Réessaie plus tard.'};
+  const ok=strongReauthAllowed(user,{password:String(body.password||''),code:normalizeReauthCode(body.code)},{
+    password:(actor,password)=>!!actor?.salt&&safeEqualHex(hashPassword(password,actor.salt).hash,actor.hash||''),
+    totp:(actor,code)=>{let secret='';try{secret=decryptText(actor?.totpSecretEnc||'')}catch{}return !!secret&&verifyTotp(secret,code);}
+  });
+  if(!ok){const state=recordSensitiveReauthFailure(req,user,action);return {ok:false,status:state.blocked?429:401,error:'Ré-authentification impossible. Vérifie tes informations et réessaie.'};}
+  clearSensitiveReauthFailures(req,user,action);return {ok:true,status:200};
+}
 function originAllowed(req){if(['GET','HEAD','OPTIONS'].includes(req.method||'GET'))return true;const origin=req.headers.origin;if(!origin)return true;try{const host=String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim();return new URL(origin).host===host;}catch{return false;}}
 function parseCookies(req) {
   const out = {};
@@ -2933,7 +2959,7 @@ function discordEventLabel(type) {
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
     'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.image.update':'Mise à jour image Docker','docker.image.update.failed':'Échec mise à jour Docker','docker.image.redeploy.success':'Redeploy Docker réussi','docker.recovered':'Docker rétabli',
-    'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','system.test':'Test système'
+    'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','auth.2fa.disabled':'Double authentification désactivée','system.test':'Test système'
   };
   return labels[type] || type;
 }
@@ -2976,6 +3002,7 @@ function defaultRecommendation(event={}) {
     'temperature.warning':'Surveille la charge et le refroidissement du nœud. Vérifie les ventilateurs et le flux d’air si la température continue de monter.',
     'temperature.critical':'Vérifie immédiatement le refroidissement, les ventilateurs, les dissipateurs et la charge du nœud.',
     'auth.2fa.email':'Si tu n’es pas à l’origine de cette demande, change ton mot de passe ProxPanel et contrôle les sessions actives.',
+    'auth.2fa.disabled':'Si cette désactivation n’était pas attendue, change immédiatement le mot de passe du compte et réactive la double authentification.',
     'pve.update.available':'Consulte le détail des paquets dans ProxPanel avant de planifier la maintenance.',
     'pve.update.security':'Consulte immédiatement le détail des correctifs de sécurité et planifie la maintenance selon la criticité détectée.',
     'pve.update.manual-report':'Aucune action n’est requise si le rapport indique que tous les nœuds sont à jour.',
@@ -3068,7 +3095,7 @@ function defaultMailTechnicalSource(event={}) {
   if(type.startsWith('pve.update.'))return 'APT / Proxmox API';
   if(type.startsWith('backup.')||type==='task.failed'||type==='task.warning'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
   if(type==='system.update.available')return 'ProxPanel OTA';
-  if(type==='auth.2fa.email')return 'ProxPanel Auth';
+  if(type==='auth.2fa.email'||type==='auth.2fa.disabled')return 'ProxPanel Auth';
   return 'ProxPanel';
 }
 function normalizeMailTechnicalEvidence(event={}) {
@@ -4222,7 +4249,27 @@ async function handleApi(req, res, url) {
     if(req.method==='DELETE'&&!op){if(target.id===currentPanelUser.id)return sendJson(res,400,{error:'Tu ne peux pas supprimer ton propre compte.'});rows.splice(idx,1);savePanelUsers(rows);audit(req,'user.delete',target.username);return sendJson(res,200,{ok:true});}
     if(req.method==='POST'&&op==='totp-setup'){if(!validAccountEmail(target.email))return sendJson(res,400,{error:'Ajoute d’abord une adresse e-mail valide au compte. Elle sera utilisée comme méthode de secours 2FA.'});const secret=base32Encode(crypto.randomBytes(20));target.totpPendingEnc=encryptText(secret);rows[idx]=target;savePanelUsers(rows);const issuer=encodeURIComponent('ProxPanel'),label=encodeURIComponent(`ProxPanel:${target.username}`),otpauth=`otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`,er=emailRecoveryState(target);return sendJson(res,200,{secret,otpauth,qrSvg:makeQrSvg(otpauth),emailMasked:er.emailMasked,emailRecoveryAvailable:er.available,mailConfigured:er.mailConfigured});}
     if(req.method==='POST'&&op==='totp-enable'){const body=await readBody(req);let secret='';try{secret=decryptText(target.totpPendingEnc||target.totpSecretEnc||'')}catch{}if(!secret||!verifyTotp(secret,body.code))return sendJson(res,400,{error:'Code TOTP invalide.'});const recoveryCodes=generateRecoveryCodes(10);target.totpSecretEnc=encryptText(secret);target.totpEnabled=true;target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));delete target.totpPendingEnc;rows[idx]=target;savePanelUsers(rows);audit(req,'user.totp.enable',target.username,{recoveryCodes:recoveryCodes.length,emailRecovery:emailRecoveryState(target).available});return sendJson(res,200,{ok:true,recoveryCodes,emailMasked:maskEmail(target.email),emailRecoveryAvailable:emailRecoveryState(target).available});}
-    if(req.method==='POST'&&op==='totp-disable'){target.totpEnabled=false;target.totpSecretEnc='';target.recoveryCodeHashes=[];EMAIL_2FA_CODES.delete(email2faKey(target.id));delete target.totpPendingEnc;rows[idx]=target;savePanelUsers(rows);audit(req,'user.totp.disable',target.username);return sendJson(res,200,{ok:true});}
+    if(req.method==='POST'&&op==='totp-disable'){
+      if(!target.totpEnabled)return sendJson(res,409,{error:'La double authentification est déjà désactivée pour ce compte.'});
+      const body=await readBody(req),actor=currentPanelUser;
+      const strong=verifyStrongReauth(req,actor,body,'totp-disable');
+      if(!strong.ok){addAuditSystem('auth.reauth.failed',actor?.username||session.username,{ip:clientIp(req),action:'totp-disable',target:target.username},'error');return sendJson(res,strong.status,{error:strong.error});}
+      const adminReset=target.id!==actor?.id;
+      if(adminReset&&!userAdmin)return sendJson(res,403,{error:'Permission utilisateurs requise.'});
+      target.totpEnabled=false;target.totpSecretEnc='';target.recoveryCodeHashes=[];EMAIL_2FA_CODES.delete(email2faKey(target.id));delete target.totpPendingEnc;rows[idx]=target;savePanelUsers(rows);
+      audit(req,'user.totp.disable',target.username,{actor:actor?.username||session.username,mode:adminReset?'admin-reset':'self',strongReauth:true});
+      addAuditSystem('auth.reauth.success',actor?.username||session.username,{ip:clientIp(req),action:'totp-disable',target:target.username},'ok');
+      const mailCfg=getSettings().alerts?.smtp||{};
+      if(mailCfg.enabled&&validAccountEmail(target.email)){
+        const cfg={...mailCfg,to:target.email};
+        const when=new Date().toLocaleString('fr-FR');
+        await Promise.allSettled([sendMailNotification(cfg,'Sécurité ProxPanel — double authentification désactivée',
+          `La double authentification du compte ${target.username} a été désactivée le ${when}.\n\nAction effectuée par : ${actor?.username||session.username}.\nAdresse IP : ${clientIp(req)}.\n\nSi tu n’es pas à l’origine de cette action, change immédiatement ton mot de passe et réactive la 2FA.`,
+          {type:'auth.2fa.disabled',severity:'warning',serverName:'ProxPanel',target:target.username,details:[`Action effectuée par : ${actor?.username||session.username}`,`Adresse IP : ${clientIp(req)}`,`Mode : ${adminReset?'réinitialisation administrateur':'désactivation personnelle'}`],recommendation:'Si cette action n’était pas attendue, change immédiatement le mot de passe du compte et réactive la double authentification.'}
+        )]);
+      }
+      return sendJson(res,200,{ok:true,notified:!!(mailCfg.enabled&&validAccountEmail(target.email))});
+    }
     if(req.method==='POST'&&op==='recovery-regenerate'){if(target.id!==currentPanelUser?.id)return sendJson(res,403,{error:'Les codes de récupération ne peuvent être régénérés que par leur propriétaire.'});const body=await readBody(req);let secret='';try{secret=decryptText(target.totpSecretEnc||'')}catch{}if(!target.totpEnabled||!secret||!verifyTotp(secret,body.code))return sendJson(res,400,{error:'Code TOTP actuel requis.'});const recoveryCodes=generateRecoveryCodes(10);target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));rows[idx]=target;savePanelUsers(rows);audit(req,'user.recovery.regenerate',target.username,{count:recoveryCodes.length});return sendJson(res,200,{ok:true,recoveryCodes});}
   }
 

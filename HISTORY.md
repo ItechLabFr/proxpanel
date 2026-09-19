@@ -70,7 +70,8 @@ La série `1.7.1-beta.x` a atteint `beta.10`. Le cycle de développement actif e
 | [1.7.2-beta.1.1](docs/releases/1.7.2-beta.1.1.md) | Hotfix Beta | Révoquée après beta.2 | Correctif packaging OTA / 502 |
 | [1.7.2-beta.2](docs/releases/1.7.2-beta.2.md) | Beta | Révoquée par beta.3 | Docker Containers & Stacks |
 
-| [1.7.2-beta.5](docs/releases/1.7.2-beta.5.md) | Beta | **Release active** | Docker Image & Update Management |
+| [1.7.2-beta.5.1](docs/releases/1.7.2-beta.5.1.md) | Beta patch | **Release active** | 2FA Strong Re-authentication Security Hotfix |
+| [1.7.2-beta.5](docs/releases/1.7.2-beta.5.md) | Beta | Superseded | Docker Image & Update Management |
 | [1.7.2-beta.4.3](docs/releases/1.7.2-beta.4.3.md) | Beta patch | Superseded | Backup Warning Classification & Rich Diagnostics |
 | [1.7.2-beta.4.2](docs/releases/1.7.2-beta.4.2.md) | Beta patch | Superseded | Mail Diagnostics & Logs |
 | [1.7.2-beta.4.1](docs/releases/1.7.2-beta.4.1.md) | Beta | Superseded | Docker Metrics Dashboard |
