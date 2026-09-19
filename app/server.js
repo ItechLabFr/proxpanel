@@ -4923,6 +4923,49 @@ async function handleApi(req, res, url) {
   if(url.pathname==='/api/docker/alerts'&&req.method==='GET'){
     return sendJson(res,200,{alerts:activeDockerAlerts(),checkedAt:dockerMonitorState().checkedAt||''});
   }
+  if(url.pathname==='/api/docker/update-history'&&req.method==='GET'){
+    const portainerId=String(url.searchParams.get('portainerId')||''),endpointId=Number(url.searchParams.get('endpointId')||0);
+    if(DEMO_MODE)return sendJson(res,200,{history:demoDockerUpdateHistory(endpointId||1)});
+    return sendJson(res,200,{history:dockerUpdateHistory({portainerId,endpointId,limit:Number(url.searchParams.get('limit')||150)})});
+  }
+  if(url.pathname==='/api/docker/update-status'&&req.method==='GET'){
+    const cfg=getSettings(),state=dockerUpdateState();
+    return sendJson(res,200,{settings:cfg.dockerUpdates||{},window:dockerUpdateWindowMatch(cfg),lastAutoCheckAt:state.lastAutoCheckAt||0,lastAutoCheckError:state.lastAutoCheckError||'',queue:state.queue||[]});
+  }
+  const dockerImagesMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/images$/);
+  if(dockerImagesMatch&&req.method==='GET'){
+    const item=findPortainerIntegration(dockerImagesMatch[1]);if(!item&&!DEMO_MODE)return sendJson(res,404,{error:'Portainer introuvable.'});
+    let endpointId;try{endpointId=dockerEndpointId(dockerImagesMatch[2]);}catch(e){return sendJson(res,400,{error:e.message});}
+    if(DEMO_MODE)return sendJson(res,200,demoDockerImages(endpointId));
+    try{return sendJson(res,200,await dockerImageInventory(item,endpointId,{checkRemote:false,settings:getSettings()}));}catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  const dockerImageActionMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/images\/(check|pull|redeploy|remove)$/);
+  if(dockerImageActionMatch&&req.method==='POST'){
+    const item=findPortainerIntegration(dockerImageActionMatch[1]);if(!item)return sendJson(res,404,{error:'Portainer introuvable.'});
+    let endpointId;try{endpointId=dockerEndpointId(dockerImageActionMatch[2]);}catch(e){return sendJson(res,400,{error:e.message});}
+    const action=dockerImageActionMatch[3],settings=getSettings(),body=await readBody(req),environmentName=String(body.environmentName||`Environment ${endpointId}`);
+    if(action==='check'){
+      try{const inventory=await dockerImageInventory(item,endpointId,{checkRemote:true,notify:true,settings});recordDockerUpdateHistory({action:'check',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,target:'registry',details:{...inventory.summary}});audit(req,'docker.images.check',environmentName,{portainer:item.name,endpointId,...inventory.summary});return sendJson(res,200,inventory);}catch(e){recordDockerUpdateHistory({action:'check',status:'error',portainerId:item.id,portainerName:item.name,endpointId,environmentName,target:'registry',details:{error:String(e.message||e)}});audit(req,'docker.images.check',environmentName,{portainer:item.name,endpointId,error:String(e.message||e)},'error');return sendJson(res,502,{error:e.message});}
+    }
+    if(action==='pull'){
+      const reference=String(body.reference||'').trim();if(!reference)return sendJson(res,400,{error:'Référence image requise.'});
+      try{const result=await dockerPullImage(item,endpointId,reference);recordDockerUpdateHistory({action:'pull',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target:'image',details:{imageId:result.image.id,digest:currentDigestForReference(result.image,reference),log:result.log}});audit(req,'docker.image.pull',reference,{portainer:item.name,endpointId,imageId:result.image.id});PORTAINER_OVERVIEW_CACHE.delete(String(item.id));const inventory=await dockerImageInventory(item,endpointId,{checkRemote:false,settings});return sendJson(res,200,{ok:true,result,inventory});}
+      catch(e){recordDockerUpdateHistory({action:'pull',status:'error',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target:'image',details:{error:String(e.message||e)}});audit(req,'docker.image.pull',reference,{portainer:item.name,endpointId,error:String(e.message||e)},'error');await sendAlertChannels(settings,'Échec du pull d’une image Docker',`${reference} n’a pas pu être téléchargée.`,{type:'docker.image.update.failed',severity:'warning',serverName:item.name||'Portainer',target:reference,error:String(e.message||e),details:[`Endpoint Portainer: ${endpointId}`,`Environnement: ${environmentName}`],source:'Docker Engine via Portainer',recommendation:'Vérifie le registre, les identifiants éventuels et la connectivité avant de réessayer.'});return sendJson(res,502,{error:e.message});}
+    }
+    if(action==='redeploy'){
+      const reference=String(body.reference||'').trim(),targetType=String(body.targetType||''),started=Date.now();
+      try{let result,target='';
+        if(targetType==='stack'){const stackId=Number(body.stackId||0);if(!stackId)return sendJson(res,400,{error:'stackId requis.'});result=await redeployPortainerStack(item,endpointId,stackId,{pullImage:false,verify:true});target=`stack:${result.stack.name||stackId}`;if(result.health&&!result.health.ok)throw new Error(`Redeploy terminé mais santé de la stack non conforme (${result.health.running}/${result.health.total} running, ${result.health.unhealthy} unhealthy).`);}
+        else if(targetType==='container'){const containerId=dockerObjectId(body.containerId||'');result=await redeployStandaloneContainer(item,endpointId,containerId,{reference});target=`container:${result.name||containerId}`;}
+        else return sendJson(res,400,{error:'targetType doit être stack ou container.'});
+        const durationSeconds=Math.round((Date.now()-started)/1000);recordDockerUpdateHistory({action:'redeploy',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target,details:{durationSeconds,health:result.health||null,newContainerId:result.newContainerId||''}});audit(req,'docker.image.redeploy',target,{portainer:item.name,endpointId,reference,durationSeconds,health:result.health||null});PORTAINER_OVERVIEW_CACHE.delete(String(item.id));const inventory=await dockerImageInventory(item,endpointId,{checkRemote:false,settings});return sendJson(res,200,{ok:true,result,durationSeconds,inventory});
+      }catch(e){const durationSeconds=Math.round((Date.now()-started)/1000),target=targetType==='stack'?`stack:${body.stackId||''}`:`container:${body.containerId||''}`;recordDockerUpdateHistory({action:'redeploy',status:'error',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target,details:{error:String(e.message||e),durationSeconds,rollbackAttempted:!!e.rollbackAttempted}});audit(req,'docker.image.redeploy',target,{portainer:item.name,endpointId,reference,error:String(e.message||e),durationSeconds,rollbackAttempted:!!e.rollbackAttempted},'error');const logExcerpt=targetType==='container'&&body.containerId?await dockerIncidentLogExcerpt({portainerId:item.id,endpointId,containerId:String(body.containerId)}):'';await sendAlertChannels(settings,'Échec du redeploy Docker',`${target} n’a pas été remis en service correctement.`,{type:'docker.image.update.failed',severity:'critical',serverName:item.name||'Portainer',target,error:String(e.message||e),details:[`Environnement: ${environmentName}`,`Endpoint Portainer: ${endpointId}`,`Image: ${reference||'—'}`,`Durée: ${durationSeconds}s`,e.rollbackAttempted?'Rollback de sécurité tenté: oui':'Rollback de sécurité tenté: non'],source:'Docker Engine / Portainer',logExcerpt,recommendation:'Consulte les détails techniques et les logs. Vérifie l’état de l’ancien conteneur ou de la stack avant toute nouvelle tentative.'});return sendJson(res,502,{error:e.message,rollbackAttempted:!!e.rollbackAttempted});}
+    }
+    if(action==='remove'){
+      const imageId=String(body.imageId||'').trim();if(!imageId)return sendJson(res,400,{error:'imageId requis.'});
+      try{const containers=await portainerContainerList(item,endpointId),images=await portainerImageList(item,endpointId),image=images.find(x=>normalizeDockerImageId(x.id)===normalizeDockerImageId(imageId));if(!image)return sendJson(res,404,{error:'Image introuvable.'});const usages=imageUsages(image,containers);if(usages.length)return sendJson(res,409,{error:`Image encore utilisée par ${usages.length} conteneur(s). Suppression refusée.`});await portainerDockerJson(item,endpointId,`/images/${encodeURIComponent(image.id)}?force=0&noprune=1`,{method:'DELETE'});recordDockerUpdateHistory({action:'remove',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference:dockerImagePrimaryRef(image)||image.shortId,target:'image',details:{imageId:image.id,size:image.size,dangling:image.dangling}});audit(req,'docker.image.remove',image.shortId,{portainer:item.name,endpointId,size:image.size,dangling:image.dangling});return sendJson(res,200,{ok:true});}catch(e){return sendJson(res,502,{error:e.message});}
+    }
+  }
   if(url.pathname==='/api/docker/overview'&&req.method==='GET'){
     if(DEMO_MODE)return sendJson(res,200,demoDockerOverview());
     const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
