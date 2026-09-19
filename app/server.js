@@ -14,7 +14,7 @@ const { URL } = require('url');
 const QRCode = require('./vendor/QRCode');
 const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
 const {
-  backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
+  classifyProxmoxTaskStatus,backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
   normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,
   dockerDiskPressureFromInfo,dockerIncidentTransition
 } = require('./lib/reliability');
@@ -1554,12 +1554,14 @@ function calcDashboard(resources, tasks = [], backupJobs = [], rrdByNode = []) {
   const history = calcRrdHistory(rrdByNode);
   const networkLatest = history.network.length ? history.network[history.network.length - 1].value : null;
   const activeTasks = (Array.isArray(tasks) ? tasks : []).filter(t => !Number(t.endtime || 0));
-  const failedTasks = (Array.isArray(tasks) ? tasks : []).filter(t => Number(t.endtime || 0) && t.status && String(t.status).toUpperCase() !== 'OK');
+  const completedTasks=(Array.isArray(tasks)?tasks:[]).filter(t=>Number(t.endtime||0)&&t.status);
+  const failedTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='failure');
+  const warningTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='warning');
   const onlineNodes = nodes.filter(n => n.status === 'online' || n.status === 'unknown').length;
   const healthyStorages = storages.filter(s => s.status === 'available' || s.status === 'active' || s.status === 'unknown' || !s.status).length;
   const nodePenalty = nodes.length ? Math.round((nodes.length - onlineNodes) / nodes.length * 45) : 45;
   const storagePenalty = storages.length ? Math.round((storages.length - healthyStorages) / storages.length * 25) : 0;
-  const taskPenalty = Math.min(20, failedTasks.length * 4);
+  const taskPenalty = Math.min(20, failedTasks.length * 4 + warningTasks.length);
   const healthScore = Math.max(0, 100 - nodePenalty - storagePenalty - taskPenalty);
   return {
     collectedAt: new Date().toISOString(),
@@ -1578,7 +1580,7 @@ function calcDashboard(resources, tasks = [], backupJobs = [], rrdByNode = []) {
       memoryCommitPct: maxmem ? Number((allocatedMemory / maxmem * 100).toFixed(1)) : 0
     },
     history,
-    health: { score: healthScore, onlineNodes, totalNodes: nodes.length, healthyStorages, totalStorages: storages.length, activeTasks: activeTasks.length, failedTasks: failedTasks.length },
+    health: { score: healthScore, onlineNodes, totalNodes: nodes.length, healthyStorages, totalStorages: storages.length, activeTasks: activeTasks.length, failedTasks: failedTasks.length, warningTasks: warningTasks.length },
     nodes: nodes.map(n => ({ node: n.node, status: n.status, cpu: n.cpu, maxcpu: n.maxcpu || 0, mem: n.mem, maxmem: n.maxmem, uptime: n.uptime, disk: n.disk || 0, maxdisk: n.maxdisk || 0 })),
     machines: guests.map(g => ({
       vmid: g.vmid, name: g.name || `${g.type}-${g.vmid}`, type: g.type, status: g.status,
@@ -1626,14 +1628,15 @@ function mergeDashboardParts(parts=[],groupName='Vue infrastructure') {
   const allocatedCores=valid.reduce((a,p)=>a+Number(p.metrics?.allocatedCores||0),0), allocatedMemory=valid.reduce((a,p)=>a+Number(p.metrics?.allocatedMemory||0),0), guestDiskAllocated=valid.reduce((a,p)=>a+Number(p.metrics?.guestDiskAllocated||0),0), guestDiskUsed=valid.reduce((a,p)=>a+Number(p.metrics?.guestDiskUsed||0),0);
   const networkVals=valid.map(p=>Number(p.metrics?.networkMbps)).filter(Number.isFinite), networkMbps=networkVals.length?Number(networkVals.reduce((a,b)=>a+b,0).toFixed(3)):null;
   const temperatureVals=nodes.map(n=>Number(n.temperatureC)).filter(Number.isFinite),temperatureMaxC=temperatureVals.length?Number(Math.max(...temperatureVals).toFixed(1)):null,temperatureAvgC=temperatureVals.length?Number((temperatureVals.reduce((a,b)=>a+b,0)/temperatureVals.length).toFixed(1)):null;
-  const onlineNodes=nodes.filter(n=>n.status==='online'||n.status==='unknown').length, healthyStorages=storages.filter(st=>!st.status||['available','active','unknown'].includes(String(st.status))).length, failedTasks=tasks.filter(t=>Number(t.endtime||0)&&t.status&&String(t.status).toUpperCase()!=='OK').length, activeTasks=tasks.filter(t=>!Number(t.endtime||0)).length;
-  const nodePenalty=nodes.length?Math.round((nodes.length-onlineNodes)/nodes.length*45):45, storagePenalty=storages.length?Math.round((storages.length-healthyStorages)/storages.length*25):0, taskPenalty=Math.min(20,failedTasks*4);
+  const onlineNodes=nodes.filter(n=>n.status==='online'||n.status==='unknown').length, healthyStorages=storages.filter(st=>!st.status||['available','active','unknown'].includes(String(st.status))).length;
+  const completedTasks=tasks.filter(t=>Number(t.endtime||0)&&t.status),failedTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='failure').length,warningTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='warning').length,activeTasks=tasks.filter(t=>!Number(t.endtime||0)).length;
+  const nodePenalty=nodes.length?Math.round((nodes.length-onlineNodes)/nodes.length*45):45, storagePenalty=storages.length?Math.round((storages.length-healthyStorages)/storages.length*25):0, taskPenalty=Math.min(20,failedTasks*4+warningTasks);
   const backup={jobs:valid.flatMap(p=>p.backup?.jobs||[]),protectedCount:valid.reduce((a,p)=>a+Number(p.backup?.protectedCount||0),0),unprotectedCount:valid.reduce((a,p)=>a+Number(p.backup?.unprotectedCount||0),0),unprotected:valid.flatMap(p=>p.backup?.unprotected||[]),machines:valid.flatMap(p=>p.backup?.machines||[]),inventory:valid.flatMap(p=>p.backup?.inventory||[])};
   return {
     grouped:true,groupName,collectedAt:new Date().toISOString(),
     metrics:{cpu:cores?Number((cpuWeighted/cores).toFixed(1)):0,cores,memoryPct:memoryTotal?Number((memoryUsed/memoryTotal*100).toFixed(1)):0,memoryUsed,memoryTotal,storagePct:storageTotal?Number((storageUsed/storageTotal*100).toFixed(1)):0,storageUsed,storageTotal,networkMbps,temperatureMaxC,temperatureAvgC,temperatureAvailableNodes:temperatureVals.length,allocatedCores,allocatedMemory,guestDiskAllocated,guestDiskUsed,coreCommitPct:cores?Number((allocatedCores/cores*100).toFixed(1)):0,memoryCommitPct:memoryTotal?Number((allocatedMemory/memoryTotal*100).toFixed(1)):0},
     history:{cpu:mergeHistorySeries(valid,'cpu','avg'),memory:mergeHistorySeries(valid,'memory','avg'),storage:mergeHistorySeries(valid,'storage','avg'),network:mergeHistorySeries(valid,'network','sum')},
-    health:{score:Math.max(0,100-nodePenalty-storagePenalty-taskPenalty),onlineNodes,totalNodes:nodes.length,healthyStorages,totalStorages:storages.length,activeTasks,failedTasks},
+    health:{score:Math.max(0,100-nodePenalty-storagePenalty-taskPenalty),onlineNodes,totalNodes:nodes.length,healthyStorages,totalStorages:storages.length,activeTasks,failedTasks,warningTasks},
     nodes,machines,storages,tasks,backup,problems:valid.flatMap(p=>p.problems||[]),capacity:{memory:{status:'collecting',samples:0},storage:{status:'collecting',samples:0}},server:{name:groupName,grouped:true}
   };
 }
@@ -1800,11 +1803,17 @@ function computeProblems(dashboard, settings) {
       ]
     });
   }
-  const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&String(t.status).toUpperCase()!=='OK').slice(0,12);
-  if (failed.length) add('warning','tasks-failed','Tâches en erreur', `${failed.length} tâche(s) récente(s) en échec`, 'cluster', {
+  const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&classifyProxmoxTaskStatus(t.status).kind==='failure').slice(0,12);
+  if (failed.length) add('critical','tasks-failed','Tâches en erreur', `${failed.length} tâche(s) récente(s) en échec`, 'cluster', {
     route:'tasks', recommendation:'Consulte les logs des tâches ci-dessous. Les erreurs de backup, migration ou stockage sont souvent explicites dans les dernières lignes.',
     facts:[{label:'Tâches en échec',value:String(failed.length)},{label:'Période',value:'tâches récentes remontées par Proxmox'}],
     items:failed.map(t=>({label:t.type||t.id||'Tâche Proxmox',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'erreur'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
+  });
+  const warnings=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&classifyProxmoxTaskStatus(t.status).kind==='warning'&&String(t.type||'').toLowerCase()!=='vzdump').slice(0,12);
+  if(warnings.length)add('warning','tasks-warning','Tâches avec avertissement',`${warnings.length} tâche(s) récente(s) terminée(s) avec avertissement`,'cluster',{
+    route:'tasks',recommendation:'Consulte les logs pour identifier les avertissements et confirmer qu’aucune action corrective n’est nécessaire.',
+    facts:[{label:'Tâches avec avertissement',value:String(warnings.length)},{label:'Période',value:'tâches récentes remontées par Proxmox'}],
+    items:warnings.map(t=>({label:t.type||t.id||'Tâche Proxmox',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'warning'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
   });
   return problems;
 }
