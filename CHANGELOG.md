@@ -1,3 +1,25 @@
+# ProxPanel 1.7.2-beta.4
+
+## Français
+- Nouveau Dashboard Docker consolidé via Portainer.
+- KPI environnements, running/stopped/unhealthy/restarting et stacks.
+- Top CPU et RAM des conteneurs lorsque les statistiques Docker sont disponibles.
+- Association persistante environnement Portainer ↔ VM/LXC Proxmox.
+- Suggestion par hostname uniquement en cas de correspondance unique, jamais appliquée automatiquement.
+- Association modifiable ou supprimable à tout moment.
+- Données fictives de démo enrichies pour le Dashboard et la topologie.
+- Responsive téléphone/tablette/PWA.
+
+## English
+- New consolidated Docker Dashboard through Portainer.
+- Environment, running/stopped/unhealthy/restarting and stack KPIs.
+- Top container CPU and memory when Docker statistics are available.
+- Persistent Portainer environment ↔ Proxmox VM/LXC mapping.
+- Hostname suggestion only for unique matches and never automatically applied.
+- Mapping can be changed or removed at any time.
+- Public demo fixtures extended for Dashboard and topology.
+- Responsive phone/tablet/PWA layout.
+
 # ProxPanel 1.7.2-beta.3
 
 ## Français
