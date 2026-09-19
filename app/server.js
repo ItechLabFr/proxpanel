@@ -1106,7 +1106,7 @@ function rawBufferRequest(baseUrl, reqPath, options = {}) {
     if(body&&!headers['Content-Length'])headers['Content-Length']=Buffer.byteLength(body);
     const request=lib.request({
       protocol:base.protocol,hostname:base.hostname,port:base.port||(base.protocol==='https:'?443:80),
-      path:reqPath,method:options.method||'GET',headers,rejectUnauthorized:options.rejectUnauthorized!==false,timeout:15000
+      path:reqPath,method:options.method||'GET',headers,rejectUnauthorized:options.rejectUnauthorized!==false,timeout:Math.max(1000,Number(options.timeoutMs||15000))
     },response=>{
       const chunks=[];let bytes=0;
       response.on('data',chunk=>{const b=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);bytes+=b.length;if(bytes<=8*1024*1024)chunks.push(b)});
@@ -2243,7 +2243,7 @@ function dockerPullStreamSummary(buffer) {
 async function dockerPullImage(item,endpointId,reference) {
   const parsed=splitDockerImageReference(reference);if(!parsed.repository)throw new Error('Référence image invalide.');
   const query=parsed.digest?`fromImage=${encodeURIComponent(parsed.repository+'@'+parsed.digest)}`:`fromImage=${encodeURIComponent(parsed.repository)}&tag=${encodeURIComponent(parsed.tag||'latest')}`;
-  const result=await portainerDockerBuffer(item,endpointId,`/images/create?${query}`,{method:'POST',headers:{Accept:'application/json'}});
+  const result=await portainerDockerBuffer(item,endpointId,`/images/create?${query}`,{method:'POST',headers:{Accept:'application/json'},timeoutMs:10*60*1000});
   const summary=dockerPullStreamSummary(result.data);if(summary.error)throw new Error(summary.error);
   const inspect=await portainerImageInspect(item,endpointId,parsed.pullRef||reference);if(!inspect)throw new Error('Image téléchargée mais impossible à relire depuis Docker.');
   return {reference:parsed.pullRef||reference,image:normalizeDockerImage(inspect),log:summary.lines};
@@ -2265,9 +2265,14 @@ async function redeployPortainerStack(item,endpointId,stackId,{pullImage=true,ve
   const health=verify?await verifyDockerStackHealth(item,endpointId,stack.name,30000):null;
   return {stack,health};
 }
+function dockerContainerHasStaticNetworking(inspect={}) {
+  if(String(inspect?.Config?.MacAddress||'').trim())return true;
+  const rows=inspect?.NetworkSettings?.Networks||{};
+  return Object.values(rows).some(n=>{const ipam=n?.IPAMConfig||{};return !!(String(ipam.IPv4Address||'').trim()||String(ipam.IPv6Address||'').trim()||String(n?.DriverOpts?.['com.docker.network.endpoint.sysctls']||'').trim());});
+}
 function dockerContainerNetworkingConfig(inspect={}) {
   const rows=inspect?.NetworkSettings?.Networks||{},out={};
-  for(const [name,n] of Object.entries(rows)){out[name]={Aliases:Array.isArray(n?.Aliases)?n.Aliases:undefined,Links:Array.isArray(n?.Links)?n.Links:undefined,IPAMConfig:n?.IPAMConfig||undefined,MacAddress:n?.MacAddress||undefined,DriverOpts:n?.DriverOpts||undefined};}
+  for(const [name,n] of Object.entries(rows)){out[name]={Aliases:Array.isArray(n?.Aliases)?n.Aliases:undefined,Links:Array.isArray(n?.Links)?n.Links:undefined,DriverOpts:n?.DriverOpts||undefined};}
   return {EndpointsConfig:out};
 }
 async function verifyDockerContainerHealth(item,endpointId,containerId,timeoutMs=30000) {
@@ -2279,6 +2284,7 @@ async function redeployStandaloneContainer(item,endpointId,containerId,{referenc
   const inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/json`),labels=inspect?.Config?.Labels||{};
   if(labels['com.docker.compose.project']||labels['io.portainer.stack.name'])throw new Error('Ce conteneur appartient à une stack. Utilise le redeploy de la stack pour conserver la définition Compose.');
   if(inspect?.HostConfig?.AutoRemove)throw new Error('Redeploy sécurisé indisponible pour un conteneur AutoRemove.');
+  if(dockerContainerHasStaticNetworking(inspect))throw new Error('Redeploy automatique refusé : une adresse IP/MAC statique ou une configuration réseau avancée a été détectée. Utilise une stack Compose/Portainer ou effectue le changement manuellement afin de préserver le réseau.');
   const originalName=String(inspect?.Name||'').replace(/^\//,'');if(!originalName)throw new Error('Nom du conteneur introuvable.');
   const imageRef=String(reference||inspect?.Config?.Image||'').trim();if(!imageRef)throw new Error('Référence image introuvable.');
   const targetImage=await portainerImageInspect(item,endpointId,imageRef);if(!targetImage)throw new Error('Image cible absente localement. Effectue d’abord le pull.');
@@ -5138,27 +5144,17 @@ async function handleApi(req, res, url) {
       if(req.method==='POST'&&stackId&&op==='action'){
         const body=await readBody(req),action=String(body.action||'').toLowerCase();
         if(!['start','stop','redeploy'].includes(action))return sendJson(res,400,{error:'Action stack invalide.'});
-        const baseHeaders=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
+        let result=null;
         if(action==='start'||action==='stop'){
+          const baseHeaders=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
           await integrationJson(item.url,`/api/stacks/${stackId}/${action}?endpointId=${endpointId}`,{method:'POST',headers:baseHeaders,rejectUnauthorized});
         }else{
-          const rows=await integrationJson(item.url,'/api/stacks',{headers:baseHeaders,rejectUnauthorized});
-          const raw=(Array.isArray(rows)?rows:[]).find(x=>Number(x.Id||x.id)===stackId&&Number(x.EndpointId||x.EndpointID)===endpointId);
-          if(!raw)throw new Error('Stack introuvable.');
-          if(raw.GitConfig){
-            await integrationJson(item.url,`/api/stacks/${stackId}/git/redeploy?endpointId=${endpointId}`,{method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{PullImage:true,Prune:false}});
-          }else{
-            const file=await integrationJson(item.url,`/api/stacks/${stackId}/file`,{headers:baseHeaders,rejectUnauthorized});
-            const stackFile=String(file?.StackFileContent||file?.stackFileContent||'');
-            if(!stackFile)throw new Error('Contenu Compose indisponible pour le redeploy.');
-            await integrationJson(item.url,`/api/stacks/${stackId}?endpointId=${endpointId}`,{
-              method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{StackFileContent:stackFile,Env:Array.isArray(raw.Env)?raw.Env:[],PullImage:true,Prune:false}
-            });
-          }
+          result=await redeployPortainerStack(item,endpointId,stackId,{pullImage:true,verify:true});
+          if(result.health&&!result.health.ok)throw new Error(`Redeploy terminé mais contrôle de santé non conforme (${result.health.running}/${result.health.total} running, ${result.health.unhealthy} unhealthy, ${result.health.restarting} restarting).`);
         }
-        audit(req,`docker.stack.${action}`,String(stackId),{portainer:item.name,endpointId});
+        audit(req,`docker.stack.${action}`,String(stackId),{portainer:item.name,endpointId,health:result?.health||null});
         PORTAINER_OVERVIEW_CACHE.delete(String(item.id));
-        return sendJson(res,200,{ok:true,action});
+        return sendJson(res,200,{ok:true,action,health:result?.health||null});
       }
     }catch(e){return sendJson(res,502,{error:e.message});}
   }
