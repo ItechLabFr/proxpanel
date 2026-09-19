@@ -1803,7 +1803,7 @@ function computeProblems(dashboard, settings) {
       ]
     });
   }
-  const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&classifyProxmoxTaskStatus(t.status).kind==='failure').slice(0,12);
+  const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&classifyProxmoxTaskStatus(t.status).kind==='failure'&&String(t.type||'').toLowerCase()!=='vzdump').slice(0,12);
   if (failed.length) add('critical','tasks-failed','Tâches en erreur', `${failed.length} tâche(s) récente(s) en échec`, 'cluster', {
     route:'tasks', recommendation:'Consulte les logs des tâches ci-dessous. Les erreurs de backup, migration ou stockage sont souvent explicites dans les dernières lignes.',
     facts:[{label:'Tâches en échec',value:String(failed.length)},{label:'Période',value:'tâches récentes remontées par Proxmox'}],
@@ -2671,6 +2671,7 @@ function normalizeDiscordEvents(list) {
   const src = Array.isArray(list) ? list : [];
   const out = [...new Set(src.map(String).filter(x => DISCORD_EVENT_TYPES.includes(x)))];
   if(out.includes('backup.failed')&&!out.includes('backup.warning'))out.push('backup.warning');
+  if(out.includes('task.failed')&&!out.includes('task.warning'))out.push('task.warning');
   return out.length ? out : ['backup.warning','backup.failed','backup.stale','node.offline','task.warning','task.failed','storage.critical'];
 }
 function redactDiscordChannel(row) {
@@ -4957,7 +4958,14 @@ async function runBackgroundAlerts() {
         await sendAlertChannels(settings,`ProxPanel · ${p.title}`,p.detail,{
           type,severity:p.severity,serverName:server.name,target:p.target||'',recommendation:p.recommendation||'',
           details:[...(p.facts||[]).map(f=>`${f.label}: ${f.value}`),...(p.items||[]).map(i=>`${i.label}: ${i.meta||''}`)],
-          source:'Proxmox API',upid:upids[0]||'',logExcerpt:excerpts.join('\n\n---\n\n')
+          source:'Proxmox API',upid:upids[0]||'',
+          technicalDetails:[
+            {label:'Code incident',value:p.code||type},
+            {label:'Identifiant incident',value:p.id||''},
+            p.route?{label:'Page ProxPanel',value:p.route}:null,
+            upids.length>1?{label:'UPID supplémentaires',value:upids.slice(1).join('\n')}:null
+          ].filter(Boolean),
+          logExcerpt:excerpts.join('\n\n---\n\n')
         });
         addAuditSystem('alerts.sent',server.name,{type,problem:p.id});
       }
