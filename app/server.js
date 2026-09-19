@@ -2959,7 +2959,7 @@ function discordEventLabel(type) {
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
     'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.image.update':'Mise à jour image Docker','docker.image.update.failed':'Échec mise à jour Docker','docker.image.redeploy.success':'Redeploy Docker réussi','docker.recovered':'Docker rétabli',
-    'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','system.test':'Test système'
+    'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','auth.2fa.disabled':'Double authentification désactivée','system.test':'Test système'
   };
   return labels[type] || type;
 }
@@ -3002,6 +3002,7 @@ function defaultRecommendation(event={}) {
     'temperature.warning':'Surveille la charge et le refroidissement du nœud. Vérifie les ventilateurs et le flux d’air si la température continue de monter.',
     'temperature.critical':'Vérifie immédiatement le refroidissement, les ventilateurs, les dissipateurs et la charge du nœud.',
     'auth.2fa.email':'Si tu n’es pas à l’origine de cette demande, change ton mot de passe ProxPanel et contrôle les sessions actives.',
+    'auth.2fa.disabled':'Si cette désactivation n’était pas attendue, change immédiatement le mot de passe du compte et réactive la double authentification.',
     'pve.update.available':'Consulte le détail des paquets dans ProxPanel avant de planifier la maintenance.',
     'pve.update.security':'Consulte immédiatement le détail des correctifs de sécurité et planifie la maintenance selon la criticité détectée.',
     'pve.update.manual-report':'Aucune action n’est requise si le rapport indique que tous les nœuds sont à jour.',
@@ -3094,7 +3095,7 @@ function defaultMailTechnicalSource(event={}) {
   if(type.startsWith('pve.update.'))return 'APT / Proxmox API';
   if(type.startsWith('backup.')||type==='task.failed'||type==='task.warning'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
   if(type==='system.update.available')return 'ProxPanel OTA';
-  if(type==='auth.2fa.email')return 'ProxPanel Auth';
+  if(type==='auth.2fa.email'||type==='auth.2fa.disabled')return 'ProxPanel Auth';
   return 'ProxPanel';
 }
 function normalizeMailTechnicalEvidence(event={}) {
