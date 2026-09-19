@@ -30,7 +30,8 @@ const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
   demoDockerOverview, demoDockerContainers, demoDockerStacks,
-  demoDockerContainerDetails, demoDockerLogs
+  demoDockerContainerDetails, demoDockerLogs,
+  demoDockerImages, demoDockerUpdateHistory
 } = require('./lib/demo-mode');
 
 const PORT = Number(process.env.PORT || 8080);
