@@ -94,6 +94,7 @@ jobs:
           node --check app/lib/reliability.js
           node --check app/lib/docker-history.js
           node --check app/lib/docker-images.js
+          node --check app/lib/auth-security.js
           node --check app/public/app.js
           if [ -f app/public/auth-v15.js ]; then node --check app/public/auth-v15.js; fi
           node --check app/public/sw.js
