@@ -3091,16 +3091,41 @@ async function sendMailNotification(cfg, subject, text, event={}) {
   const finalSubject=professionalMailSubject(subject,mailEvent);
   return String(cfg.mode || 'smtp') === 'm365-graph' ? sendMicrosoftGraphMail(cfg, finalSubject, content) : sendSmtpMail(cfg, finalSubject, content);
 }
+function sanitizeAlertEvent(event={}) {
+  const safeText=(value,max=12000)=>redactDiagnosticText(value).slice(0,max);
+  const details=(Array.isArray(event.details)?event.details:[]).slice(0,30).map(x=>safeText(typeof x==='string'?x:(x&&typeof x==='object'?`${x.label||x.name||'Détail'}${x.value||x.meta||x.detail?`: ${x.value||x.meta||x.detail}`:''}`:String(x)),2000)).filter(Boolean);
+  const technicalDetails=(Array.isArray(event.technicalDetails)?event.technicalDetails:[]).slice(0,20).map(row=>{
+    if(typeof row==='string')return safeText(row,4000);
+    if(!row||typeof row!=='object')return safeText(String(row||''),4000);
+    return {label:safeText(row.label||row.name||'Information',120),value:safeText(row.value||row.meta||row.detail||'',4000)};
+  }).filter(Boolean);
+  return {...event,title:safeText(event.title||'',500),message:safeText(event.message||'',6000),serverName:safeText(event.serverName||'',500),target:safeText(event.target||'',1000),recommendation:safeText(event.recommendation||'',2000),details,source:safeText(event.source||'',500),error:safeText(event.error||'',4000),upid:safeText(event.upid||'',1000),technicalDetails,logExcerpt:safeText(event.logExcerpt||'',12000)};
+}
+function telegramAlertText(event={}) {
+  const details=normalizeEventDetails(event).slice(0,12).map(x=>`• ${x}`).join('\n');
+  const diagnostics=(event.severity==='warning'||event.severity==='critical')?normalizeMailTechnicalEvidence(event):[];
+  const diag=diagnostics.filter(x=>x.label!=='Extrait de log').slice(0,8).map(x=>`${x.label}: ${x.value}`).join('\n');
+  const log=diagnostics.find(x=>x.label==='Extrait de log')?.value||'';
+  return [
+    `${eventIcon(event)} ${event.title||'ProxPanel'}`,
+    event.message||'',
+    event.serverName?`Serveur / cluster: ${event.serverName}`:'',
+    event.target?`Cible: ${event.target}`:'',
+    details?`Détails:\n${details}`:'',
+    diag?`Diagnostic technique:\n${diag}`:'',
+    log?`Dernières lignes du log:\n${String(log).slice(-1400)}`:'',
+    `Action recommandée: ${defaultRecommendation(event)}`
+  ].filter(Boolean).join('\n\n').slice(0,3900);
+}
 async function sendAlertChannels(settings, title, message, event = {}) {
   const a=settings.alerts||{}; const jobs=[];
-  const fullEvent={ type:event.type||'system.test', severity:event.severity||'info', title, message, serverName:event.serverName||'', target:event.target||'', at:event.at||Date.now(), recommendation:event.recommendation||'', details:event.details||[], source:event.source||'', error:event.error||'', upid:event.upid||'', technicalDetails:event.technicalDetails||[], logExcerpt:event.logExcerpt||'' };
+  const fullEvent=sanitizeAlertEvent({type:event.type||'system.test',severity:event.severity||'info',title,message,serverName:event.serverName||'',target:event.target||'',at:event.at||Date.now(),recommendation:event.recommendation||'',details:event.details||[],source:event.source||'',error:event.error||'',upid:event.upid||'',technicalDetails:event.technicalDetails||[],logExcerpt:event.logExcerpt||''});
   jobs.push(sendDiscordEvent(settings,fullEvent));
-  if(a.genericWebhook) jobs.push(postWebhook(a.genericWebhook,{source:'proxpanel',...fullEvent,at:new Date(fullEvent.at).toISOString()}));
-  if(a.telegramBotToken && a.telegramChatId) jobs.push(postWebhook(`https://api.telegram.org/bot${a.telegramBotToken}/sendMessage`,{chat_id:a.telegramChatId,text:`${title}\n${message}\n\nAction recommandée : ${defaultRecommendation(fullEvent)}`}));
-  if(a.smtp?.enabled) jobs.push(sendMailNotification(a.smtp,title,message,fullEvent));
+  if(a.genericWebhook)jobs.push(postWebhook(a.genericWebhook,{source:'proxpanel',...fullEvent,at:new Date(fullEvent.at).toISOString()}));
+  if(a.telegramBotToken&&a.telegramChatId)jobs.push(postWebhook(`https://api.telegram.org/bot${a.telegramBotToken}/sendMessage`,{chat_id:a.telegramChatId,text:telegramAlertText(fullEvent)}));
+  if(a.smtp?.enabled)jobs.push(sendMailNotification(a.smtp,fullEvent.title,fullEvent.message,fullEvent));
   await Promise.allSettled(jobs);
 }
-
 function normalizeReleaseNotes(value) {
   if (Array.isArray(value)) return value.map(x=>String(x).trim()).filter(Boolean).slice(0,100);
   if (typeof value === 'string') return value.split(/\r?\n/).map(x=>x.replace(/^[-•*]\s*/, '').trim()).filter(Boolean).slice(0,100);
