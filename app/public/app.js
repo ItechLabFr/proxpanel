@@ -2,7 +2,7 @@
 
 const state = {
   status:null,user:null,me:null,users:[],settings:null,servers:[],selectedServer:null,dashboard:null,dashboardError:null,latencyMs:null,loading:false,
-  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],dockerOverview:null,dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
+  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],dockerOverview:null,dockerDashboard:null,dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
   tasks:[],rrd:null,monitor:{scope:'node',timeframe:'day',cf:'AVERAGE',node:'',type:'qemu',vmid:'',storage:''},
   dashboardTimeframe:'day',dashboardLiveSeconds:10,liveUpdatedAt:null,dashboardLiveTimer:null,
   firewallRules:[],firewall:{scope:'cluster',node:'',type:'qemu',vmid:''},appliances:[],applianceNode:'',maintenancePlan:null,maintenanceUpdates:null,
@@ -741,6 +741,36 @@ function dockerAlertsPanel(endpointId=null){
   if(!rows.length)return'<section class="panel docker-alerts-panel healthy"><div class="panel-head"><div><h3>✓ Supervision Docker</h3><p>Aucun incident Docker confirmé.</p></div>'+badge('Sain','ok')+'</div></section>';
   return `<section class="panel docker-alerts-panel"><div class="panel-head"><div><h3>⚠ Incidents Docker</h3><p>${rows.length} incident(s) confirmé(s) · worker Portainer en arrière-plan</p></div>${badge(String(rows.length),rows.some(x=>x.severity==='critical')?'danger':'warning')}</div>${problemList(rows)}</section>`;
 }
+function dockerTopologyKey(portainerId,endpointId){return `${String(portainerId||'')}:${Number(endpointId||0)}`;}
+function dockerTopologyMachine(mapping){
+  if(!mapping?.vmid)return null;
+  return (d().machines||[]).find(m=>Number(m.vmid)===Number(mapping.vmid)&&String(m.type)===String(mapping.type)&&(!mapping.serverId||String(m.serverId||'')===String(mapping.serverId)))||null;
+}
+function dockerSuggestedMachine(env){
+  const norm=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const probes=[norm(env?.hostName),norm(env?.environmentName)].filter(Boolean);
+  const matches=(d().machines||[]).filter(m=>{const n=norm(m.name);return probes.some(p=>p&&n&&(n===p||n.includes(p)||p.includes(n)))});
+  return matches.length===1?matches[0]:null;
+}
+function dockerConsumerList(title,rows=[],metric='cpu'){
+  const data=(rows||[]).slice(0,5);
+  return `<section class="panel docker-consumer-panel"><div class="panel-head"><div><h3>${title}</h3><p>Mesures instantanées via Portainer → Docker</p></div></div><div class="docker-consumer-list">${data.map(x=>{const cpu=Number(x.stats?.cpuPct||0),mem=Number(x.stats?.memoryUsed||0),limit=Number(x.stats?.memoryLimit||0),pct=metric==='cpu'?Math.min(100,cpu):(limit?Math.min(100,mem/limit*100):0),value=metric==='cpu'?fmtPct(cpu):fmtBytes(mem);return `<button type="button" class="docker-consumer-row" data-action="docker-open:${esc(x.portainerId)}:${Number(x.endpointId)}"><span><strong>${esc(x.name||x.id?.slice(0,12)||'Container')}</strong><small>${esc(x.environmentName||'Docker')} · ${esc(x.stack||'sans stack')}</small></span><span class="docker-consumer-value"><b>${value}</b><i><em style="width:${pct}%"></em></i></span></button>`}).join('')||'<div class="empty-inline">Aucune métrique disponible.</div>'}</div></section>`;
+}
+function dockerTopologyPanel(){
+  const dash=state.dockerDashboard||{},rows=dash.environments||[],maps=state.dockerTopology||{};
+  return `<section class="panel docker-topology-panel"><div class="panel-head"><div><h3>Topologie Proxmox ↔ Docker</h3><p>Associe chaque environnement Portainer à sa VM/LXC. Les suggestions ne sont jamais appliquées automatiquement.</p></div></div><div class="docker-topology-list">${rows.map(env=>{const key=dockerTopologyKey(env.portainerId,env.endpointId),mapping=maps[key],machine=dockerTopologyMachine(mapping),suggestion=!mapping?dockerSuggestedMachine(env):null;return `<article class="docker-topology-row"><div class="docker-topology-path"><span class="docker-topology-node"><small>Proxmox</small><strong>${machine?esc(machine.name):mapping?.name?esc(mapping.name):'Non associé'}</strong><em>${machine?`${String(machine.type||'').toUpperCase()} ${machine.vmid} · ${esc(machine.node||'')}`:'VM/LXC à sélectionner'}</em></span><b>→</b><span class="docker-topology-node"><small>Docker</small><strong>${esc(env.environmentName||'Environment')}</strong><em>${esc(env.hostName||'')} · ${Number(env.stackCount||0)} stack(s) · ${Number(env.containers?.total||0)} conteneur(s)</em></span></div><div class="docker-topology-actions">${suggestion?`<span class="topology-suggestion">Suggestion : ${esc(suggestion.name)} · ${String(suggestion.type||'').toUpperCase()} ${suggestion.vmid}</span>`:''}${button(mapping?'Modifier':'Associer',`docker-topology-map:${env.portainerId}:${env.endpointId}`,'tiny primary')}${mapping?button('Dissocier',`docker-topology-clear:${env.portainerId}:${env.endpointId}`,'tiny danger'):''}</div></article>`}).join('')||'<div class="empty-inline">Aucun environnement Docker disponible.</div>'}</div></section>`;
+}
+function dockerDashboardPanel(){
+  const dash=state.dockerDashboard;if(!dash)return'<section class="panel loading">Chargement du Dashboard Docker…</section>';
+  const envs=dash.environments||[],containers=dash.containers||[],stacks=dash.stacks||[],running=containers.filter(x=>x.state==='running').length,stopped=containers.length-running,unhealthy=containers.filter(x=>x.health==='unhealthy').length,restarting=containers.filter(x=>x.state==='restarting').length;
+  const cpu=containers.reduce((n,x)=>n+Number(x.stats?.cpuPct||0),0),mem=containers.reduce((n,x)=>n+Number(x.stats?.memoryUsed||0),0);
+  return `<div class="docker-dashboard">
+    <div class="docker-dashboard-kpis"><div class="panel"><span>Environnements</span><strong>${envs.length}</strong><small>${envs.filter(x=>x.reachable).length} joignable(s)</small></div><div class="panel"><span>Running</span><strong>${running}</strong><small>${stopped} arrêté(s)</small></div><div class="panel ${unhealthy?'docker-warning':''}"><span>Unhealthy</span><strong>${unhealthy}</strong><small>${restarting} restarting</small></div><div class="panel"><span>Stacks</span><strong>${stacks.length}</strong><small>${stacks.filter(x=>x.active).length} active(s)</small></div><div class="panel"><span>CPU conteneurs</span><strong>${fmtPct(cpu)}</strong><small>cumul instantané</small></div><div class="panel"><span>RAM conteneurs</span><strong>${fmtBytes(mem)}</strong><small>mesurée via Docker</small></div></div>
+    <div class="docker-dashboard-grid">${dockerConsumerList('Top CPU',dash.topCpu,'cpu')}${dockerConsumerList('Top RAM',dash.topMemory,'memory')}</div>
+    ${dockerTopologyPanel()}
+  </div>`;
+}
+
 function dockerWorkspacePage(){
   const env=dockerEnvironmentMeta(),tab=state.dockerTab||'containers';
   return `<div class="page-head"><div><div class="docker-breadcrumb"><button type="button" data-action="docker-back">Docker</button><span>›</span><b>${esc(env?.name||'Environnement')}</b></div><h1>${esc(env?.name||'Docker')}</h1><p>${esc(env?.hostName||env?.url||'Docker Standalone')} · ${esc(env?.portainerName||'Portainer')}</p></div><div class="actions">${button('Actualiser','docker-env-refresh','primary')}${button('Retour','docker-back','secondary')}</div></div>
@@ -764,6 +794,7 @@ function dockerPage(){
   const s=overview.summary||{},portainers=overview.portainers||[];
   return`<div class="page-head"><div><h1>Docker</h1><p>Vue consolidée des environnements Docker découverts via Portainer.</p></div><div class="actions">${button('Actualiser','docker-refresh','primary')}${button('Gérer Portainer','open-portainer-admin','secondary')}</div></div>
   ${dockerAlertsPanel()}
+  ${dockerDashboardPanel()}
   <div class="docker-summary">
     <div class="panel"><span>Portainer</span><strong>${s.portainers||0}</strong><small>instance(s) configurée(s)</small></div>
     <div class="panel"><span>Environnements</span><strong>${s.environments||0}</strong><small>${s.reachable||0} joignable(s)</small></div>
@@ -1193,6 +1224,8 @@ async function loadDeferredBaseData(){
   const loaders=[['remoteUpdate',()=>api('/api/update/remote-status')],['pveUpdates',()=>api('/api/pve-updates/status')]];
   if(hasPortainerIntegration()){
     loaders.push(['dockerOverview',()=>api('/api/docker/overview')]);
+    loaders.push(['dockerDashboard',()=>api('/api/docker/dashboard')]);
+    loaders.push(['dockerTopology',()=>api('/api/docker/topology-mappings').then(r=>r.mappings||{})]);
     loaders.push(['dockerAlerts',()=>api('/api/docker/alerts').then(r=>r.alerts||[])]);
   }
   const results=await Promise.all(loaders.map(async([key,load])=>{try{return[key,await load()]}catch(e){console.warn('Startup deferred',key,e.message);return[key,null]}}));
@@ -1314,7 +1347,7 @@ async function reloadSection(){
   const page=state.currentPage;
   try{
     if(page==='dependencies')await loadDependencies();
-    if(page==='docker'){try{const [overview,alerts]=await Promise.all([api('/api/docker/overview'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false)}catch(e){state.dockerError=e.message}}
+    if(page==='docker'){try{const [overview,dashboard,topology,alerts]=await Promise.all([api('/api/docker/overview'),api('/api/docker/dashboard'),api('/api/docker/topology-mappings'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerDashboard=dashboard;state.dockerTopology=topology.mappings||{};state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false)}catch(e){state.dockerError=e.message}}
     if(page==='notifications'){const da=await api('/api/docker/alerts').catch(()=>({alerts:[],checkedAt:''}));state.dockerAlerts=da.alerts||[];state.dockerAlertsCheckedAt=da.checkedAt||'';}
     if(page==='audit')state.audit=await api('/api/audit');
     if(page==='changes')state.changes=await api('/api/changes');
@@ -1438,7 +1471,22 @@ async function handleAction(action,el){try{
     state.integrations=await api('/api/integrations');state.dockerOverview=hasPortainerIntegration()?await api('/api/docker/overview?force=1'):null;state.dockerError=null;
     if(!hasPortainerIntegration()&&state.currentPage==='docker'){state.currentPage='overview'}renderPage();return
   }
-  if(action==='docker-refresh'){try{const [overview,alerts]=await Promise.all([api('/api/docker/overview?force=1'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false);toast('Docker actualisé.')}catch(e){state.dockerError=e.message}renderPage();return}
+  if(action==='docker-refresh'){try{const [overview,dashboard,topology,alerts]=await Promise.all([api('/api/docker/overview?force=1'),api('/api/docker/dashboard?force=1'),api('/api/docker/topology-mappings'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerDashboard=dashboard;state.dockerTopology=topology.mappings||{};state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false);toast('Docker actualisé.')}catch(e){state.dockerError=e.message}renderPage();return}
+  if(action.startsWith('docker-topology-map:')){
+    const parts=action.split(':'),portainerId=parts[1],endpointId=Number(parts[2]),env=(state.dockerDashboard?.environments||[]).find(x=>String(x.portainerId)===String(portainerId)&&Number(x.endpointId)===endpointId),key=dockerTopologyKey(portainerId,endpointId),mapping=state.dockerTopology?.[key],suggestion=!mapping?dockerSuggestedMachine(env):null;
+    const machines=(d().machines||[]).map(m=>({value:`${m.serverId||''}|${m.type}|${m.vmid}|${encodeURIComponent(m.node||'')}|${encodeURIComponent(m.name||'')}`,label:`${m.name||'VM/LXC'} · ${String(m.type||'').toUpperCase()} ${m.vmid} · ${m.node||''}`}));
+    const selected=mapping?`${mapping.serverId||''}|${mapping.type}|${mapping.vmid}|${encodeURIComponent(mapping.node||'')}|${encodeURIComponent(mapping.name||'')}`:suggestion?`${suggestion.serverId||''}|${suggestion.type}|${suggestion.vmid}|${encodeURIComponent(suggestion.node||'')}|${encodeURIComponent(suggestion.name||'')}`:'';
+    modal(`Associer ${esc(env?.environmentName||'Docker')}`,`<div class="info-box"><strong>Association explicite</strong><p>ProxPanel peut suggérer une VM/LXC à partir du hostname, mais l’association n’est enregistrée qu’après ta validation.</p></div>${selectField('VM/LXC Proxmox','dockerTopologyMachine',[{value:'',label:'Non associé'},...machines],selected)}`,`<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="docker-topology-save:${portainerId}:${endpointId}">Enregistrer</button>`,'docker-topology-modal');return
+  }
+  if(action.startsWith('docker-topology-save:')){
+    const parts=action.split(':'),portainerId=parts[1],endpointId=Number(parts[2]),raw=qs('#dockerTopologyMachine')?.value||'';
+    let mapping=null;if(raw){const [serverId,type,vmid,node,name]=raw.split('|');mapping={serverId,type,vmid:Number(vmid),node:decodeURIComponent(node||''),name:decodeURIComponent(name||'')}}
+    const r=await api('/api/docker/topology-mappings',{method:'PUT',body:JSON.stringify({portainerId,endpointId,mapping})});state.dockerTopology=r.mappings||{};closeModal();toast(mapping?'Association Docker enregistrée.':'Association supprimée.');renderPage();return
+  }
+  if(action.startsWith('docker-topology-clear:')){
+    const parts=action.split(':'),portainerId=parts[1],endpointId=Number(parts[2]);if(!confirmUi('Dissocier cet environnement Docker de Proxmox ?'))return;
+    const r=await api('/api/docker/topology-mappings',{method:'PUT',body:JSON.stringify({portainerId,endpointId,clear:true})});state.dockerTopology=r.mappings||{};toast('Association Docker supprimée.');renderPage();return
+  }
   if(action.startsWith('docker-open:')){
     const parts=action.split(':'),portainerId=parts[1],endpointId=Number(parts[2]),p=(state.dockerOverview?.portainers||[]).find(x=>x.id===portainerId),env=(p?.environments||[]).find(x=>Number(x.id)===endpointId);
     if(!p||!env||!env.supported)throw new Error('Environnement Docker Standalone introuvable.');

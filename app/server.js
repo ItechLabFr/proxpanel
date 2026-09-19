@@ -83,6 +83,7 @@ const RESTORE_TESTS_FILE = path.join(DATA_DIR, 'restore-tests.json');
 const METRICS_FILE = path.join(DATA_DIR, 'metrics-history.json');
 const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
 const DOCKER_MONITOR_STATE_FILE = path.join(DATA_DIR, 'docker-monitor-state.json');
+const DOCKER_TOPOLOGY_FILE = path.join(DATA_DIR, 'docker-topology.json');
 const UPDATE_CHECK_STATE_FILE = path.join(DATA_DIR, 'update-check-state.json');
 const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
@@ -2111,6 +2112,21 @@ async function portainerStackList(item,endpointId) {
   const id=dockerEndpointId(endpointId),rows=await integrationJson(item.url,'/api/stacks',{headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
   return (Array.isArray(rows)?rows:[]).map(normalizePortainerStack).filter(s=>s.endpointId===id);
 }
+function dockerTopologyMappings() {
+  const rows=jsonRead(DOCKER_TOPOLOGY_FILE,{});
+  return rows&&typeof rows==='object'&&!Array.isArray(rows)?rows:{};
+}
+function dockerTopologyKey(portainerId,endpointId){return `${String(portainerId||'')}:${Number(endpointId||0)}`;}
+function normalizeDockerTopologyMapping(row={}) {
+  return {
+    serverId:String(row.serverId||'').slice(0,120),
+    type:['qemu','lxc'].includes(String(row.type||''))?String(row.type):'',
+    vmid:Number(row.vmid||0),
+    node:String(row.node||'').slice(0,120),
+    name:String(row.name||'').slice(0,160),
+    updatedAt:new Date().toISOString()
+  };
+}
 async function dockerContainerStats(item,endpointId,containerId) {
   try{
     const id=dockerObjectId(containerId);
@@ -2124,6 +2140,47 @@ async function dockerContainerStats(item,endpointId,containerId) {
     const used=Math.max(0,mem-cache);
     return {cpuPct:Number(cpuPct.toFixed(2)),memoryUsed:used,memoryLimit:limit,memoryPct:limit?Number((used/limit*100).toFixed(2)):0};
   }catch{return null}
+}
+
+async function dockerDashboardData(force=false) {
+  const alerts=activeDockerAlerts();
+  const overview=DEMO_MODE?demoDockerOverview():await (async()=>{
+    const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
+    const portainers=await Promise.all(rows.map(async item=>{
+      try{return {...await cachedPortainerOverview(item,force),status:'online',error:''};}
+      catch(error){return {id:item.id,name:item.name||'Portainer',url:item.url,status:'error',error:String(error?.message||error),environments:[]};}
+    }));
+    const summary=portainers.reduce((acc,p)=>{acc.portainers++;for(const e of p.environments||[]){acc.environments++;if(e.reachable)acc.reachable++;acc.containers+=Number(e.containers?.total||0);acc.running+=Number(e.containers?.running||0);acc.stopped+=Number(e.containers?.stopped||0);acc.unhealthy+=Number(e.containers?.unhealthy||0);}return acc;},{portainers:0,environments:0,reachable:0,containers:0,running:0,stopped:0,unhealthy:0});
+    return {configured:rows.length>0,portainers,summary};
+  })();
+  const environments=[],containers=[],stacks=[];
+  for(const p of overview.portainers||[]){
+    for(const env of p.environments||[]){
+      const base={portainerId:p.id,portainerName:p.name,endpointId:Number(env.id),environmentName:env.name,hostName:env.hostName||'',reachable:!!env.reachable,supported:!!env.supported};
+      if(!env.reachable||!env.supported){environments.push({...base,containers:env.containers||{},stackCount:0});continue;}
+      try{
+        const envContainers=DEMO_MODE?demoDockerContainers(env.id):await portainerContainerList(findPortainerIntegration(p.id),env.id);
+        const envStacks=DEMO_MODE?demoDockerStacks(env.id):await portainerStackList(findPortainerIntegration(p.id),env.id).catch(()=>[]);
+        const running=envContainers.filter(x=>x.state==='running').slice(0,30);
+        const metricRows=[];
+        for(let i=0;i<running.length;i+=5){
+          const batch=running.slice(i,i+5);
+          metricRows.push(...await Promise.all(batch.map(async ct=>{
+            if(DEMO_MODE)return demoDockerContainerDetails(env.id,ct.id)?.stats||null;
+            return dockerContainerStats(findPortainerIntegration(p.id),env.id,ct.id);
+          })));
+        }
+        const metricById=new Map(running.map((ct,i)=>[ct.id,metricRows[i]||null]));
+        const normalized=envContainers.map(ct=>({...ct,...base,stats:metricById.get(ct.id)||null}));
+        containers.push(...normalized);
+        stacks.push(...envStacks.map(s=>({...s,...base,containerCount:normalized.filter(c=>c.stack===s.name).length})));
+        environments.push({...base,containers:summarizeDockerContainers(envContainers),stackCount:envStacks.length,cpuTotalPct:normalized.reduce((n,x)=>n+Number(x.stats?.cpuPct||0),0),memoryUsed:normalized.reduce((n,x)=>n+Number(x.stats?.memoryUsed||0),0),memoryLimit:normalized.reduce((n,x)=>n+Number(x.stats?.memoryLimit||0),0)});
+      }catch(error){environments.push({...base,containers:env.containers||{},stackCount:0,error:String(error?.message||error)});}
+    }
+  }
+  const topCpu=[...containers].filter(x=>x.stats).sort((a,b)=>Number(b.stats?.cpuPct||0)-Number(a.stats?.cpuPct||0)).slice(0,8);
+  const topMemory=[...containers].filter(x=>x.stats).sort((a,b)=>Number(b.stats?.memoryUsed||0)-Number(a.stats?.memoryUsed||0)).slice(0,8);
+  return {generatedAt:new Date().toISOString(),overview:overview.summary||{},environments,containers,stacks,alerts,topCpu,topMemory,topology:dockerTopologyMappings()};
 }
 
 function dockerMonitorState() {
@@ -4414,6 +4471,21 @@ async function handleApi(req, res, url) {
     const all=jsonRead(INTEGRATIONS_FILE,[]);all.push(row);jsonWrite(INTEGRATIONS_FILE,all);
     audit(req,'integration.add',row.name,{type,url:row.url,environmentCount:row.environmentCount||0});
     return sendJson(res,201,redactIntegration(row));
+  }
+  if(url.pathname==='/api/docker/dashboard'&&req.method==='GET'){
+    try{return sendJson(res,200,await dockerDashboardData(url.searchParams.get('force')==='1'));}
+    catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  if(url.pathname==='/api/docker/topology-mappings'&&req.method==='GET'){
+    return sendJson(res,200,{mappings:dockerTopologyMappings()});
+  }
+  if(url.pathname==='/api/docker/topology-mappings'&&req.method==='PUT'){
+    const body=await readBody(req),portainerId=String(body.portainerId||''),endpointId=dockerEndpointId(body.endpointId),key=dockerTopologyKey(portainerId,endpointId);
+    const rows=dockerTopologyMappings();
+    if(body.mapping===null||body.clear===true)delete rows[key];
+    else rows[key]=normalizeDockerTopologyMapping(body.mapping||{});
+    jsonWrite(DOCKER_TOPOLOGY_FILE,rows);audit(req,'docker.topology.map',key,{mapping:rows[key]||null});
+    return sendJson(res,200,{mappings:rows});
   }
   if(url.pathname==='/api/docker/alerts'&&req.method==='GET'){
     return sendJson(res,200,{alerts:activeDockerAlerts(),checkedAt:dockerMonitorState().checkedAt||''});
