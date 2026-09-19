@@ -1,53 +1,57 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.4",
-  "title": "ProxPanel 1.7.2-beta.4 — Docker Dashboard & Proxmox Topology",
-  "title_en": "ProxPanel 1.7.2-beta.4 — Docker Dashboard & Proxmox Topology",
-  "summary": "Ajoute un Dashboard Docker consolidé via Portainer et une topologie explicite entre les environnements Docker et les VM/LXC Proxmox.",
-  "summary_en": "Adds a consolidated Docker Dashboard through Portainer and explicit topology mapping between Docker environments and Proxmox VMs/LXCs.",
+  "version": "1.7.2-beta.4.1",
+  "title": "ProxPanel 1.7.2-beta.4.1 — Docker Metrics Dashboard",
+  "title_en": "ProxPanel 1.7.2-beta.4.1 — Docker Metrics Dashboard",
+  "summary": "Ajoute au Dashboard Docker des graphiques historiques façon Proxmox pour le CPU, la RAM, le réseau et l’état des conteneurs, avec filtres de période et d’environnement.",
+  "summary_en": "Adds Proxmox-style historical charts to the Docker Dashboard for CPU, memory, network and container states, with time-range and environment filters.",
   "improvements": [
-    "Nouveau Dashboard Docker consolidé pour tous les environnements Portainer.",
-    "KPI conteneurs running, stopped, unhealthy, restarting et stacks.",
-    "Top conteneurs CPU et RAM à partir des statistiques Docker disponibles.",
-    "Association persistante environnement Portainer vers VM/LXC Proxmox.",
-    "Suggestion d’association par hostname uniquement lorsqu’une correspondance unique est trouvée.",
-    "Aucune association suggérée n’est appliquée sans validation utilisateur.",
-    "Association modifiable ou supprimable depuis la page Docker.",
-    "Données fictives de démonstration enrichies pour le Dashboard et la topologie.",
-    "Interface Dashboard/topologie responsive téléphone, tablette et PWA."
+    "Graphique CPU Docker sur 1 h, 24 h, 7 j et 30 j.",
+    "CPU normalisée par le nombre de CPU des hôtes Docker afin d’obtenir un pourcentage comparable à un dashboard d’hyperviseur.",
+    "Graphique RAM Docker rapportée à la mémoire totale des hôtes.",
+    "Graphique réseau Docker avec débits RX/TX calculés à partir des compteurs Docker.",
+    "Graphique d’évolution Running, Stopped, Unhealthy et incidents.",
+    "Filtre Tous les environnements ou environnement Portainer individuel.",
+    "Rafraîchissement live sans reconstruire toute la page Docker.",
+    "Historique Docker persistant côté ProxPanel avec un échantillonnage limité.",
+    "Rétention locale limitée à 32 jours et downsampling pour conserver une interface fluide.",
+    "Données historiques fictives disponibles dans la démo publique.",
+    "Interface graphique responsive téléphone, tablette et PWA."
   ],
   "improvements_en": [
-    "New consolidated Docker Dashboard for all Portainer environments.",
-    "Running, stopped, unhealthy, restarting container and stack KPIs.",
-    "Top CPU and memory containers using available Docker statistics.",
-    "Persistent Portainer environment to Proxmox VM/LXC mapping.",
-    "Hostname-based suggestion only when a unique match is found.",
-    "Suggested mappings are never applied without user confirmation.",
-    "Mappings can be changed or removed from the Docker page.",
-    "Public demo fixtures extended for Dashboard and topology.",
-    "Responsive Dashboard/topology UI for phone, tablet and PWA."
+    "Docker CPU chart for 1 hour, 24 hours, 7 days and 30 days.",
+    "CPU normalized by Docker host CPU count for a hypervisor-dashboard-like percentage.",
+    "Docker memory chart relative to total host memory.",
+    "Docker network chart with RX/TX throughput computed from Docker counters.",
+    "Running, Stopped, Unhealthy and incident history chart.",
+    "All environments or individual Portainer environment filter.",
+    "Live refresh without rebuilding the entire Docker page.",
+    "Persistent Docker metric history stored by ProxPanel with bounded sampling.",
+    "32-day local retention and downsampling for UI responsiveness.",
+    "Fake historical metrics available in the public demo.",
+    "Responsive chart layout for phone, tablet and PWA."
   ],
   "fixes": [
-    "Les métriques manquantes ne sont jamais remplacées par des valeurs estimées.",
-    "Les associations Docker ne dépendent pas du navigateur : elles sont persistées côté ProxPanel.",
-    "Une correspondance hostname ambiguë ne produit aucune association automatique."
+    "Les snapshots Docker trop anciens ne sont pas réutilisés pour fabriquer une courbe plate pendant une indisponibilité.",
+    "Les compteurs réseau qui diminuent après un redémarrage ne produisent pas de débit négatif.",
+    "Les métriques absentes restent explicitement indisponibles au lieu d’être estimées."
   ],
   "fixes_en": [
-    "Missing metrics are never replaced with estimated values.",
-    "Docker mappings are persisted server-side instead of depending on the browser.",
-    "Ambiguous hostname matches never create an automatic mapping."
+    "Stale Docker snapshots are not reused to fabricate flat history during an outage.",
+    "Network counters that reset after a restart do not produce negative throughput.",
+    "Missing metrics stay explicitly unavailable instead of being estimated."
   ],
   "notes": [
+    "Cette version est un correctif évolutif de 1.7.2-beta.4 ; la topologie Proxmox ↔ Docker reste inchangée.",
     "Docker reste géré exclusivement via Portainer ; aucun accès direct au socket Docker.",
-    "La beta.3 publiée reste inchangée et la beta.4 constitue une nouvelle release.",
-    "Portainer CE reste la cible de validation principale.",
-    "Les statistiques temps réel sont limitées côté dashboard afin d’éviter une charge excessive sur Portainer/Docker."
+    "La collecte en arrière-plan dépend de la fréquence du worker Docker configuré ; lorsque le Dashboard Docker est ouvert, un point peut être conservé au maximum une fois par minute.",
+    "Portainer CE reste la cible de validation principale."
   ],
   "notes_en": [
+    "This is an evolutionary hotfix for 1.7.2-beta.4; Proxmox ↔ Docker topology remains unchanged.",
     "Docker remains managed exclusively through Portainer; no direct Docker socket access.",
-    "The published beta.3 remains unchanged; beta.4 is a new release.",
-    "Portainer CE remains the primary validation target.",
-    "Dashboard real-time statistics are bounded to avoid excessive Portainer/Docker load."
+    "Background collection follows the configured Docker worker frequency; while the Docker Dashboard is open, at most one point per minute is retained.",
+    "Portainer CE remains the primary validation target."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],

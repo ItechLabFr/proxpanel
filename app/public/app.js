@@ -2,7 +2,7 @@
 
 const state = {
   status:null,user:null,me:null,users:[],settings:null,servers:[],selectedServer:null,dashboard:null,dashboardError:null,latencyMs:null,loading:false,
-  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],dockerOverview:null,dockerDashboard:null,dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
+  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],dockerOverview:null,dockerDashboard:null,dockerHistory:null,dockerHistoryRange:localStorage.getItem('proxpanel.dockerHistoryRange')||'day',dockerHistoryScope:localStorage.getItem('proxpanel.dockerHistoryScope')||'all',dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
   tasks:[],rrd:null,monitor:{scope:'node',timeframe:'day',cf:'AVERAGE',node:'',type:'qemu',vmid:'',storage:''},
   dashboardTimeframe:'day',dashboardLiveSeconds:10,liveUpdatedAt:null,dashboardLiveTimer:null,
   firewallRules:[],firewall:{scope:'cluster',node:'',type:'qemu',vmid:''},appliances:[],applianceNode:'',maintenancePlan:null,maintenanceUpdates:null,
@@ -752,6 +752,54 @@ function dockerSuggestedMachine(env){
   const matches=(d().machines||[]).filter(m=>{const n=norm(m.name);return probes.some(p=>p&&n&&(n===p||n.includes(p)||p.includes(n)))});
   return matches.length===1?matches[0]:null;
 }
+function dockerHistoryScopeOptions(){
+  const rows=(state.dockerDashboard?.environments||[]).map(env=>({
+    value:dockerTopologyKey(env.portainerId,env.endpointId),
+    label:`${env.environmentName||'Docker'}${env.hostName?` · ${env.hostName}`:''}`
+  }));
+  return [{value:'all',label:'Tous les environnements'},...rows];
+}
+function dockerHistoryRangeLabel(){return({hour:'1 h',day:'24 h',week:'7 j',month:'30 j'})[state.dockerHistoryRange]||'24 h'}
+function dockerHistoryTimeLabel(time){
+  const date=new Date(Number(time||0));
+  return ['hour','day'].includes(state.dockerHistoryRange)?date.toLocaleTimeString(currentLocale(),{hour:'2-digit',minute:'2-digit'}):date.toLocaleDateString(currentLocale(),{day:'2-digit',month:'2-digit'});
+}
+function dockerChartFormat(value,kind){
+  if(kind==='pct')return fmtPct(value);
+  if(kind==='mbps')return `${fmtNumber(value,2)} Mb/s`;
+  return String(Math.round(Number(value||0)));
+}
+function dockerMetricChart(title,subtitle,series,{kind='pct',fixedMax=null}={}){
+  const points=state.dockerHistory?.points||[];
+  if(points.length<2)return `<section class="panel docker-history-chart"><div class="panel-head"><div><h3>${title}</h3><p>${subtitle}</p></div></div><div class="docker-chart-empty">Historique en collecte…</div></section>`;
+  const W=640,H=190,L=48,R=14,T=16,B=30,plotH=H-T-B,plotW=W-L-R;
+  const values=points.flatMap(p=>series.map(s=>Number(p?.[s.key])).filter(Number.isFinite));
+  const max=Number.isFinite(Number(fixedMax))?Number(fixedMax):Math.max(1,Math.ceil(Math.max(...values,1)*1.12));
+  const min=0,t0=Number(points[0].time||0),t1=Number(points.at(-1).time||0),span=Math.max(1,t1-t0);
+  const xy=(row,key)=>({x:L+((Number(row.time||t0)-t0)/span)*plotW,y:T+(1-Math.max(0,Math.min(max,Number(row?.[key]||0)))/max)*plotH,v:Number(row?.[key]||0),time:Number(row.time||0)});
+  const grid=Array.from({length:5},(_,i)=>{const y=T+(i/4)*plotH,v=max-(i/4)*max;return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" class="docker-chart-grid-line"/><text x="${L-7}" y="${y+3}" text-anchor="end" class="docker-chart-axis-label">${esc(dockerChartFormat(v,kind))}</text>`}).join('');
+  const paths=series.map((s,index)=>{
+    const coords=points.map(p=>xy(p,s.key)),line=smoothSvgPath(coords,.62),area=index===0?closedAreaPath(coords,line,H-B):'';
+    return `${area?`<path d="${area}" class="docker-chart-area tone-${s.tone}"/>`:''}<path d="${line}" class="docker-chart-line tone-${s.tone}"/>`;
+  }).join('');
+  const indices=[0,Math.floor((points.length-1)/2),points.length-1],labels=indices.map(i=>{const p=points[i],x=xy(p,series[0].key).x;return `<text x="${x}" y="${H-7}" text-anchor="${i===0?'start':i===points.length-1?'end':'middle'}" class="docker-chart-axis-label">${esc(dockerHistoryTimeLabel(p.time))}</text>`}).join('');
+  const latest=points.at(-1)||{};
+  const legend=series.map(s=>`<span><i class="tone-${s.tone}"></i><b>${esc(s.label)}</b><strong>${esc(dockerChartFormat(latest[s.key],kind))}</strong></span>`).join('');
+  return `<section class="panel docker-history-chart"><div class="panel-head"><div><h3>${title}</h3><p>${subtitle} · ${dockerHistoryRangeLabel()}</p></div></div><div class="docker-chart-legend">${legend}</div><div class="docker-chart-wrap"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}">${grid}${paths}${labels}</svg></div></section>`;
+}
+function dockerHistoryCharts(){
+  return `<div class="docker-history-grid">
+    ${dockerMetricChart('CPU Docker','Charge des conteneurs normalisée par les CPU des hôtes',[{key:'cpuPct',label:'CPU',tone:'cpu'}],{kind:'pct',fixedMax:100})}
+    ${dockerMetricChart('Mémoire Docker','RAM utilisée par les conteneurs rapportée à la RAM des hôtes',[{key:'memoryPct',label:'RAM',tone:'memory'}],{kind:'pct',fixedMax:100})}
+    ${dockerMetricChart('Réseau Docker','Débit agrégé des interfaces des conteneurs',[{key:'rxMbps',label:'RX',tone:'rx'},{key:'txMbps',label:'TX',tone:'tx'}],{kind:'mbps'})}
+    ${dockerMetricChart('État des conteneurs','Évolution des états et incidents',[{key:'running',label:'Running',tone:'running'},{key:'stopped',label:'Stopped',tone:'stopped'},{key:'unhealthy',label:'Unhealthy',tone:'unhealthy'},{key:'incidents',label:'Incidents',tone:'incident'}],{kind:'count'})}
+  </div>`;
+}
+function dockerHistoryToolbar(){
+  const scope=state.dockerHistoryScope||'all',opts=dockerHistoryScopeOptions();
+  if(scope!=='all'&&!opts.some(x=>x.value===scope)){state.dockerHistoryScope='all';localStorage.setItem('proxpanel.dockerHistoryScope','all')}
+  return `<div class="docker-history-toolbar"><div class="docker-range-switch">${[['hour','1 h'],['day','24 h'],['week','7 j'],['month','30 j']].map(([value,label])=>`<button type="button" class="${state.dockerHistoryRange===value?'active':''}" data-action="docker-history-range:${value}">${label}</button>`).join('')}</div><label><span>Environnement</span><select id="dockerHistoryScope">${opts.map(x=>`<option value="${esc(x.value)}" ${state.dockerHistoryScope===x.value?'selected':''}>${esc(x.label)}</option>`).join('')}</select></label><span class="docker-history-live"><i></i>LIVE · ${esc(fmtDate(state.dockerHistory?.to||Date.now()))}</span></div>`;
+}
 function dockerConsumerList(title,rows=[],metric='cpu'){
   const data=(rows||[]).slice(0,5);
   return `<section class="panel docker-consumer-panel"><div class="panel-head"><div><h3>${title}</h3><p>Mesures instantanées via Portainer → Docker</p></div></div><div class="docker-consumer-list">${data.map(x=>{const cpu=Number(x.stats?.cpuPct||0),mem=Number(x.stats?.memoryUsed||0),limit=Number(x.stats?.memoryLimit||0),pct=metric==='cpu'?Math.min(100,cpu):(limit?Math.min(100,mem/limit*100):0),value=metric==='cpu'?fmtPct(cpu):fmtBytes(mem);return `<button type="button" class="docker-consumer-row" data-action="docker-open:${esc(x.portainerId)}:${Number(x.endpointId)}"><span><strong>${esc(x.name||x.id?.slice(0,12)||'Container')}</strong><small>${esc(x.environmentName||'Docker')} · ${esc(x.stack||'sans stack')}</small></span><span class="docker-consumer-value"><b>${value}</b><i><em style="width:${pct}%"></em></i></span></button>`}).join('')||'<div class="empty-inline">Aucune métrique disponible.</div>'}</div></section>`;
@@ -762,10 +810,13 @@ function dockerTopologyPanel(){
 }
 function dockerDashboardPanel(){
   const dash=state.dockerDashboard;if(!dash)return'<section class="panel loading">Chargement du Dashboard Docker…</section>';
-  const envs=dash.environments||[],containers=dash.containers||[],stacks=dash.stacks||[],running=containers.filter(x=>x.state==='running').length,stopped=containers.length-running,unhealthy=containers.filter(x=>x.health==='unhealthy').length,restarting=containers.filter(x=>x.state==='restarting').length;
-  const cpu=containers.reduce((n,x)=>n+Number(x.stats?.cpuPct||0),0),mem=containers.reduce((n,x)=>n+Number(x.stats?.memoryUsed||0),0);
+  const envs=dash.environments||[],containers=dash.containers||[],stacks=dash.stacks||[],running=containers.filter(x=>x.state==='running').length,stopped=containers.filter(x=>!['running','restarting','paused'].includes(String(x.state||''))).length,unhealthy=containers.filter(x=>x.health==='unhealthy').length,restarting=containers.filter(x=>x.state==='restarting').length;
+  const rawCpu=containers.reduce((n,x)=>n+Number(x.stats?.cpuPct||0),0),hostCpus=envs.reduce((n,x)=>n+Number(x.cpus||0),0),cpu=hostCpus?Math.min(100,rawCpu/hostCpus):rawCpu;
+  const mem=containers.reduce((n,x)=>n+Number(x.stats?.memoryUsed||0),0),hostMem=envs.reduce((n,x)=>n+Number(x.memoryTotal||0),0),memPct=hostMem?Math.min(100,mem/hostMem*100):0;
   return `<div class="docker-dashboard">
-    <div class="docker-dashboard-kpis"><div class="panel"><span>Environnements</span><strong>${envs.length}</strong><small>${envs.filter(x=>x.reachable).length} joignable(s)</small></div><div class="panel"><span>Running</span><strong>${running}</strong><small>${stopped} arrêté(s)</small></div><div class="panel ${unhealthy?'docker-warning':''}"><span>Unhealthy</span><strong>${unhealthy}</strong><small>${restarting} restarting</small></div><div class="panel"><span>Stacks</span><strong>${stacks.length}</strong><small>${stacks.filter(x=>x.active).length} active(s)</small></div><div class="panel"><span>CPU conteneurs</span><strong>${fmtPct(cpu)}</strong><small>cumul instantané</small></div><div class="panel"><span>RAM conteneurs</span><strong>${fmtBytes(mem)}</strong><small>mesurée via Docker</small></div></div>
+    ${dockerHistoryToolbar()}
+    <div class="docker-dashboard-kpis"><div class="panel"><span>Environnements</span><strong>${envs.length}</strong><small>${envs.filter(x=>x.reachable).length} joignable(s)</small></div><div class="panel"><span>Running</span><strong>${running}</strong><small>${stopped} arrêté(s)</small></div><div class="panel ${unhealthy?'docker-warning':''}"><span>Unhealthy</span><strong>${unhealthy}</strong><small>${restarting} restarting</small></div><div class="panel"><span>Stacks</span><strong>${stacks.length}</strong><small>${stacks.filter(x=>x.active).length} active(s)</small></div><div class="panel"><span>CPU Docker</span><strong>${fmtPct(cpu)}</strong><small>normalisée sur ${hostCpus||'—'} CPU</small></div><div class="panel"><span>RAM Docker</span><strong>${fmtPct(memPct)}</strong><small>${fmtBytes(mem)} / ${hostMem?fmtBytes(hostMem):'N/D'}</small></div></div>
+    ${dockerHistoryCharts()}
     <div class="docker-dashboard-grid">${dockerConsumerList('Top CPU',dash.topCpu,'cpu')}${dockerConsumerList('Top RAM',dash.topMemory,'memory')}</div>
     ${dockerTopologyPanel()}
   </div>`;
@@ -1225,6 +1276,7 @@ async function loadDeferredBaseData(){
   if(hasPortainerIntegration()){
     loaders.push(['dockerOverview',()=>api('/api/docker/overview')]);
     loaders.push(['dockerDashboard',()=>api('/api/docker/dashboard')]);
+    loaders.push(['dockerHistory',()=>api(`/api/docker/history?range=${encodeURIComponent(state.dockerHistoryRange)}&scope=${encodeURIComponent(state.dockerHistoryScope)}`)]);
     loaders.push(['dockerTopology',()=>api('/api/docker/topology-mappings').then(r=>r.mappings||{})]);
     loaders.push(['dockerAlerts',()=>api('/api/docker/alerts').then(r=>r.alerts||[])]);
   }
@@ -1339,7 +1391,27 @@ function patchOverviewLiveDom(){
   if(freshEyebrow&&currentEyebrow)currentEyebrow.innerHTML=freshEyebrow.innerHTML;
   patchConnectionDom();applyRuntimeLanguage(currentGrid||document);
 }
-async function refreshDashboardLive(){if(document.visibilityState!=='visible'||state.currentPage!=='overview'||state.loading||!state.dashboard)return;try{const groupId=state.dashboardView?.startsWith('group:')?state.dashboardView.slice(6):'';const live=groupId?await api(`/api/dashboard-groups/${groupId}/live`):await api(`/api/servers/${state.selectedServer}/live`),prev=state.dashboard;live.metrics.networkMbps=live.metrics?.networkMbps??prev.metrics?.networkMbps;state.dashboard={...prev,...live,history:prev.history,health:live.health||prev.health,tasks:prev.tasks,backup:prev.backup,problems:prev.problems,capacity:prev.capacity,server:prev.server,interactiveUser:prev.interactiveUser};state.liveUpdatedAt=Date.now();if(state.tvMode)renderPage();else patchOverviewLiveDom()}catch(e){console.warn('Live dashboard',e.message)}}
+function patchDockerLiveDom(){
+  if(state.currentPage!=='docker'||state.dockerEnvironment||!state.dockerDashboard)return;
+  const current=qs('.docker-dashboard');if(!current)return;
+  const stage=document.createElement('div');stage.innerHTML=dockerDashboardPanel();
+  const fresh=stage.querySelector('.docker-dashboard');if(fresh)current.replaceWith(fresh);
+}
+async function refreshDockerLive(){
+  if(document.visibilityState!=='visible'||state.currentPage!=='docker'||state.dockerEnvironment)return;
+  try{
+    const [dashboard,history]=await Promise.all([
+      api('/api/docker/dashboard'),
+      api(`/api/docker/history?range=${encodeURIComponent(state.dockerHistoryRange)}&scope=${encodeURIComponent(state.dockerHistoryScope)}`)
+    ]);
+    state.dockerDashboard=dashboard;state.dockerHistory=history;state.liveUpdatedAt=Date.now();patchDockerLiveDom();
+  }catch(e){console.warn('Live Docker dashboard',e.message)}
+}
+async function refreshDashboardLive(){
+  if(state.currentPage==='docker')return refreshDockerLive();
+  if(document.visibilityState!=='visible'||state.currentPage!=='overview'||state.loading||!state.dashboard)return;
+  try{const groupId=state.dashboardView?.startsWith('group:')?state.dashboardView.slice(6):'';const live=groupId?await api(`/api/dashboard-groups/${groupId}/live`):await api(`/api/servers/${state.selectedServer}/live`),prev=state.dashboard;live.metrics.networkMbps=live.metrics?.networkMbps??prev.metrics?.networkMbps;state.dashboard={...prev,...live,history:prev.history,health:live.health||prev.health,tasks:prev.tasks,backup:prev.backup,problems:prev.problems,capacity:prev.capacity,server:prev.server,interactiveUser:prev.interactiveUser};state.liveUpdatedAt=Date.now();if(state.tvMode)renderPage();else patchOverviewLiveDom()}catch(e){console.warn('Live dashboard',e.message)}
+}
 function scheduleDashboardLive(){if(state.dashboardLiveTimer)clearTimeout(state.dashboardLiveTimer);state.dashboardLiveTimer=setTimeout(async()=>{try{await refreshDashboardLive()}finally{scheduleDashboardLive()}},Math.max(5,Math.min(300,Number(state.dashboardLiveSeconds||10)))*1000)}
 async function loadTasks(render=true){if(!state.selectedServer)return;try{state.tasks=await api(`/api/servers/${state.selectedServer}/tasks?limit=300`);if(render)renderPage()}catch(e){toast(e.message,'error')}}
 async function loadDependencies(){if(!state.selectedServer)return;try{state.dependencies=await api(`/api/servers/${state.selectedServer}/dependencies`)}catch(e){state.dependencies={nodes:[],edges:[],error:e.message}}}
@@ -1347,7 +1419,7 @@ async function reloadSection(){
   const page=state.currentPage;
   try{
     if(page==='dependencies')await loadDependencies();
-    if(page==='docker'){try{const [overview,dashboard,topology,alerts]=await Promise.all([api('/api/docker/overview'),api('/api/docker/dashboard'),api('/api/docker/topology-mappings'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerDashboard=dashboard;state.dockerTopology=topology.mappings||{};state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false)}catch(e){state.dockerError=e.message}}
+    if(page==='docker'){try{const [overview,dashboard,history,topology,alerts]=await Promise.all([api('/api/docker/overview'),api('/api/docker/dashboard'),api(`/api/docker/history?range=${encodeURIComponent(state.dockerHistoryRange)}&scope=${encodeURIComponent(state.dockerHistoryScope)}`),api('/api/docker/topology-mappings'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerDashboard=dashboard;state.dockerHistory=history;state.dockerTopology=topology.mappings||{};state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false)}catch(e){state.dockerError=e.message}}
     if(page==='notifications'){const da=await api('/api/docker/alerts').catch(()=>({alerts:[],checkedAt:''}));state.dockerAlerts=da.alerts||[];state.dockerAlertsCheckedAt=da.checkedAt||'';}
     if(page==='audit')state.audit=await api('/api/audit');
     if(page==='changes')state.changes=await api('/api/changes');
@@ -1471,7 +1543,11 @@ async function handleAction(action,el){try{
     state.integrations=await api('/api/integrations');state.dockerOverview=hasPortainerIntegration()?await api('/api/docker/overview?force=1'):null;state.dockerError=null;
     if(!hasPortainerIntegration()&&state.currentPage==='docker'){state.currentPage='overview'}renderPage();return
   }
-  if(action==='docker-refresh'){try{const [overview,dashboard,topology,alerts]=await Promise.all([api('/api/docker/overview?force=1'),api('/api/docker/dashboard?force=1'),api('/api/docker/topology-mappings'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerDashboard=dashboard;state.dockerTopology=topology.mappings||{};state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false);toast('Docker actualisé.')}catch(e){state.dockerError=e.message}renderPage();return}
+  if(action==='docker-refresh'){try{const [overview,dashboard,history,topology,alerts]=await Promise.all([api('/api/docker/overview?force=1'),api('/api/docker/dashboard?force=1'),api(`/api/docker/history?range=${encodeURIComponent(state.dockerHistoryRange)}&scope=${encodeURIComponent(state.dockerHistoryScope)}`),api('/api/docker/topology-mappings'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerDashboard=dashboard;state.dockerHistory=history;state.dockerTopology=topology.mappings||{};state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false);toast('Docker actualisé.')}catch(e){state.dockerError=e.message}renderPage();return}
+  if(action.startsWith('docker-history-range:')){
+    state.dockerHistoryRange=action.slice('docker-history-range:'.length)||'day';localStorage.setItem('proxpanel.dockerHistoryRange',state.dockerHistoryRange);
+    state.dockerHistory=await api(`/api/docker/history?range=${encodeURIComponent(state.dockerHistoryRange)}&scope=${encodeURIComponent(state.dockerHistoryScope)}`);renderPage();return
+  }
   if(action.startsWith('docker-topology-map:')){
     const parts=action.split(':'),portainerId=parts[1],endpointId=Number(parts[2]),env=(state.dockerDashboard?.environments||[]).find(x=>String(x.portainerId)===String(portainerId)&&Number(x.endpointId)===endpointId),key=dockerTopologyKey(portainerId,endpointId),mapping=state.dockerTopology?.[key],suggestion=!mapping?dockerSuggestedMachine(env):null;
     const machines=(d().machines||[]).map(m=>({value:`${m.serverId||''}|${m.type}|${m.vmid}|${encodeURIComponent(m.node||'')}|${encodeURIComponent(m.name||'')}`,label:`${m.name||'VM/LXC'} · ${String(m.type||'').toUpperCase()} ${m.vmid} · ${m.node||''}`}));
@@ -1564,7 +1640,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('.global-search'))qs(
 function filterAdminSettings(value){const q=String(value||'').trim().toLowerCase();qsa('[data-admin-search]').forEach(card=>{card.hidden=!!q&&!String(card.dataset.adminSearch||'').includes(q)})}
 function filterAdminNav(value){const q=String(value||'').trim().toLowerCase();qsa('[data-admin-nav-search]').forEach(item=>{item.hidden=!!q&&!String(item.dataset.adminNavSearch||'').includes(q)})}
 document.addEventListener('input',e=>{if(e.target.id==='globalSearch')updateGlobalSearch(e.target.value);if(e.target.id==='machineSearch')filterMachineTable();if(e.target.id==='adminSearch')filterAdminSettings(e.target.value);if(e.target.id==='adminNavSearch')filterAdminNav(e.target.value)});
-document.addEventListener('change',async e=>{if(['setColorMode','setDensity','setMenuStyle','setUiAccent','setAccentOverride'].includes(e.target.id)||e.target.name==='uiThemeChoice'){const accentEnabled=!!qs('#setAccentOverride')?.checked;if(qs('#setUiAccent'))qs('#setUiAccent').disabled=!accentEnabled;applyUiPreferences({theme:qs('input[name="uiThemeChoice"]:checked')?.value||state.settings?.ui?.theme||'default',colorMode:qs('#setColorMode')?.value||state.settings?.ui?.colorMode||'dark',density:qs('#setDensity')?.value||state.settings?.ui?.density||'comfortable',menuStyle:qs('#setMenuStyle')?.value||state.settings?.ui?.menuStyle||'standard',accent:accentEnabled?(qs('#setUiAccent')?.value||'#ff7a00'):''});return}if(e.target.id==='quickLanguage'){setUiLanguage(e.target.value,{remember:true,render:true});toast(e.target.value==='en'?'Language changed to English.':'Langue changée en français.');return}if(e.target.name==='otaChannel'){const channel=String(e.target.value||'stable');try{await api('/api/settings',{method:'PUT',body:JSON.stringify({updates:{otaChannel:channel}})});state.settings=await api('/api/settings');state.remoteUpdate=await api('/api/update/remote-status');toast(`Canal ${channel==='stable'?'Stable':'Beta'} enregistré · nouvelle recherche OTA lancée.`);renderPage();setTimeout(()=>refreshRemoteUpdateStatus(true),800);setTimeout(()=>refreshRemoteUpdateStatus(true),2500)}catch(err){toast(err.message||String(err),'error')}return}if(e.target.id==='panelUserRole'){const box=qs('#customPermissions');if(box)box.hidden=e.target.value!=='custom';return}if(e.target.classList?.contains('machine-check')){const key=e.target.dataset.selectionKey||'';if(key){if(e.target.checked)state.machineSelected.add(key);else state.machineSelected.delete(key)}updateMachineBulkSelectionUi();return}if(e.target.id==='machineTypeFilter'||e.target.id==='machineStateFilter'){filterMachineTable();return}if(e.target.id==='dashboardViewSelect'){state.dashboardView=e.target.value||'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);if(state.dashboardView.startsWith('server:')){state.selectedServer=state.dashboardView.slice(7);localStorage.setItem('proxpanel.server',state.selectedServer||'')}state.dashboard=null;state.dashboardError=null;await refreshDashboard(true,true);return}if(e.target.id==='serverSelect'){state.selectedServer=e.target.value||null;localStorage.setItem('proxpanel.server',state.selectedServer||'');state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);state.dashboard=null;state.dashboardError=null;state.dependencies=null;state.tasks=[];await refreshDashboard();await loadTasks(false);return}if(e.target.id==='dashTimeframe'){state.dashboardTimeframe=e.target.value;localStorage.setItem('proxpanel.dashboardTimeframe',state.dashboardTimeframe);await refreshDashboard(false,true);return}});
+document.addEventListener('change',async e=>{if(['setColorMode','setDensity','setMenuStyle','setUiAccent','setAccentOverride'].includes(e.target.id)||e.target.name==='uiThemeChoice'){const accentEnabled=!!qs('#setAccentOverride')?.checked;if(qs('#setUiAccent'))qs('#setUiAccent').disabled=!accentEnabled;applyUiPreferences({theme:qs('input[name="uiThemeChoice"]:checked')?.value||state.settings?.ui?.theme||'default',colorMode:qs('#setColorMode')?.value||state.settings?.ui?.colorMode||'dark',density:qs('#setDensity')?.value||state.settings?.ui?.density||'comfortable',menuStyle:qs('#setMenuStyle')?.value||state.settings?.ui?.menuStyle||'standard',accent:accentEnabled?(qs('#setUiAccent')?.value||'#ff7a00'):''});return}if(e.target.id==='quickLanguage'){setUiLanguage(e.target.value,{remember:true,render:true});toast(e.target.value==='en'?'Language changed to English.':'Langue changée en français.');return}if(e.target.id==='dockerHistoryScope'){state.dockerHistoryScope=e.target.value||'all';localStorage.setItem('proxpanel.dockerHistoryScope',state.dockerHistoryScope);state.dockerHistory=await api(`/api/docker/history?range=${encodeURIComponent(state.dockerHistoryRange)}&scope=${encodeURIComponent(state.dockerHistoryScope)}`);renderPage();return}if(e.target.name==='otaChannel'){const channel=String(e.target.value||'stable');try{await api('/api/settings',{method:'PUT',body:JSON.stringify({updates:{otaChannel:channel}})});state.settings=await api('/api/settings');state.remoteUpdate=await api('/api/update/remote-status');toast(`Canal ${channel==='stable'?'Stable':'Beta'} enregistré · nouvelle recherche OTA lancée.`);renderPage();setTimeout(()=>refreshRemoteUpdateStatus(true),800);setTimeout(()=>refreshRemoteUpdateStatus(true),2500)}catch(err){toast(err.message||String(err),'error')}return}if(e.target.id==='panelUserRole'){const box=qs('#customPermissions');if(box)box.hidden=e.target.value!=='custom';return}if(e.target.classList?.contains('machine-check')){const key=e.target.dataset.selectionKey||'';if(key){if(e.target.checked)state.machineSelected.add(key);else state.machineSelected.delete(key)}updateMachineBulkSelectionUi();return}if(e.target.id==='machineTypeFilter'||e.target.id==='machineStateFilter'){filterMachineTable();return}if(e.target.id==='dashboardViewSelect'){state.dashboardView=e.target.value||'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);if(state.dashboardView.startsWith('server:')){state.selectedServer=state.dashboardView.slice(7);localStorage.setItem('proxpanel.server',state.selectedServer||'')}state.dashboard=null;state.dashboardError=null;await refreshDashboard(true,true);return}if(e.target.id==='serverSelect'){state.selectedServer=e.target.value||null;localStorage.setItem('proxpanel.server',state.selectedServer||'');state.dashboardView=state.selectedServer?`server:${state.selectedServer}`:'';localStorage.setItem('proxpanel.dashboardView',state.dashboardView);state.dashboard=null;state.dashboardError=null;state.dependencies=null;state.tasks=[];await refreshDashboard();await loadTasks(false);return}if(e.target.id==='dashTimeframe'){state.dashboardTimeframe=e.target.value;localStorage.setItem('proxpanel.dashboardTimeframe',state.dashboardTimeframe);await refreshDashboard(false,true);return}});
 
 function registerServiceWorkerDeferred(){
   if(!('serviceWorker' in navigator))return;

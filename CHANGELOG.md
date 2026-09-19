@@ -1,3 +1,27 @@
+# ProxPanel 1.7.2-beta.4.1
+
+## Français
+- Nouveau Dashboard Docker graphique façon Proxmox.
+- Historique CPU, RAM, réseau RX/TX et états des conteneurs.
+- Périodes 1 h, 24 h, 7 j et 30 j.
+- Filtre global ou par environnement Portainer.
+- CPU normalisée par le nombre de CPU des hôtes.
+- Historique persistant avec rétention 32 jours et downsampling.
+- Rafraîchissement live sans reconstruire toute la page Docker.
+- Exclusion des snapshots Docker trop anciens.
+- Démo publique enrichie avec des historiques fictifs.
+
+## English
+- New Proxmox-style graphical Docker Dashboard.
+- CPU, memory, RX/TX network and container-state history.
+- 1 h, 24 h, 7 d and 30 d ranges.
+- Global or per-Portainer-environment filtering.
+- CPU normalized by Docker host CPU count.
+- Persistent 32-day history with downsampling.
+- Live refresh without rebuilding the whole Docker page.
+- Stale Docker snapshots excluded.
+- Public demo historical fixtures.
+
 # ProxPanel 1.7.2-beta.4
 
 ## Français
