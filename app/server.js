@@ -19,6 +19,9 @@ const {
   dockerDiskPressureFromInfo,dockerIncidentTransition
 } = require('./lib/reliability');
 const {
+  RANGE_MS,appendDockerHistory,selectDockerHistory,dockerNetworkMbps
+} = require('./lib/docker-history');
+const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
   demoDockerOverview, demoDockerContainers, demoDockerStacks,
@@ -84,6 +87,7 @@ const METRICS_FILE = path.join(DATA_DIR, 'metrics-history.json');
 const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
 const DOCKER_MONITOR_STATE_FILE = path.join(DATA_DIR, 'docker-monitor-state.json');
 const DOCKER_TOPOLOGY_FILE = path.join(DATA_DIR, 'docker-topology.json');
+const DOCKER_METRICS_FILE = path.join(DATA_DIR, 'docker-metrics-history.json');
 const UPDATE_CHECK_STATE_FILE = path.join(DATA_DIR, 'update-check-state.json');
 const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
@@ -2138,8 +2142,91 @@ async function dockerContainerStats(item,endpointId,containerId) {
     const cpuPct=cpuDelta>0&&systemDelta>0?(cpuDelta/systemDelta)*online*100:0;
     const mem=Number(s?.memory_stats?.usage||0),cache=Number(s?.memory_stats?.stats?.cache||s?.memory_stats?.stats?.inactive_file||0),limit=Number(s?.memory_stats?.limit||0);
     const used=Math.max(0,mem-cache);
-    return {cpuPct:Number(cpuPct.toFixed(2)),memoryUsed:used,memoryLimit:limit,memoryPct:limit?Number((used/limit*100).toFixed(2)):0};
+    const networks=Object.values(s?.networks||{});
+    const networkRxBytes=networks.reduce((n,row)=>n+Number(row?.rx_bytes||0),0);
+    const networkTxBytes=networks.reduce((n,row)=>n+Number(row?.tx_bytes||0),0);
+    return {
+      cpuPct:Number(cpuPct.toFixed(2)),memoryUsed:used,memoryLimit:limit,
+      memoryPct:limit?Number((used/limit*100).toFixed(2)):0,
+      networkRxBytes,networkTxBytes
+    };
   }catch{return null}
+}
+
+function dockerHistoryStore(){
+  const data=jsonRead(DOCKER_METRICS_FILE,{samples:[]});
+  return {samples:Array.isArray(data?.samples)?data.samples:[]};
+}
+function dockerHistoryScopeFromRows(rows=[],hostCpuTotal=0,hostMemoryTotal=0,alerts=[]) {
+  const statsRows=rows.filter(x=>x?.stats);
+  const rawCpu=statsRows.reduce((n,x)=>n+Number(x.stats?.cpuPct||0),0);
+  const memoryUsed=statsRows.reduce((n,x)=>n+Number(x.stats?.memoryUsed||0),0);
+  const networkRxBytes=statsRows.reduce((n,x)=>n+Number(x.stats?.networkRxBytes||0),0);
+  const networkTxBytes=statsRows.reduce((n,x)=>n+Number(x.stats?.networkTxBytes||0),0);
+  return {
+    cpuPct:hostCpuTotal>0?Number(Math.min(100,rawCpu/hostCpuTotal).toFixed(2)):Number(rawCpu.toFixed(2)),
+    memoryUsed,memoryTotal:Number(hostMemoryTotal||0),
+    memoryPct:hostMemoryTotal>0?Number(Math.min(100,memoryUsed/hostMemoryTotal*100).toFixed(2)):0,
+    running:rows.filter(x=>x.state==='running').length,
+    stopped:rows.filter(x=>!['running','restarting','paused'].includes(String(x.state||''))).length,
+    unhealthy:rows.filter(x=>x.health==='unhealthy').length,
+    restarting:rows.filter(x=>x.state==='restarting').length,
+    networkRxBytes,networkTxBytes,
+    incidents:Array.isArray(alerts)?alerts.length:0
+  };
+}
+function recordDockerHistoryScopes(scopes,now=Date.now()){
+  const store=dockerHistoryStore(),previous=store.samples.at(-1),elapsed=previous?Math.max(1,now-Number(previous.time||0)):0;
+  const withRates={};
+  for(const [key,row] of Object.entries(scopes||{})){
+    const prev=previous?.scopes?.[key]||{};
+    withRates[key]={
+      ...row,
+      rxMbps:previous?dockerNetworkMbps(row.networkRxBytes,prev.networkRxBytes,elapsed):0,
+      txMbps:previous?dockerNetworkMbps(row.networkTxBytes,prev.networkTxBytes,elapsed):0
+    };
+  }
+  const next=appendDockerHistory(store.samples,{time:now,scopes:withRates},{now,minIntervalMs:60_000});
+  if(next.length!==store.samples.length)jsonWrite(DOCKER_METRICS_FILE,{samples:next});
+  return withRates;
+}
+function recordDockerDashboardHistory(dashboard,now=Date.now()){
+  if(DEMO_MODE)return;
+  const scopes={};
+  for(const env of dashboard.environments||[]){
+    const key=dockerTopologyKey(env.portainerId,env.endpointId);
+    const rows=(dashboard.containers||[]).filter(x=>dockerTopologyKey(x.portainerId,x.endpointId)===key);
+    const envAlerts=(dashboard.alerts||[]).filter(x=>String(x.portainerId||'')===String(env.portainerId)&&Number(x.endpointId||0)===Number(env.endpointId));
+    scopes[key]=dockerHistoryScopeFromRows(rows,Number(env.cpus||0),Number(env.memoryTotal||0),envAlerts);
+  }
+  const allRows=dashboard.containers||[],cpuTotal=(dashboard.environments||[]).reduce((n,x)=>n+Number(x.cpus||0),0),memoryTotal=(dashboard.environments||[]).reduce((n,x)=>n+Number(x.memoryTotal||0),0);
+  scopes.all=dockerHistoryScopeFromRows(allRows,cpuTotal,memoryTotal,dashboard.alerts||[]);
+  recordDockerHistoryScopes(scopes,now);
+}
+function demoDockerHistory(range='day',scope='all'){
+  const key=Object.prototype.hasOwnProperty.call(RANGE_MS,String(range))?String(range):'day';
+  const span=RANGE_MS[key],count=key==='hour'?60:key==='day'?96:key==='week'?168:180,now=Date.now(),step=span/Math.max(1,count-1);
+  const seed=String(scope||'all').split('').reduce((n,ch)=>n+ch.charCodeAt(0),0)%17;
+  const points=Array.from({length:count},(_,i)=>{
+    const wave=(Math.sin((i+seed)/8)+1)/2,fast=(Math.sin((i+seed)/3.7)+1)/2;
+    return {
+      time:Math.round(now-span+i*step),
+      cpuPct:Number((12+wave*31+fast*9).toFixed(2)),
+      memoryPct:Number((38+wave*23).toFixed(2)),
+      running:scope==='all'?10:5,
+      stopped:scope==='all'?2:1,
+      unhealthy:i>count*.72&&i<count*.82?1:0,
+      restarting:i>count*.52&&i<count*.57?1:0,
+      rxMbps:Number((3+wave*18+fast*4).toFixed(3)),
+      txMbps:Number((1.4+wave*10+fast*2).toFixed(3)),
+      incidents:i>count*.72&&i<count*.82?1:0
+    };
+  });
+  return {range:key,scope:String(scope||'all'),from:now-span,to:now,points};
+}
+function dockerHistoryData(range='day',scope='all'){
+  if(DEMO_MODE)return demoDockerHistory(range,scope);
+  return selectDockerHistory(dockerHistoryStore().samples,{range,scope,now:Date.now(),maxPoints:220});
 }
 
 async function dockerDashboardData(force=false) {
@@ -2156,7 +2243,11 @@ async function dockerDashboardData(force=false) {
   const environments=[],containers=[],stacks=[];
   for(const p of overview.portainers||[]){
     for(const env of p.environments||[]){
-      const base={portainerId:p.id,portainerName:p.name,endpointId:Number(env.id),environmentName:env.name,hostName:env.hostName||'',reachable:!!env.reachable,supported:!!env.supported};
+      const base={
+        portainerId:p.id,portainerName:p.name,endpointId:Number(env.id),environmentName:env.name,
+        hostName:env.hostName||'',reachable:!!env.reachable,supported:!!env.supported,
+        cpus:Number(env.cpus||0),memoryTotal:Number(env.memoryTotal||0)
+      };
       if(!env.reachable||!env.supported){environments.push({...base,containers:env.containers||{},stackCount:0});continue;}
       try{
         const envContainers=DEMO_MODE?demoDockerContainers(env.id):await portainerContainerList(findPortainerIntegration(p.id),env.id);
@@ -2174,13 +2265,22 @@ async function dockerDashboardData(force=false) {
         const normalized=envContainers.map(ct=>({...ct,...base,stats:metricById.get(ct.id)||null}));
         containers.push(...normalized);
         stacks.push(...envStacks.map(s=>({...s,...base,containerCount:normalized.filter(c=>c.stack===s.name).length})));
-        environments.push({...base,containers:summarizeDockerContainers(envContainers),stackCount:envStacks.length,cpuTotalPct:normalized.reduce((n,x)=>n+Number(x.stats?.cpuPct||0),0),memoryUsed:normalized.reduce((n,x)=>n+Number(x.stats?.memoryUsed||0),0),memoryLimit:normalized.reduce((n,x)=>n+Number(x.stats?.memoryLimit||0),0)});
+        const rawCpu=normalized.reduce((n,x)=>n+Number(x.stats?.cpuPct||0),0),memoryUsed=normalized.reduce((n,x)=>n+Number(x.stats?.memoryUsed||0),0);
+        environments.push({
+          ...base,containers:summarizeDockerContainers(envContainers),stackCount:envStacks.length,
+          cpuTotalPct:rawCpu,cpuPct:base.cpus?Number(Math.min(100,rawCpu/base.cpus).toFixed(2)):Number(rawCpu.toFixed(2)),
+          memoryUsed,memoryPct:base.memoryTotal?Number(Math.min(100,memoryUsed/base.memoryTotal*100).toFixed(2)):0,
+          networkRxBytes:normalized.reduce((n,x)=>n+Number(x.stats?.networkRxBytes||0),0),
+          networkTxBytes:normalized.reduce((n,x)=>n+Number(x.stats?.networkTxBytes||0),0)
+        });
       }catch(error){environments.push({...base,containers:env.containers||{},stackCount:0,error:String(error?.message||error)});}
     }
   }
   const topCpu=[...containers].filter(x=>x.stats).sort((a,b)=>Number(b.stats?.cpuPct||0)-Number(a.stats?.cpuPct||0)).slice(0,8);
   const topMemory=[...containers].filter(x=>x.stats).sort((a,b)=>Number(b.stats?.memoryUsed||0)-Number(a.stats?.memoryUsed||0)).slice(0,8);
-  return {generatedAt:new Date().toISOString(),overview:overview.summary||{},environments,containers,stacks,alerts,topCpu,topMemory,topology:dockerTopologyMappings()};
+  const dashboard={generatedAt:new Date().toISOString(),overview:overview.summary||{},environments,containers,stacks,alerts,topCpu,topMemory,topology:dockerTopologyMappings()};
+  recordDockerDashboardHistory(dashboard,Date.now());
+  return dashboard;
 }
 
 function dockerMonitorState() {
@@ -2291,11 +2391,17 @@ async function monitorDockerEnvironment(item,env,previousSnapshot,state,settings
     const batch=containers.slice(i,i+5);
     detailRows.push(...await Promise.all(batch.map((ct,index)=>dockerContainerMonitorDetails(item,eid,ct,(i+index)<cfg.maxMetricContainers))));
   }
-  const snapshot={checkedAt:new Date(now).toISOString(),containers:{}};
+  const snapshot={
+    checkedAt:new Date(now).toISOString(),portainerId:pid,endpointId:eid,environmentName:env.name,
+    cpus:Number(env.cpus||0),memoryTotal:Number(env.memoryTotal||0),containers:{}
+  };
   for(let i=0;i<containers.length;i++){
     const ct=containers[i],detail=detailRows[i]||{},previous=previousSnapshot?.containers?.[ct.id]||null;
     const stateNow=detail.state||ct.state||'unknown',health=detail.health||ct.health||'',target=`${ct.name||ct.id.slice(0,12)} · ${env.name}`;
-    snapshot.containers[ct.id]={name:ct.name,state:stateNow,health,restartCount:Number(detail.restartCount||0),stack:ct.stack||'',checkedAt:now};
+    snapshot.containers[ct.id]={
+      name:ct.name,state:stateNow,health,restartCount:Number(detail.restartCount||0),stack:ct.stack||'',checkedAt:now,
+      stats:detail.stats||null
+    };
 
     if(health==='unhealthy'){
       await dockerMonitorObserve(state,observed,{
@@ -2436,6 +2542,20 @@ async function runDockerBackgroundAlerts(settings,now=Date.now()) {
   for(const [id,row] of Object.entries(state.incidents||{})){
     if(row.active!==true&&Number(new Date(row.resolvedAt||row.lastSeen||0).getTime()||0)<keepAfter)delete state.incidents[id];
   }
+  const historyScopes={};
+  for(const [snapshotKey,snapshot] of Object.entries(state.snapshots||{})){
+    const rows=Object.values(snapshot?.containers||{}).map(x=>({state:x.state,health:x.health,stats:x.stats}));
+    const envAlerts=Object.values(state.incidents||{}).filter(x=>x?.active===true&&String(x.portainerId||'')===String(snapshot.portainerId||'')&&Number(x.endpointId||0)===Number(snapshot.endpointId||0));
+    historyScopes[snapshotKey]=dockerHistoryScopeFromRows(rows,Number(snapshot.cpus||0),Number(snapshot.memoryTotal||0),envAlerts);
+  }
+  const allSnapshots=Object.values(state.snapshots||{}),allRows=allSnapshots.flatMap(snapshot=>Object.values(snapshot?.containers||{}).map(x=>({state:x.state,health:x.health,stats:x.stats})));
+  historyScopes.all=dockerHistoryScopeFromRows(
+    allRows,
+    allSnapshots.reduce((n,x)=>n+Number(x.cpus||0),0),
+    allSnapshots.reduce((n,x)=>n+Number(x.memoryTotal||0),0),
+    Object.values(state.incidents||{}).filter(x=>x?.active===true)
+  );
+  recordDockerHistoryScopes(historyScopes,now);
   state.checkedAt=new Date(now).toISOString();saveDockerMonitorState(state);
 }
 
@@ -4475,6 +4595,9 @@ async function handleApi(req, res, url) {
   if(url.pathname==='/api/docker/dashboard'&&req.method==='GET'){
     try{return sendJson(res,200,await dockerDashboardData(url.searchParams.get('force')==='1'));}
     catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  if(url.pathname==='/api/docker/history'&&req.method==='GET'){
+    return sendJson(res,200,dockerHistoryData(url.searchParams.get('range')||'day',url.searchParams.get('scope')||'all'));
   }
   if(url.pathname==='/api/docker/topology-mappings'&&req.method==='GET'){
     return sendJson(res,200,{mappings:dockerTopologyMappings()});
