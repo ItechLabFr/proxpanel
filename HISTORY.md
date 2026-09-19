@@ -70,7 +70,8 @@ La série `1.7.1-beta.x` a atteint `beta.10`. Le cycle de développement actif e
 | [1.7.2-beta.1.1](docs/releases/1.7.2-beta.1.1.md) | Hotfix Beta | Révoquée après beta.2 | Correctif packaging OTA / 502 |
 | [1.7.2-beta.2](docs/releases/1.7.2-beta.2.md) | Beta | Révoquée par beta.3 | Docker Containers & Stacks |
 
-| [1.7.2-beta.4.2](docs/releases/1.7.2-beta.4.2.md) | Beta patch | **Release active** | Mail Diagnostics & Logs |
+| [1.7.2-beta.4.3](docs/releases/1.7.2-beta.4.3.md) | Beta patch | **Release active** | Backup Warning Classification & Rich Diagnostics |
+| [1.7.2-beta.4.2](docs/releases/1.7.2-beta.4.2.md) | Beta patch | Superseded | Mail Diagnostics & Logs |
 | [1.7.2-beta.4.1](docs/releases/1.7.2-beta.4.1.md) | Beta | Superseded | Docker Metrics Dashboard |
 | [1.7.2-beta.4](docs/releases/1.7.2-beta.4.md) | Beta | Superseded | Docker Dashboard & Proxmox Topology |
 | [1.7.2-beta.3](docs/releases/1.7.2-beta.3.md) | Beta | Superseded | Docker Monitoring & Alerts |
