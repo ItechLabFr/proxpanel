@@ -1628,6 +1628,50 @@ async function handleAction(action,el){try{
   if(action==='docker-back'){state.dockerEnvironment=null;state.dockerContainers=[];state.dockerStacks=[];state.dockerImages=null;state.dockerUpdateHistory=[];state.dockerUpdateStatus=null;state.dockerError=null;renderPage();return}
   if(action==='docker-env-refresh'){try{state.dockerOverview=await api('/api/docker/overview?force=1');await loadDockerEnvironment(false);state.dockerError=null;toast('Environnement Docker actualisé.')}catch(e){state.dockerError=e.message}renderPage();return}
   if(action.startsWith('docker-tab:')){const tab=action.split(':')[1];state.dockerTab=['containers','stacks','images'].includes(tab)?tab:'containers';renderPage();return}
+  if(action==='docker-image-check'){
+    if(state.status?.demoMode)return toast('Mode démo : vérification distante désactivée.','warning');
+    toast('Vérification des digests distants en cours…');
+    const env=dockerEnvironmentMeta(),r=await api(`${dockerBasePath()}/images/check`,{method:'POST',body:JSON.stringify({environmentName:env?.name||''})});state.dockerImages=r;
+    const [h,s]=await Promise.all([api(`/api/docker/update-history?portainerId=${encodeURIComponent(state.dockerEnvironment.portainerId)}&endpointId=${encodeURIComponent(state.dockerEnvironment.endpointId)}&limit=120`),api('/api/docker/update-status')]);state.dockerUpdateHistory=h.history||[];state.dockerUpdateStatus=s;renderPage();toast(`${r.summary?.updateAvailable||0} mise(s) à jour détectée(s) · ${r.summary?.redeployRequired||0} redeploy requis.`);return
+  }
+  if(action.startsWith('docker-image-preview:')){openDockerImagePreview(decodeURIComponent(action.slice('docker-image-preview:'.length)));return}
+  if(action.startsWith('docker-image-pull:')){
+    const reference=decodeURIComponent(action.slice('docker-image-pull:'.length));if(!confirmUi(`Télécharger la dernière image pour ${reference} ?\n\nLe pull seul ne redémarre aucun conteneur. Un redeploy restera explicitement nécessaire si l’ID d’image change.`))return;
+    const env=dockerEnvironmentMeta();toast(`Pull de ${reference} en cours…`);const r=await api(`${dockerBasePath()}/images/pull`,{method:'POST',body:JSON.stringify({reference,environmentName:env?.name||''})});state.dockerImages=r.inventory||state.dockerImages;await loadDockerEnvironment(false);closeModal();renderPage();toast('Image téléchargée. Vérifie maintenant les cibles nécessitant un redeploy.');return
+  }
+  if(action.startsWith('docker-image-redeploy-stack:')){
+    const parts=action.split(':'),stackId=Number(parts[1]),reference=decodeURIComponent(parts.slice(2).join(':')),stack=state.dockerStacks.find(x=>Number(x.id)===stackId),label=stack?.name||`Stack ${stackId}`;
+    if(!confirmUi(`Redeploy de la stack ${label} avec l’image déjà téléchargée ?\n\nProxPanel vérifiera ensuite l’état de tous les conteneurs de la stack. Aucun prune automatique ne sera effectué.`))return;
+    const env=dockerEnvironmentMeta();toast(`Redeploy ${label}…`);const r=await api(`${dockerBasePath()}/images/redeploy`,{method:'POST',body:JSON.stringify({reference,targetType:'stack',stackId,environmentName:env?.name||''})});state.dockerImages=r.inventory||state.dockerImages;await loadDockerEnvironment(false);closeModal();renderPage();toast(r.result?.health?.ok===false?'Redeploy terminé mais santé à vérifier.':`Stack ${label} mise à jour et contrôlée.`);return
+  }
+  if(action.startsWith('docker-image-redeploy-container:')){
+    const parts=action.split(':'),containerId=decodeURIComponent(parts[1]),reference=decodeURIComponent(parts.slice(2).join(':')),row=state.dockerContainers.find(x=>x.id===containerId),label=row?.name||containerId.slice(0,12);
+    if(!confirmUi(`Remplacer le conteneur autonome ${label} avec ${reference} ?\n\nProxPanel arrêtera l’ancien conteneur, le conservera temporairement, créera et vérifiera le nouveau puis supprimera l’ancien uniquement si le nouveau est sain. Une tentative de rollback est effectuée en cas d’échec.`))return;
+    const env=dockerEnvironmentMeta();toast(`Redeploy sécurisé de ${label}…`);const r=await api(`${dockerBasePath()}/images/redeploy`,{method:'POST',body:JSON.stringify({reference,targetType:'container',containerId,environmentName:env?.name||''})});state.dockerImages=r.inventory||state.dockerImages;await loadDockerEnvironment(false);closeModal();renderPage();toast(`Conteneur ${label} remplacé et vérifié.`);return
+  }
+  if(action.startsWith('docker-image-remove:')){
+    const imageId=decodeURIComponent(action.slice('docker-image-remove:'.length));if(!confirmUi(`Supprimer cette image Docker inutilisée ?\n\nProxPanel refuse la suppression si un conteneur l’utilise encore. Aucun prune global ne sera lancé.`))return;
+    const env=dockerEnvironmentMeta();await api(`${dockerBasePath()}/images/remove`,{method:'POST',body:JSON.stringify({imageId,environmentName:env?.name||''})});await loadDockerEnvironment(false);renderPage();toast('Image inutilisée supprimée.');return
+  }
+  if(action.startsWith('docker-image-queue-stack:')){
+    const parts=action.split(':'),stackId=Number(parts[1]),reference=decodeURIComponent(parts.slice(2).join(':')),stack=state.dockerStacks.find(x=>Number(x.id)===stackId),env=dockerEnvironmentMeta();
+    if(!confirmUi(`Planifier le pull + redeploy de ${stack?.name||`Stack ${stackId}`} au prochain créneau Docker ?`))return;
+    await api('/api/docker/update-queue',{method:'POST',body:JSON.stringify({portainerId:state.dockerEnvironment.portainerId,endpointId:state.dockerEnvironment.endpointId,environmentName:env?.name||'',reference,targetType:'stack',stackId,targetLabel:stack?.name||`Stack ${stackId}`})});state.dockerUpdateStatus=await api('/api/docker/update-status');closeModal();renderPage();toast('Mise à jour ajoutée à la file du prochain créneau.');return
+  }
+  if(action.startsWith('docker-image-queue-container:')){
+    const parts=action.split(':'),containerId=decodeURIComponent(parts[1]),reference=decodeURIComponent(parts.slice(2).join(':')),row=state.dockerContainers.find(x=>x.id===containerId),env=dockerEnvironmentMeta();
+    if(!confirmUi(`Planifier le pull + remplacement sécurisé de ${row?.name||containerId.slice(0,12)} au prochain créneau Docker ?`))return;
+    await api('/api/docker/update-queue',{method:'POST',body:JSON.stringify({portainerId:state.dockerEnvironment.portainerId,endpointId:state.dockerEnvironment.endpointId,environmentName:env?.name||'',reference,targetType:'container',containerId,targetLabel:row?.name||containerId.slice(0,12)})});state.dockerUpdateStatus=await api('/api/docker/update-status');closeModal();renderPage();toast('Mise à jour ajoutée à la file du prochain créneau.');return
+  }
+  if(action.startsWith('docker-update-cancel:')){const id=action.slice('docker-update-cancel:'.length);if(!confirmUi('Annuler cette action Docker planifiée ?'))return;await api('/api/docker/update-queue/cancel',{method:'POST',body:JSON.stringify({id})});state.dockerUpdateStatus=await api('/api/docker/update-status');renderPage();toast('Action planifiée annulée.');return}
+  if(action==='docker-window-add'){const box=qs('#dockerUpdateWindows');if(!box)return;const count=qsa('[data-docker-window]',box).length;if(count>=8)throw new Error('Maximum 8 créneaux Docker.');box.insertAdjacentHTML('beforeend',dockerMaintenanceWindowRow({days:[0,1,2,3,4,5,6],start:'02:00',end:'05:00'},count));return}
+  if(action==='docker-window-remove'){const row=el.closest('[data-docker-window]'),box=qs('#dockerUpdateWindows');if(!row||!box)return;if(qsa('[data-docker-window]',box).length<=1)throw new Error('Conserve au moins un créneau Docker.');row.remove();qsa('[data-docker-window]',box).forEach((r,i)=>{const title=qs('strong',r);if(title)title.textContent=`Créneau ${i+1}`});return}
+  if(action==='save-docker-update-policy'){
+    const windows=qsa('[data-docker-window]').map(row=>({start:qs('[data-window-start]',row)?.value||'02:00',end:qs('[data-window-end]',row)?.value||'05:00',days:qsa('[data-window-day]:checked',row).map(x=>Number(x.dataset.windowDay))}));
+    if(windows.some(w=>!w.days.length))throw new Error('Sélectionne au moins un jour pour chaque créneau Docker.');
+    const dockerUpdates={autoCheckEnabled:!!qs('#dockerUpdateAutoCheck')?.checked,checkIntervalHours:Number(qs('#dockerUpdateCheckHours')?.value||12),notifyOnAvailable:!!qs('#dockerUpdateNotify')?.checked,scheduledActionsEnabled:!!qs('#dockerScheduledEnabled')?.checked,maintenanceWindows:windows};
+    await api('/api/settings',{method:'PUT',body:JSON.stringify({dockerUpdates})});state.settings=await api('/api/settings');state.dockerUpdateStatus=await api('/api/docker/update-status');renderPage();toast('Politique de mise à jour Docker enregistrée.');return
+  }
   if(action.startsWith('docker-container-detail:')){
     const id=decodeURIComponent(action.slice('docker-container-detail:'.length)),root=modal('Détails du conteneur','<div class="loading">Lecture de Docker…</div>');
     try{
