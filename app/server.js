@@ -2751,6 +2751,23 @@ async function runDockerBackgroundAlerts(settings,now=Date.now()) {
   state.checkedAt=new Date(now).toISOString();saveDockerMonitorState(state);
 }
 
+async function runDockerImageUpdateWorker(settings=getSettings(),now=Date.now()) {
+  const cfg=settings?.dockerUpdates||{};if(DEMO_MODE||cfg.autoCheckEnabled!==true)return;
+  const initial=dockerUpdateState(),interval=Math.max(1,Math.min(168,Number(cfg.checkIntervalHours||12)))*60*60*1000;
+  if(now-Number(initial.lastAutoCheckAt||0)<interval)return;
+  initial.lastAutoCheckAt=now;initial.lastAutoCheckError='';saveDockerUpdateState(initial);
+  const errors=[],portainers=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
+  for(const item of portainers){
+    let overview;try{overview=await cachedPortainerOverview(item,true);}catch(e){errors.push(`${item.name||'Portainer'}: ${String(e.message||e)}`);continue;}
+    for(const env of overview.environments||[]){
+      if(!env.reachable||!env.supported)continue;
+      try{const inv=await dockerImageInventory(item,env.id,{checkRemote:true,notify:true,settings});recordDockerUpdateHistory({action:'auto-check',status:'ok',portainerId:item.id,portainerName:item.name,endpointId:env.id,environmentName:env.name,target:'registry',details:{...inv.summary}});}
+      catch(e){const message=String(e.message||e);errors.push(`${item.name||'Portainer'} / ${env.name}: ${message}`);recordDockerUpdateHistory({action:'auto-check',status:'error',portainerId:item.id,portainerName:item.name,endpointId:env.id,environmentName:env.name,target:'registry',details:{error:message}});}
+    }
+  }
+  const final=dockerUpdateState();final.lastAutoCheckAt=now;final.lastAutoCheckError=errors.join('\n').slice(0,8000);saveDockerUpdateState(final);
+  addAuditSystem('docker.images.auto-check','Docker',{portainers:portainers.length,errors:errors.length},errors.length?'warning':'ok');
+}
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
@@ -5163,8 +5180,10 @@ async function buildBackgroundDashboard(server, auth) {
   return dashboard;
 }
 async function runBackgroundAlerts() {
-  const settings=getSettings(); if(settings.alerts?.enabled===false)return;
-  const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000,now=Date.now();
+  const settings=getSettings(),now=Date.now();
+  try{await runDockerImageUpdateWorker(settings,now);}catch(e){addAuditSystem('docker.images.auto-check','Docker',{error:e.message},'error');}
+  if(settings.alerts?.enabled===false)return;
+  const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
   try{await runDockerBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.docker.poll','Docker',{error:e.message},'error');}
   const alertState=jsonRead(ALERT_STATE_FILE,{}); let changed=false;
   for(const server of jsonRead(SERVERS_FILE,[])) {
