@@ -2838,7 +2838,7 @@ const DISCORD_EVENT_TYPES = [
   'node.offline','node.recovered','task.warning','task.failed','storage.warning','storage.critical',
   'resources.cpu','resources.memory','temperature.warning','temperature.critical',
   'docker.portainer.unreachable','docker.engine.unreachable','docker.container.stopped','docker.container.unhealthy','docker.container.restarts',
-  'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.recovered',
+  'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.image.update','docker.image.update.failed','docker.image.redeploy.success','docker.recovered',
   'system.update.available','pve.update.available','pve.update.security','pve.update.manual-report','system.test'
 ];
 function normalizeDiscordEvents(list) {
@@ -2882,7 +2882,7 @@ function discordEventLabel(type) {
     'node.offline':'Nœud hors ligne','node.recovered':'Nœud de nouveau en ligne','task.warning':'Tâche avec avertissement','task.failed':'Tâche échouée','storage.warning':'Stockage en alerte','storage.critical':'Stockage critique',
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
-    'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.recovered':'Docker rétabli',
+    'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.image.update':'Mise à jour image Docker','docker.image.update.failed':'Échec mise à jour Docker','docker.image.redeploy.success':'Redeploy Docker réussi','docker.recovered':'Docker rétabli',
     'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','system.test':'Test système'
   };
   return labels[type] || type;
@@ -2919,6 +2919,9 @@ function defaultRecommendation(event={}) {
     'docker.resources.memory':'Contrôle la mémoire du conteneur et recherche une fuite ou une limite trop basse.',
     'docker.storage.pressure':'Nettoie les images/volumes inutilisés ou augmente la capacité après vérification.',
     'docker.stack.degraded':'Vérifie les conteneurs en défaut de la stack avant un redeploy.',
+    'docker.image.update':'Vérifie le digest, consulte l’aperçu puis lance manuellement le pull et le redeploy si souhaité.',
+    'docker.image.update.failed':'Vérifie le registre, les logs Docker/Portainer et l’état de la stack ou du conteneur avant une nouvelle tentative.',
+    'docker.image.redeploy.success':'Aucune action requise si la vérification de santé reste correcte.',
     'docker.recovered':'Aucune action requise si la ressource reste stable après récupération.',
     'temperature.warning':'Surveille la charge et le refroidissement du nœud. Vérifie les ventilateurs et le flux d’air si la température continue de monter.',
     'temperature.critical':'Vérifie immédiatement le refroidissement, les ventilateurs, les dissipateurs et la charge du nœud.',
