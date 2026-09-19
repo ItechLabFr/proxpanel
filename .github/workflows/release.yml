@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish, for example 1.7.1-beta.1'
+        description: 'Version to publish, for example 1.7.2-beta.4.1'
         required: true
         type: string
       publish_docker:
@@ -57,12 +57,18 @@ jobs:
           if [ "$version" != "1.7.0-beta.16" ]; then
             VERSION="$version" node - <<'NODE'
           const version = process.env.VERSION || '';
-          const marker = '-beta.';
-          const pos = version.lastIndexOf(marker);
-          if (pos !== -1) {
-            const betaNo = Number(version.slice(pos + marker.length));
+          const match = version.match(/-beta\.(\d+)(?:\.(\d+))?$/);
+          if (version.includes('-beta.') && !match) {
+            throw new Error('Invalid beta version format.');
+          }
+          if (match) {
+            const betaNo = Number(match[1]);
+            const patchNo = match[2] == null ? null : Number(match[2]);
             if (!Number.isInteger(betaNo) || betaNo < 1 || betaNo > 10) {
               throw new Error('ProxPanel permits beta.1 through beta.10 per version series.');
+            }
+            if (patchNo != null && (!Number.isInteger(patchNo) || patchNo < 1 || patchNo > 99)) {
+              throw new Error('Beta patch prereleases must use .1 through .99.');
             }
           }
           NODE
