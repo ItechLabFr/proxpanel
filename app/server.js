@@ -2769,13 +2769,19 @@ async function sendDiscordEvent(settings, event) {
     const details=normalizeEventDetails(event);
     const rawLines=messageLines(event.message);
     const summary=String(event.summary||rawLines.slice(0,2).join('\n')||event.message||'').slice(0,1400);
-    const detailText=(details.length?details:rawLines.slice(2)).slice(0,12).map(x=>`• ${x}`).join('\n').slice(0,1024);
+    const detailText=(details.length?details:rawLines.slice(2)).slice(0,14).map(x=>`• ${x}`).join('\n').slice(0,1024);
     const recommendation=defaultRecommendation(event).slice(0,1024);
+    const diagnostic=(event.severity==='warning'||event.severity==='critical')?normalizeMailTechnicalEvidence(event):[];
+    const technicalText=diagnostic.filter(x=>x.label!=='Extrait de log').slice(0,8).map(x=>`**${x.label} :** ${x.value}`).join('\n').slice(0,1024);
+    const logRow=diagnostic.find(x=>x.label==='Extrait de log');
+    const logText=logRow?String(logRow.value||'').replace(/```/g,'``').slice(-900):'';
     const fields = [
       { name: '📌 Priorité', value: `**${severityLabel(event.severity)}**`, inline: true },
       event.serverName ? { name: '🖥️ Serveur / cluster', value: String(event.serverName).slice(0,1024), inline: true } : null,
       event.target ? { name: '🎯 Cible', value: String(event.target).slice(0,1024), inline: true } : null,
       detailText ? { name: '📋 Détails', value: detailText, inline: false } : null,
+      technicalText ? { name: '🧰 Diagnostic technique', value: technicalText, inline: false } : null,
+      logText ? { name: '📜 Dernières lignes du log', value: `\`\`\`text\n${logText}\n\`\`\``, inline: false } : null,
       recommendation ? { name: '✅ Action recommandée', value: recommendation, inline: false } : null
     ].filter(Boolean);
     const payload = {
@@ -2794,7 +2800,9 @@ async function sendDiscordEvent(settings, event) {
     jobs.push(postWebhook(hook,payload));
   }
   if (settings?.alerts?.discordWebhook && channels.length === 0) {
-    jobs.push(postWebhook(settings.alerts.discordWebhook,{content:`**${eventIcon(event)} ${event.title || 'ProxPanel'}**\n${event.message || ''}\n\n**Action recommandée :** ${defaultRecommendation(event)}`}));
+    const diagnostics=(event.severity==='warning'||event.severity==='critical')?normalizeMailTechnicalEvidence(event):[];
+    const diag=diagnostics.slice(0,8).map(x=>`**${x.label} :** ${String(x.value||'').slice(0,500)}`).join('\n');
+    jobs.push(postWebhook(settings.alerts.discordWebhook,{allowed_mentions:{parse:[]},content:`**${eventIcon(event)} ${event.title || 'ProxPanel'}**\n${event.message || ''}${diag?`\n\n**Diagnostic :**\n${diag}`:''}\n\n**Action recommandée :** ${defaultRecommendation(event)}`.slice(0,1950)}));
   }
   await Promise.allSettled(jobs);
   return jobs.length;
