@@ -1,3 +1,23 @@
+# ProxPanel 1.7.2-beta.4.2
+
+## Français
+- E-mails warning/critical enrichis avec source technique, UPID et contexte de diagnostic.
+- Ajout d'un bloc « Détails techniques / Logs » dans les alertes e-mail.
+- Extraits de logs des tâches Proxmox et sauvegardes vzdump en erreur.
+- Extraits de logs Docker pour les incidents conteneur lorsque Portainer les expose.
+- Message d'erreur API conservé pour les incidents Portainer / Docker Engine.
+- Filtrage des API keys, tokens, mots de passe, secrets, tickets Proxmox et cookies avant envoi.
+- La beta.5 reste réservée à Docker Image & Update Management.
+
+## English
+- Warning/critical emails now include technical source, UPID and diagnostic context.
+- Added a “Technical details / Logs” block to alert emails.
+- Proxmox task and failed vzdump log excerpts.
+- Docker container log excerpts when exposed through Portainer.
+- API error messages retained for Portainer / Docker Engine incidents.
+- API keys, tokens, passwords, secrets, Proxmox tickets and cookies are redacted before sending.
+- beta.5 remains reserved for Docker Image & Update Management.
+
 # ProxPanel 1.7.2-beta.4.1
 
 ## Français

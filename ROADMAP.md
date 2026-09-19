@@ -4,10 +4,10 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.4.1**
+- Latest published development release: **1.7.2-beta.4.2**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
-- A single X.Y.Z series remains limited to **beta.1 → beta.10**; patch prereleases such as **beta.4.1** are allowed for targeted corrections/evolutions without consuming a new beta slot.
+- A single X.Y.Z series remains limited to **beta.1 → beta.10**; patch prereleases such as **beta.4.1 / beta.4.2** are allowed for targeted corrections/evolutions without consuming a new beta slot.
 
 The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more complete **HomeLab operations console**, while keeping the application lightweight and avoiding duplication of every native Proxmox feature.
 
@@ -147,6 +147,19 @@ Domain
 
 - A Docker environment can always be manually corrected/reassigned.
 - Topology remains useful with several PVE servers and several Docker hosts.
+
+---
+
+### 1.7.2-beta.4.2 — Mail Diagnostics & Logs
+
+Status: **implemented for publication**.
+
+- Warning and critical emails include their technical source.
+- Proxmox task and failed backup emails can include UPID and recent task-log excerpts.
+- Docker container incident emails can include recent container logs when Portainer exposes them.
+- Portainer/Docker API errors are preserved as technical context.
+- Sensitive credentials/tokens are redacted before email generation.
+- This patch does not consume the beta.5 roadmap slot.
 
 ---
 
