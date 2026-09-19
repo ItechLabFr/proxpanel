@@ -190,6 +190,16 @@ Status: **implemented for publication**.
 
 ## 1.7.2-beta.5 — Docker Image & Update Management
 
+### Delivered in beta.5
+
+- Image inventory and container/stack relationships through Portainer.
+- Digest-based update checks with explicit unknown state when registry evidence is unavailable.
+- Manual pull, pre-change preview and post-redeploy health verification.
+- Safe standalone-container replacement with rollback attempt and static-network guard.
+- Update history, audit, notifications and deterministic demo fixtures.
+- Optional background checks and explicit scheduled-action queue inside maintenance windows.
+- No uncontrolled automatic update by default.
+
 Status: **implemented for publication**.
 
 - Detect currently used image/tag/digest.
