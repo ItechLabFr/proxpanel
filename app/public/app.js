@@ -2,7 +2,7 @@
 
 const state = {
   status:null,user:null,me:null,users:[],settings:null,servers:[],selectedServer:null,dashboard:null,dashboardError:null,latencyMs:null,loading:false,
-  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],dockerOverview:null,dockerDashboard:null,dockerHistory:null,dockerHistoryRange:localStorage.getItem('proxpanel.dockerHistoryRange')||'day',dockerHistoryScope:localStorage.getItem('proxpanel.dockerHistoryScope')||'all',dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
+  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],dockerOverview:null,dockerDashboard:null,dockerHistory:null,dockerHistoryRange:localStorage.getItem('proxpanel.dockerHistoryRange')||'day',dockerHistoryScope:localStorage.getItem('proxpanel.dockerHistoryScope')||'all',dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerImages:null,dockerUpdateHistory:[],dockerUpdateStatus:null,dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
   tasks:[],rrd:null,monitor:{scope:'node',timeframe:'day',cf:'AVERAGE',node:'',type:'qemu',vmid:'',storage:''},
   dashboardTimeframe:'day',dashboardLiveSeconds:10,liveUpdatedAt:null,dashboardLiveTimer:null,
   firewallRules:[],firewall:{scope:'cluster',node:'',type:'qemu',vmid:''},appliances:[],applianceNode:'',maintenancePlan:null,maintenanceUpdates:null,
@@ -697,9 +697,13 @@ async function loadDockerEnvironment(render=true){
   state.dockerLoading=true;if(render)renderPage();
   try{
     const base=dockerBasePath();
-    const [containers,stacks]=await Promise.all([api(`${base}/containers`),api(`${base}/stacks`)]);
+    const sel=state.dockerEnvironment;
+    const [containers,stacks,images,history,updateStatus]=await Promise.all([api(`${base}/containers`),api(`${base}/stacks`),api(`${base}/images`),api(`/api/docker/update-history?portainerId=${encodeURIComponent(sel.portainerId)}&endpointId=${encodeURIComponent(sel.endpointId)}&limit=120`),api('/api/docker/update-status')]);
     state.dockerContainers=containers.containers||[];
     state.dockerStacks=stacks.stacks||[];
+    state.dockerImages=images||null;
+    state.dockerUpdateHistory=history.history||[];
+    state.dockerUpdateStatus=updateStatus||null;
     state.dockerError=null;
   }catch(e){state.dockerError=e.message;throw e}
   finally{state.dockerLoading=false;if(render)renderPage()}
@@ -842,9 +846,11 @@ function dockerWorkspacePage(){
     <div class="panel"><span>Running</span><strong>${state.dockerContainers.filter(x=>x.state==='running').length}</strong></div>
     <div class="panel"><span>Unhealthy</span><strong>${state.dockerContainers.filter(x=>x.health==='unhealthy').length}</strong></div>
     <div class="panel"><span>Stacks</span><strong>${state.dockerStacks.length}</strong></div>
+    <div class="panel"><span>Images à mettre à jour</span><strong>${Number(state.dockerImages?.summary?.updateAvailable||0)+Number(state.dockerImages?.summary?.redeployRequired||0)}</strong></div>
+    <div class="panel"><span>Dangling</span><strong>${Number(state.dockerImages?.summary?.dangling||0)}</strong></div>
   </div>
-  <div class="docker-tabs"><button class="${tab==='containers'?'active':''}" data-action="docker-tab:containers">Conteneurs <b>${state.dockerContainers.length}</b></button><button class="${tab==='stacks'?'active':''}" data-action="docker-tab:stacks">Stacks <b>${state.dockerStacks.length}</b></button></div>
-  ${state.dockerLoading?'<div class="panel loading">Chargement Docker…</div>':tab==='stacks'?dockerStacksView():dockerContainersView()}`;
+  <div class="docker-tabs docker-tabs-three"><button class="${tab==='containers'?'active':''}" data-action="docker-tab:containers">Conteneurs <b>${state.dockerContainers.length}</b></button><button class="${tab==='stacks'?'active':''}" data-action="docker-tab:stacks">Stacks <b>${state.dockerStacks.length}</b></button><button class="${tab==='images'?'active':''}" data-action="docker-tab:images">Images & Updates <b>${Number(state.dockerImages?.summary?.updateAvailable||0)+Number(state.dockerImages?.summary?.redeployRequired||0)}</b></button></div>
+  ${state.dockerLoading?'<div class="panel loading">Chargement Docker…</div>':tab==='stacks'?dockerStacksView():tab==='images'?dockerImagesView():dockerContainersView()}`;
 }
 function dockerPage(){
   const overview=state.dockerOverview;
@@ -1576,11 +1582,11 @@ async function handleAction(action,el){try{
   if(action.startsWith('docker-open:')){
     const parts=action.split(':'),portainerId=parts[1],endpointId=Number(parts[2]),p=(state.dockerOverview?.portainers||[]).find(x=>x.id===portainerId),env=(p?.environments||[]).find(x=>Number(x.id)===endpointId);
     if(!p||!env||!env.supported)throw new Error('Environnement Docker Standalone introuvable.');
-    state.dockerEnvironment={portainerId,endpointId,name:env.name,hostName:env.hostName,portainerName:p.name};state.dockerTab='containers';state.dockerContainers=[];state.dockerStacks=[];await loadDockerEnvironment();return
+    state.dockerEnvironment={portainerId,endpointId,name:env.name,hostName:env.hostName,portainerName:p.name};state.dockerTab='containers';state.dockerContainers=[];state.dockerStacks=[];state.dockerImages=null;state.dockerUpdateHistory=[];state.dockerUpdateStatus=null;await loadDockerEnvironment();return
   }
-  if(action==='docker-back'){state.dockerEnvironment=null;state.dockerContainers=[];state.dockerStacks=[];state.dockerError=null;renderPage();return}
+  if(action==='docker-back'){state.dockerEnvironment=null;state.dockerContainers=[];state.dockerStacks=[];state.dockerImages=null;state.dockerUpdateHistory=[];state.dockerUpdateStatus=null;state.dockerError=null;renderPage();return}
   if(action==='docker-env-refresh'){try{state.dockerOverview=await api('/api/docker/overview?force=1');await loadDockerEnvironment(false);state.dockerError=null;toast('Environnement Docker actualisé.')}catch(e){state.dockerError=e.message}renderPage();return}
-  if(action.startsWith('docker-tab:')){state.dockerTab=action.split(':')[1]==='stacks'?'stacks':'containers';renderPage();return}
+  if(action.startsWith('docker-tab:')){const tab=action.split(':')[1];state.dockerTab=['containers','stacks','images'].includes(tab)?tab:'containers';renderPage();return}
   if(action.startsWith('docker-container-detail:')){
     const id=decodeURIComponent(action.slice('docker-container-detail:'.length)),root=modal('Détails du conteneur','<div class="loading">Lecture de Docker…</div>');
     try{
