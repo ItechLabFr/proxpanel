@@ -16,7 +16,8 @@ test('strong reauthentication requires password and a six digit TOTP',()=>{
 
 test('TOTP input is normalized without accepting more than six digits',()=>{
   assert.equal(normalizeReauthCode(' 12 34-56 '),'123456');
-  assert.equal(normalizeReauthCode('123456789'),'123456');
+  assert.equal(normalizeReauthCode('123456789'),'123456789');
+  assert.equal(strongReauthAllowed({id:'u1',active:true,totpEnabled:true},{password:'correct',code:'123456789'},{password:()=>true,totp:()=>true}),false);
 });
 
 test('sensitive reauthentication locks after five failures in fifteen minutes',()=>{
