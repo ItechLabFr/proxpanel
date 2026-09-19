@@ -22,6 +22,11 @@ const {
   RANGE_MS,appendDockerHistory,selectDockerHistory,dockerNetworkMbps
 } = require('./lib/docker-history');
 const {
+  normalizeDockerImageId,splitDockerImageReference,normalizeDockerImage,imageUsages,
+  currentDigestForReference,distributionDigest,classifyDockerImageUpdate,summarizeDockerRedeployHealth,
+  normalizeDockerUpdateWindow
+} = require('./lib/docker-images');
+const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
   demoDockerOverview, demoDockerContainers, demoDockerStacks,
@@ -88,6 +93,8 @@ const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
 const DOCKER_MONITOR_STATE_FILE = path.join(DATA_DIR, 'docker-monitor-state.json');
 const DOCKER_TOPOLOGY_FILE = path.join(DATA_DIR, 'docker-topology.json');
 const DOCKER_METRICS_FILE = path.join(DATA_DIR, 'docker-metrics-history.json');
+const DOCKER_UPDATE_STATE_FILE = path.join(DATA_DIR, 'docker-update-state.json');
+const DOCKER_UPDATE_HISTORY_FILE = path.join(DATA_DIR, 'docker-update-history.json');
 const UPDATE_CHECK_STATE_FILE = path.join(DATA_DIR, 'update-check-state.json');
 const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
@@ -153,6 +160,7 @@ function defaultSettings() {
     },
     updates: { autoCheckEnabled: true, checkIntervalHours: 6, provider: 'ota', otaBaseUrl: OFFICIAL_OTA_BASE_URL, otaChannel: 'stable', otaPublicKeyPem: '', otaPublicKeyFingerprint: '', feedUrl: '', notifyPanel: true, notifyDiscord: true, notifyEmail: true, autoInstallEnabled: false, autoInstallWindows: [{ days:[0,1,2,3,4,5,6], start:'02:00', end:'05:00' }] },
     pveUpdates: { enabled: true, checkIntervalHours: 6, refreshApt: true, notifyPanel: true, notifyDiscord: true, notifyEmail: true, includeChangelog: true, manualReportEmail: true, manualReportDiscord: true, manualAudit: true },
+    dockerUpdates: { autoCheckEnabled:false, checkIntervalHours:12, notifyOnAvailable:true, scheduledActionsEnabled:false, maintenanceWindows:[{days:[0,1,2,3,4,5,6],start:'02:00',end:'05:00'}] },
     ui: {
       dashboardRefreshSeconds: 10,
       dashboardLayout: {
@@ -242,6 +250,12 @@ function normalizeSettings(settings) {
   out.updates.otaPublicKeyFingerprint = String(out.updates.otaPublicKeyFingerprint || '').trim().toLowerCase();
   out.updates.autoInstallEnabled = out.updates.autoInstallEnabled === true;
   out.updates.autoInstallWindows = normalizeAutoInstallWindows(out.updates.autoInstallWindows);
+  out.dockerUpdates = out.dockerUpdates && typeof out.dockerUpdates==='object' ? out.dockerUpdates : {};
+  out.dockerUpdates.autoCheckEnabled = out.dockerUpdates.autoCheckEnabled === true;
+  out.dockerUpdates.checkIntervalHours = Math.max(1,Math.min(168,Number(out.dockerUpdates.checkIntervalHours||12)));
+  out.dockerUpdates.notifyOnAvailable = out.dockerUpdates.notifyOnAvailable !== false;
+  out.dockerUpdates.scheduledActionsEnabled = out.dockerUpdates.scheduledActionsEnabled === true;
+  out.dockerUpdates.maintenanceWindows = (Array.isArray(out.dockerUpdates.maintenanceWindows)&&out.dockerUpdates.maintenanceWindows.length?out.dockerUpdates.maintenanceWindows:[{days:[0,1,2,3,4,5,6],start:'02:00',end:'05:00'}]).slice(0,8).map(normalizeDockerUpdateWindow);
   out.ui = out.ui && typeof out.ui === 'object' ? out.ui : {};
   const widgetKeys=['cpu','memory','storage','temperature','network','machines','health','problems','capacity','backups'];
   const sizeKeys=new Set(['s','m','l','xl']);
@@ -4091,6 +4105,16 @@ async function handleApi(req, res, url) {
     if (!body.updates || body.updates.otaPublicKeyFingerprint === undefined) next.updates.otaPublicKeyFingerprint = current.updates?.otaPublicKeyFingerprint || '';
     next.pveUpdates = next.pveUpdates || {};
     next.pveUpdates.checkIntervalHours = clampNumber(next.pveUpdates.checkIntervalHours, 1, 168, 6);
+    next.dockerUpdates = next.dockerUpdates || {};
+    next.dockerUpdates.checkIntervalHours = clampNumber(next.dockerUpdates.checkIntervalHours,1,168,12);
+    next.dockerUpdates.autoCheckEnabled = next.dockerUpdates.autoCheckEnabled === true;
+    next.dockerUpdates.notifyOnAvailable = next.dockerUpdates.notifyOnAvailable !== false;
+    next.dockerUpdates.scheduledActionsEnabled = next.dockerUpdates.scheduledActionsEnabled === true;
+    if(body.dockerUpdates?.maintenanceWindows!==undefined){
+      if(!Array.isArray(body.dockerUpdates.maintenanceWindows)||!body.dockerUpdates.maintenanceWindows.length)return sendJson(res,400,{error:'Ajoute au moins un créneau de maintenance Docker.'});
+      next.dockerUpdates.maintenanceWindows=body.dockerUpdates.maintenanceWindows.slice(0,8).map(normalizeDockerUpdateWindow);
+      if(next.dockerUpdates.maintenanceWindows.some(w=>w.start===w.end))return sendJson(res,400,{error:'Un créneau Docker doit avoir des heures de début et de fin différentes.'});
+    }
     next.ui = next.ui || {};
     next.ui.dashboardRefreshSeconds = clampNumber(next.ui.dashboardRefreshSeconds, 5, 300, 10);
     saveSettings(next);
