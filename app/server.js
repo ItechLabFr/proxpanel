@@ -2811,6 +2811,15 @@ function redactDiagnosticText(value='') {
   for(const [re,replacement] of replacements)text=text.replace(re,replacement);
   return text;
 }
+function defaultMailTechnicalSource(event={}) {
+  const type=String(event.type||'');
+  if(type.startsWith('docker.'))return 'Docker / Portainer API';
+  if(type.startsWith('pve.update.'))return 'APT / Proxmox API';
+  if(type.startsWith('backup.')||type==='task.failed'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
+  if(type==='system.update.available')return 'ProxPanel OTA';
+  if(type==='auth.2fa.email')return 'ProxPanel Auth';
+  return 'ProxPanel';
+}
 function normalizeMailTechnicalEvidence(event={}) {
   const rows=[];
   const push=(label,value)=>{
@@ -2818,7 +2827,7 @@ function normalizeMailTechnicalEvidence(event={}) {
     if(!safe)return;
     rows.push({label:String(label||'Information technique').slice(0,80),value:safe.slice(0,8000)});
   };
-  if(event.source)push('Source',event.source);
+  push('Source',event.source||defaultMailTechnicalSource(event));
   if(event.error)push('Erreur',event.error);
   if(event.upid)push('UPID',event.upid);
   for(const row of (Array.isArray(event.technicalDetails)?event.technicalDetails:[]).slice(0,12)){
