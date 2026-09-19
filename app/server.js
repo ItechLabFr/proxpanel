@@ -2336,9 +2336,17 @@ async function dockerMonitorObserve(state,observed,observation,settings,now) {
   const transition=dockerIncidentTransition(previous,true,now,{confirmations:cfg.confirmations,cooldownMinutes:cfg.cooldownMinutes});
   const row={...previous,...observation,...transition,id};
   if(transition.shouldNotify){
+    const logExcerpt=await dockerIncidentLogExcerpt(row);
+    const errorFact=(row.facts||[]).find(f=>String(f?.label||'').toLowerCase().includes('erreur'));
     await sendAlertChannels(settings,`ProxPanel · ${row.title}`,row.detail,{
       type:row.type,severity:row.severity,serverName:row.portainerName||'Docker',target:row.target||'',
-      recommendation:row.recommendation||'',details:(row.facts||[]).map(f=>typeof f==='string'?f:`${f.label}: ${f.value}`)
+      recommendation:row.recommendation||'',details:(row.facts||[]).map(f=>typeof f==='string'?f:`${f.label}: ${f.value}`),
+      source:'Docker / Portainer API',error:errorFact?.value||'',logExcerpt,
+      technicalDetails:[
+        row.endpointId?{label:'Endpoint Portainer',value:String(row.endpointId)}:null,
+        row.containerId?{label:'Container ID',value:String(row.containerId).slice(0,64)}:null,
+        row.stackName?{label:'Stack',value:String(row.stackName)}:null
+      ].filter(Boolean)
     });
     row.lastNotifiedAt=now;
     addAuditSystem('alerts.docker.sent',row.target||row.portainerName||'Docker',{type:row.type,id:row.id});
@@ -2790,6 +2798,52 @@ function smtpSubject(value) {
   return `=?UTF-8?B?${Buffer.from(String(value || ''), 'utf8').toString('base64')}?=`;
 }
 function mailHtmlEscape(v){return String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]||c));}
+function redactDiagnosticText(value='') {
+  let text=String(value||'');
+  const replacements=[
+    [/\b(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi,'$1[REDACTED]'],
+    [/\b(x-api-key\s*[:=]\s*)[^\s,;]+/gi,'$1[REDACTED]'],
+    [/\b(api[_ -]?key|token|access[_ -]?token|refresh[_ -]?token|password|passwd|secret|client[_ -]?secret)\b\s*[:=]\s*[^\s,;]+/gi,'$1=[REDACTED]'],
+    [/\b(PVEAPIToken=)[^\s]+/gi,'$1[REDACTED]'],
+    [/(Cookie:\s*)[^\r\n]+/gi,'$1[REDACTED]'],
+    [/(ticket\s*[:=]\s*)[^\s,;]+/gi,'$1[REDACTED]']
+  ];
+  for(const [re,replacement] of replacements)text=text.replace(re,replacement);
+  return text;
+}
+function normalizeMailTechnicalEvidence(event={}) {
+  const rows=[];
+  const push=(label,value)=>{
+    const safe=redactDiagnosticText(value).trim();
+    if(!safe)return;
+    rows.push({label:String(label||'Information technique').slice(0,80),value:safe.slice(0,8000)});
+  };
+  if(event.source)push('Source',event.source);
+  if(event.error)push('Erreur',event.error);
+  if(event.upid)push('UPID',event.upid);
+  for(const row of (Array.isArray(event.technicalDetails)?event.technicalDetails:[]).slice(0,12)){
+    if(typeof row==='string')push('Information',row);
+    else if(row&&typeof row==='object')push(row.label||row.name||'Information',row.value||row.meta||row.detail||'');
+  }
+  if(event.logExcerpt)push('Extrait de log',event.logExcerpt);
+  return rows.slice(0,16);
+}
+async function proxmoxTaskLogExcerpt(server,auth,upid,limit=40) {
+  try{
+    const node=taskNodeFromUpid(upid);if(!node)return '';
+    const rows=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/tasks/${taskIdEncode(upid)}/log?start=0&limit=1000`,{auth});
+    const lines=(Array.isArray(rows)?rows:[]).map(x=>String(x?.t??x??'')).filter(Boolean);
+    return redactDiagnosticText(lines.slice(-Math.max(5,Math.min(100,Number(limit||40)))).join('\n')).slice(-12000);
+  }catch{return '';}
+}
+async function dockerIncidentLogExcerpt(row={}) {
+  if(!row.containerId||!row.portainerId||!row.endpointId)return '';
+  try{
+    const item=findPortainerIntegration(row.portainerId);if(!item)return '';
+    const r=await portainerDockerBuffer(item,Number(row.endpointId),`/containers/${encodeURIComponent(row.containerId)}/logs?stdout=1&stderr=1&timestamps=1&tail=60`);
+    return redactDiagnosticText(dockerStreamText(r.data)).split(/\r?\n/).filter(Boolean).slice(-60).join('\n').slice(-12000);
+  }catch{return '';}
+}
 function professionalMailSubject(subject,event={}) {
   const clean=String(subject||'Notification').replace(/^ProxPanel\s*[·-]\s*/,'');
   const sev=severityLabel(event.severity||'info');
@@ -2828,12 +2882,14 @@ function buildProfessionalMail(subject,text,event={}) {
     ['Horodatage',at.toLocaleString('fr-FR',{timeZone:'Europe/Paris'})]
   ].filter(Boolean);
   const detailRows=(details.length?details:lines.slice(2)).slice(0,20);
+  const technicalRows=(event.severity==='warning'||event.severity==='critical')?normalizeMailTechnicalEvidence(event):[];
   const logo=mailBrandLogoAttachment();
   const logoHtml=logo?'<img src="cid:proxpanel-logo" width="52" height="52" alt="ProxPanel" style="display:block;width:52px;height:52px;border:0;border-radius:13px">':'<div style="width:52px;height:52px;border-radius:13px;background:#171d22;color:#ff7a00;font-size:25px;line-height:52px;text-align:center;font-weight:900">P</div>';
   const detailHtml=detailRows.length?`<tr><td style="padding:0 28px 20px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;background:#f8fafc;border:1px solid #e7ebf0;border-radius:12px"><tr><td style="padding:16px 18px"><div style="font-size:12px;letter-spacing:.08em;font-weight:800;color:#586273;margin-bottom:8px">DÉTAILS</div>${detailRows.map(x=>`<div style="font-size:13px;line-height:1.55;color:#344054;margin:5px 0"><span style="color:#ff7a00;font-weight:900">•</span>&nbsp; ${mailHtmlEscape(x)}</div>`).join('')}</td></tr></table></td></tr>`:'';
+  const technicalHtml=technicalRows.length?`<tr><td style="padding:0 28px 20px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;background:#10151b;border:1px solid #2d3742;border-radius:12px"><tr><td style="padding:16px 18px"><div style="font-size:12px;letter-spacing:.08em;font-weight:900;color:#ff9f43;margin-bottom:10px">DÉTAILS TECHNIQUES / LOGS</div>${technicalRows.map(x=>`<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#98a2b3;text-transform:uppercase;letter-spacing:.06em">${mailHtmlEscape(x.label)}</div><pre style="margin:4px 0 0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;color:#e6edf3">${mailHtmlEscape(x.value)}</pre></div>`).join('')}</td></tr></table></td></tr>`:'';
   const factsHtml=facts.map(([k,v],i)=>`<tr><td style="padding:10px 12px;font-size:12px;color:#667085;border-bottom:${i===facts.length-1?'0':'1px solid #edf0f3'};width:38%">${mailHtmlEscape(k)}</td><td style="padding:10px 12px;font-size:13px;font-weight:700;color:#101828;border-bottom:${i===facts.length-1?'0':'1px solid #edf0f3'}">${mailHtmlEscape(v)}</td></tr>`).join('');
-  const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"></head><body style="margin:0;padding:0;background:#edf0f3;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;color:#101828"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#edf0f3"><tr><td align="center" style="padding:30px 12px"><table role="presentation" width="680" cellspacing="0" cellpadding="0" style="width:100%;max-width:680px;background:#ffffff;border:1px solid #dfe4ea;border-radius:18px;overflow:hidden;box-shadow:0 8px 28px rgba(16,24,40,.08)"><tr><td style="height:5px;background:#ff7a00;font-size:0;line-height:0">&nbsp;</td></tr><tr><td style="background:#11161c;padding:22px 28px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td width="64" valign="middle">${logoHtml}</td><td valign="middle"><div style="font-size:22px;font-weight:850;color:#ffffff;letter-spacing:-.02em">ProxPanel</div><div style="margin-top:4px;color:#98a2b3;font-size:11px;letter-spacing:.12em;font-weight:700">SUPERVISION PROXMOX</div></td><td align="right" valign="middle"><span style="display:inline-block;padding:7px 10px;border:1px solid ${theme.accent};border-radius:999px;background:${theme.accent};color:#fff;font-size:10px;font-weight:900;letter-spacing:.06em">${mailHtmlEscape(severity)}</span></td></tr></table></td></tr><tr><td style="padding:28px 28px 14px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td width="46" valign="top"><div style="width:38px;height:38px;line-height:38px;text-align:center;border-radius:11px;background:${theme.soft};color:${theme.text};font-size:20px;font-weight:900">${theme.icon}</div></td><td valign="top"><div style="font-size:12px;color:${theme.text};font-weight:800;letter-spacing:.06em;text-transform:uppercase">${mailHtmlEscape(eventName)}</div><h1 style="margin:6px 0 0;font-size:25px;line-height:1.25;color:#101828;letter-spacing:-.02em">${mailHtmlEscape(cleanSubject)}</h1></td></tr></table><div style="margin-top:17px;padding:14px 16px;border-radius:11px;background:${theme.soft};border:1px solid ${theme.accent}33;font-size:14px;line-height:1.65;color:#344054;white-space:pre-line">${mailHtmlEscape(summary)}</div></td></tr><tr><td style="padding:8px 28px 20px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border:1px solid #e7ebf0;border-radius:12px;overflow:hidden">${factsHtml}</table></td></tr>${detailHtml}<tr><td style="padding:0 28px 28px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;background:#11161c;border-radius:12px"><tr><td style="padding:16px 18px;border-left:4px solid #ff7a00;border-radius:12px"><div style="font-size:11px;letter-spacing:.09em;font-weight:900;color:#ff9f43;margin-bottom:5px">ACTION RECOMMANDÉE</div><div style="font-size:13px;line-height:1.6;color:#d0d5dd">${mailHtmlEscape(recommendation)}</div></td></tr></table></td></tr><tr><td style="background:#f8fafc;border-top:1px solid #e7ebf0;padding:17px 28px"><table role="presentation" width="100%"><tr><td style="font-size:11px;line-height:1.55;color:#7b8491">Notification automatique ProxPanel · Vérifie les informations dans le panel avant toute action destructive.</td><td align="right" style="font-size:11px;color:#98a2b3;white-space:nowrap">proxpanel.fr</td></tr></table></td></tr></table><div style="max-width:680px;padding:12px 8px 0;text-align:center;font-size:10px;line-height:1.5;color:#98a2b3">ProxPanel centralise la supervision et l’administration de tes infrastructures Proxmox.</div></td></tr></table></body></html>`;
-  const plain=[`PROXPANEL — ${severity}`,cleanSubject,'',summary,'',...facts.map(([k,v])=>`${k} : ${v}`),...(detailRows.length?['','Détails :',...detailRows.map(x=>`- ${x}`)]:[]),'',`Action recommandée : ${recommendation}`,'','Notification automatique ProxPanel · proxpanel.fr'].join('\n');
+  const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"></head><body style="margin:0;padding:0;background:#edf0f3;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;color:#101828"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#edf0f3"><tr><td align="center" style="padding:30px 12px"><table role="presentation" width="680" cellspacing="0" cellpadding="0" style="width:100%;max-width:680px;background:#ffffff;border:1px solid #dfe4ea;border-radius:18px;overflow:hidden;box-shadow:0 8px 28px rgba(16,24,40,.08)"><tr><td style="height:5px;background:#ff7a00;font-size:0;line-height:0">&nbsp;</td></tr><tr><td style="background:#11161c;padding:22px 28px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td width="64" valign="middle">${logoHtml}</td><td valign="middle"><div style="font-size:22px;font-weight:850;color:#ffffff;letter-spacing:-.02em">ProxPanel</div><div style="margin-top:4px;color:#98a2b3;font-size:11px;letter-spacing:.12em;font-weight:700">SUPERVISION PROXMOX</div></td><td align="right" valign="middle"><span style="display:inline-block;padding:7px 10px;border:1px solid ${theme.accent};border-radius:999px;background:${theme.accent};color:#fff;font-size:10px;font-weight:900;letter-spacing:.06em">${mailHtmlEscape(severity)}</span></td></tr></table></td></tr><tr><td style="padding:28px 28px 14px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td width="46" valign="top"><div style="width:38px;height:38px;line-height:38px;text-align:center;border-radius:11px;background:${theme.soft};color:${theme.text};font-size:20px;font-weight:900">${theme.icon}</div></td><td valign="top"><div style="font-size:12px;color:${theme.text};font-weight:800;letter-spacing:.06em;text-transform:uppercase">${mailHtmlEscape(eventName)}</div><h1 style="margin:6px 0 0;font-size:25px;line-height:1.25;color:#101828;letter-spacing:-.02em">${mailHtmlEscape(cleanSubject)}</h1></td></tr></table><div style="margin-top:17px;padding:14px 16px;border-radius:11px;background:${theme.soft};border:1px solid ${theme.accent}33;font-size:14px;line-height:1.65;color:#344054;white-space:pre-line">${mailHtmlEscape(summary)}</div></td></tr><tr><td style="padding:8px 28px 20px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border:1px solid #e7ebf0;border-radius:12px;overflow:hidden">${factsHtml}</table></td></tr>${detailHtml}${technicalHtml}<tr><td style="padding:0 28px 28px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;background:#11161c;border-radius:12px"><tr><td style="padding:16px 18px;border-left:4px solid #ff7a00;border-radius:12px"><div style="font-size:11px;letter-spacing:.09em;font-weight:900;color:#ff9f43;margin-bottom:5px">ACTION RECOMMANDÉE</div><div style="font-size:13px;line-height:1.6;color:#d0d5dd">${mailHtmlEscape(recommendation)}</div></td></tr></table></td></tr><tr><td style="background:#f8fafc;border-top:1px solid #e7ebf0;padding:17px 28px"><table role="presentation" width="100%"><tr><td style="font-size:11px;line-height:1.55;color:#7b8491">Notification automatique ProxPanel · Vérifie les informations dans le panel avant toute action destructive.</td><td align="right" style="font-size:11px;color:#98a2b3;white-space:nowrap">proxpanel.fr</td></tr></table></td></tr></table><div style="max-width:680px;padding:12px 8px 0;text-align:center;font-size:10px;line-height:1.5;color:#98a2b3">ProxPanel centralise la supervision et l’administration de tes infrastructures Proxmox.</div></td></tr></table></body></html>`;
+  const plain=[`PROXPANEL — ${severity}`,cleanSubject,'',summary,'',...facts.map(([k,v])=>`${k} : ${v}`),...(detailRows.length?['','Détails :',...detailRows.map(x=>`- ${x}`)]:[]),...(technicalRows.length?['','Détails techniques / logs :',...technicalRows.flatMap(x=>[`${x.label} :`,x.value])]:[]),'',`Action recommandée : ${recommendation}`,'','Notification automatique ProxPanel · proxpanel.fr'].join('\n');
   return {html,plain,inlineAttachments:logo?[logo]:[]};
 }
 
@@ -3015,7 +3071,7 @@ async function sendMailNotification(cfg, subject, text, event={}) {
 }
 async function sendAlertChannels(settings, title, message, event = {}) {
   const a=settings.alerts||{}; const jobs=[];
-  const fullEvent={ type:event.type||'system.test', severity:event.severity||'info', title, message, serverName:event.serverName||'', target:event.target||'', at:event.at||Date.now(), recommendation:event.recommendation||'', details:event.details||[] };
+  const fullEvent={ type:event.type||'system.test', severity:event.severity||'info', title, message, serverName:event.serverName||'', target:event.target||'', at:event.at||Date.now(), recommendation:event.recommendation||'', details:event.details||[], source:event.source||'', error:event.error||'', upid:event.upid||'', technicalDetails:event.technicalDetails||[], logExcerpt:event.logExcerpt||'' };
   jobs.push(sendDiscordEvent(settings,fullEvent));
   if(a.genericWebhook) jobs.push(postWebhook(a.genericWebhook,{source:'proxpanel',...fullEvent,at:new Date(fullEvent.at).toISOString()}));
   if(a.telegramBotToken && a.telegramChatId) jobs.push(postWebhook(`https://api.telegram.org/bot${a.telegramBotToken}/sendMessage`,{chat_id:a.telegramChatId,text:`${title}\n${message}\n\nAction recommandée : ${defaultRecommendation(fullEvent)}`}));
@@ -4829,7 +4885,14 @@ async function runBackgroundAlerts() {
       const fresh=problems.filter(p=>!previousIds.has(p.id));
       for(const p of fresh){
         const type=problemEventType(p);
-        await sendAlertChannels(settings,`ProxPanel · ${p.title}`,p.detail,{type,severity:p.severity,serverName:server.name,target:p.target||'',recommendation:p.recommendation||'',details:[...(p.facts||[]).map(f=>`${f.label}: ${f.value}`),...(p.items||[]).map(i=>`${i.label}: ${i.meta||''}`)]});
+        const upids=(p.items||[]).map(i=>i.upid).filter(Boolean).slice(0,3);
+        const excerpts=[];
+        for(const upid of upids){const excerpt=await proxmoxTaskLogExcerpt(server,auth,upid,30);if(excerpt)excerpts.push(`UPID ${upid}\n${excerpt}`);}
+        await sendAlertChannels(settings,`ProxPanel · ${p.title}`,p.detail,{
+          type,severity:p.severity,serverName:server.name,target:p.target||'',recommendation:p.recommendation||'',
+          details:[...(p.facts||[]).map(f=>`${f.label}: ${f.value}`),...(p.items||[]).map(i=>`${i.label}: ${i.meta||''}`)],
+          source:'Proxmox API',upid:upids[0]||'',logExcerpt:excerpts.join('\n\n---\n\n')
+        });
         addAuditSystem('alerts.sent',server.name,{type,problem:p.id});
       }
       // Recovery notifications for nodes that were offline and are now back.
@@ -4847,7 +4910,8 @@ async function runBackgroundAlerts() {
         for(const t of backupTasks.filter(t=>!knownBackupIds.has(t.upid)).sort((a,b)=>Number(a.endtime||0)-Number(b.endtime||0))){
           const ok=String(t.status||'').toUpperCase()==='OK';
           const target=t.id?`VM/LXC ${t.id}`:'Sauvegarde';
-          await sendAlertChannels(settings,ok?'Sauvegarde terminée':'Sauvegarde échouée',`${target} sur ${t.node||server.name} · statut ${t.status||'inconnu'}.`,{type:ok?'backup.success':'backup.failed',severity:ok?'info':'critical',serverName:server.name,target,details:[`Nœud: ${t.node||server.name}`,`Statut Proxmox: ${t.status||'inconnu'}`,`Début: ${t.starttime?new Date(Number(t.starttime)*1000).toLocaleString('fr-FR'):'—'}`,`Fin: ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'—'}`]});
+          const logExcerpt=ok?'':await proxmoxTaskLogExcerpt(server,auth,t.upid,50);
+          await sendAlertChannels(settings,ok?'Sauvegarde terminée':'Sauvegarde échouée',`${target} sur ${t.node||server.name} · statut ${t.status||'inconnu'}.`,{type:ok?'backup.success':'backup.failed',severity:ok?'info':'critical',serverName:server.name,target,details:[`Nœud: ${t.node||server.name}`,`Statut Proxmox: ${t.status||'inconnu'}`,`Début: ${t.starttime?new Date(Number(t.starttime)*1000).toLocaleString('fr-FR'):'—'}`,`Fin: ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'—'}`],source:'Proxmox vzdump',upid:t.upid,logExcerpt});
           addAuditSystem('alerts.backup',server.name,{type:ok?'backup.success':'backup.failed',upid:t.upid,status:t.status,id:t.id||''},ok?'ok':'error');
         }
       }
