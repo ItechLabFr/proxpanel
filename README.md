@@ -46,7 +46,7 @@ Development is **AI-assisted** for parts of design, code generation, refactoring
 - Persistent installation identity with privacy-minimal OTA heartbeat
 - PWA support
 - French / English interface
-- Docker deployment
+- Docker deployment (multi-architecture image for `linux/amd64` and `linux/arm64` — Raspberry Pi)
 
 ## Screenshots
 
@@ -168,7 +168,21 @@ docker run -d \
   proxpanel:local
 ```
 
-## Multi-architecture Docker publishing
+## Raspberry Pi & architectures
+
+The published image is multi-architecture and runs on `linux/amd64`
+(x86_64 servers) and `linux/arm64` (Raspberry Pi 3/4/5 and other ARM
+single-board computers). On a Raspberry Pi, Docker automatically pulls
+the `arm64` variant, so the `docker run` or `docker compose up -d`
+commands above work unchanged.
+
+Tested on **Raspberry Pi 5** (Raspberry Pi OS server, 64-bit) with the published `arm64` variant.
+
+Verify the currently published image supports both architectures:
+
+```bash
+docker buildx imagetools inspect itechlab/proxpanel:beta
+```
 
 The provided publishing script targets `linux/amd64` and `linux/arm64`:
 

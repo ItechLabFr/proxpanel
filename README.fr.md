@@ -81,6 +81,28 @@ docker compose up -d
 
 Les données persistantes restent dans les volumes Docker après recréation du conteneur.
 
+## Raspberry Pi et architectures
+
+L'image publiée est multi-architecture : elle fonctionne sur `linux/amd64`
+(serveurs x86_64) et `linux/arm64` (Raspberry Pi 3/4/5 et autres cartes
+ARM). Sur un Raspberry Pi, Docker tire automatiquement la variante
+`arm64` : les commandes `docker run` ou `docker compose up -d`
+ci-dessus fonctionnent sans modification.
+
+Testé sur **Raspberry Pi 5** (Raspberry Pi OS serveur, 64 bits) avec la variante `arm64` publiée.
+
+Pour vérifier que l'image publiée gère bien les deux architectures :
+
+```bash
+docker buildx imagetools inspect itechlab/proxpanel:beta
+```
+
+Le script de publication fourni cible `linux/amd64` et `linux/arm64` :
+
+```bash
+DOCKERHUB_IMAGE=itechlab/proxpanel ./docker-publish.sh
+```
+
 ## Températures
 
 Pour utiliser la supervision des températures :

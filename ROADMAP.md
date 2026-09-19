@@ -16,6 +16,7 @@ The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more
 - **Docker first through Portainer.** ProxPanel must not require direct Docker socket access on each host.
 - **Portainer is the first officially supported external integration** for 1.7.2. Portainer Community Edition is the primary validation target; Business Edition remains compatible when the API endpoints used by ProxPanel are compatible.
 - **PBS remains optional.** PBS-specific navigation should only appear when at least one PBS server is configured.
+- Multi-architecture Docker images: `linux/amd64` and `linux/arm64`, so the panel also runs on ARM boards such as **Raspberry Pi 5** and other SBCs.
 - Integrations must use explicit credentials/tokens, clear health states and safe failure handling.
 - A temporary integration failure must never be interpreted as destructive or definitive infrastructure state.
 - Prefer observability, guided operations and topology over recreating every Proxmox configuration screen.
