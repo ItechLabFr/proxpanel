@@ -7,6 +7,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 - Latest published development release: **1.7.2-beta.5**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
+- Official Docker image architectures: **`linux/amd64` + `linux/arm64`** (Raspberry Pi 64-bit supported).
 - A single X.Y.Z series remains limited to **beta.1 → beta.10**; patch prereleases such as **beta.4.1 / beta.4.2** are allowed for targeted corrections/evolutions without consuming a new beta slot.
 
 The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more complete **HomeLab operations console**, while keeping the application lightweight and avoiding duplication of every native Proxmox feature.
@@ -16,6 +17,7 @@ The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more
 - **Docker first through Portainer.** ProxPanel must not require direct Docker socket access on each host.
 - **Portainer is the first officially supported external integration** for 1.7.2. Portainer Community Edition is the primary validation target; Business Edition remains compatible when the API endpoints used by ProxPanel are compatible.
 - **PBS remains optional.** PBS-specific navigation should only appear when at least one PBS server is configured.
+- **Multi-architecture Docker images are official.** Release images target `linux/amd64` and `linux/arm64`, including Raspberry Pi and other 64-bit ARM systems.
 - Integrations must use explicit credentials/tokens, clear health states and safe failure handling.
 - A temporary integration failure must never be interpreted as destructive or definitive infrastructure state.
 - Prefer observability, guided operations and topology over recreating every Proxmox configuration screen.
