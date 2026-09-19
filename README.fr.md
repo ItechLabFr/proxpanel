@@ -46,7 +46,7 @@ Le développement est **assisté par IA** pour certaines tâches de design, gén
 - Heartbeat OTA minimal respectueux des données d'infrastructure
 - PWA
 - Interface Français / English
-- Déploiement Docker
+- Déploiement Docker sur `linux/amd64` et `linux/arm64` (Raspberry Pi 64 bits et autres systèmes ARM64)
 
 ## Installation rapide avec Docker
 
@@ -80,6 +80,22 @@ docker compose up -d
 ```
 
 Les données persistantes restent dans les volumes Docker après recréation du conteneur.
+
+## Raspberry Pi / ARM64
+
+L'image Docker officielle de ProxPanel est publiée pour `linux/amd64` et `linux/arm64`. Docker sélectionne automatiquement la variante adaptée lors du téléchargement : les mêmes commandes `docker run` et `docker compose up -d` fonctionnent donc sur les serveurs x86_64 et sur les systèmes ARM64 64 bits, notamment les Raspberry Pi 3/4/5 utilisant un OS 64 bits.
+
+Pour vérifier les architectures publiées pour l'image bêta actuelle :
+
+```bash
+docker buildx imagetools inspect itechlab/proxpanel:beta
+```
+
+Le script de publication fourni construit et publie les deux architectures :
+
+```bash
+DOCKERHUB_IMAGE=itechlab/proxpanel ./docker-publish.sh
+```
 
 ## Températures
 
