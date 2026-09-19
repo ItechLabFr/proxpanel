@@ -3,5 +3,5 @@ services:
     build:
       context: .
       args:
-        VERSION: 1.7.2-beta.5
-    image: itechlab/proxpanel:1.7.2-beta.5
+        VERSION: ${PROXPANEL_VERSION:-dev}
+    image: ${PROXPANEL_IMAGE:-proxpanel:local}
