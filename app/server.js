@@ -2542,13 +2542,14 @@ async function runDockerBackgroundAlerts(settings,now=Date.now()) {
   for(const [id,row] of Object.entries(state.incidents||{})){
     if(row.active!==true&&Number(new Date(row.resolvedAt||row.lastSeen||0).getTime()||0)<keepAfter)delete state.incidents[id];
   }
-  const historyScopes={};
+  const historyScopes={},freshSnapshotMaxAge=Math.max(interval*2,10*60*1000);
   for(const [snapshotKey,snapshot] of Object.entries(state.snapshots||{})){
+    if(now-Number(new Date(snapshot?.checkedAt||0).getTime()||0)>freshSnapshotMaxAge)continue;
     const rows=Object.values(snapshot?.containers||{}).map(x=>({state:x.state,health:x.health,stats:x.stats}));
     const envAlerts=Object.values(state.incidents||{}).filter(x=>x?.active===true&&String(x.portainerId||'')===String(snapshot.portainerId||'')&&Number(x.endpointId||0)===Number(snapshot.endpointId||0));
     historyScopes[snapshotKey]=dockerHistoryScopeFromRows(rows,Number(snapshot.cpus||0),Number(snapshot.memoryTotal||0),envAlerts);
   }
-  const allSnapshots=Object.values(state.snapshots||{}),allRows=allSnapshots.flatMap(snapshot=>Object.values(snapshot?.containers||{}).map(x=>({state:x.state,health:x.health,stats:x.stats})));
+  const allSnapshots=Object.values(state.snapshots||{}).filter(snapshot=>now-Number(new Date(snapshot?.checkedAt||0).getTime()||0)<=freshSnapshotMaxAge),allRows=allSnapshots.flatMap(snapshot=>Object.values(snapshot?.containers||{}).map(x=>({state:x.state,health:x.health,stats:x.stats})));
   historyScopes.all=dockerHistoryScopeFromRows(
     allRows,
     allSnapshots.reduce((n,x)=>n+Number(x.cpus||0),0),
