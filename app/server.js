@@ -2660,8 +2660,8 @@ async function buildDependencyGraph(server, auth, dashboard) {
 }
 function listAlertsForDashboard(dashboard, settings) { return computeProblems(dashboard, settings).filter(p=>p.severity==='critical' || p.severity==='warning'); }
 const DISCORD_EVENT_TYPES = [
-  'backup.success','backup.failed','backup.stale','backup.unprotected',
-  'node.offline','node.recovered','task.failed','storage.warning','storage.critical',
+  'backup.success','backup.warning','backup.failed','backup.stale','backup.unprotected',
+  'node.offline','node.recovered','task.warning','task.failed','storage.warning','storage.critical',
   'resources.cpu','resources.memory','temperature.warning','temperature.critical',
   'docker.portainer.unreachable','docker.engine.unreachable','docker.container.stopped','docker.container.unhealthy','docker.container.restarts',
   'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.recovered',
@@ -2670,7 +2670,8 @@ const DISCORD_EVENT_TYPES = [
 function normalizeDiscordEvents(list) {
   const src = Array.isArray(list) ? list : [];
   const out = [...new Set(src.map(String).filter(x => DISCORD_EVENT_TYPES.includes(x)))];
-  return out.length ? out : ['backup.failed','backup.stale','node.offline','task.failed','storage.critical'];
+  if(out.includes('backup.failed')&&!out.includes('backup.warning'))out.push('backup.warning');
+  return out.length ? out : ['backup.warning','backup.failed','backup.stale','node.offline','task.warning','task.failed','storage.critical'];
 }
 function redactDiscordChannel(row) {
   return { id: row.id, name: row.name || 'Discord', enabled: row.enabled !== false, events: normalizeDiscordEvents(row.events), hasWebhook: !!(row.webhookEnc || row.webhook), createdAt: row.createdAt || null };
@@ -2681,6 +2682,7 @@ function problemEventType(problem) {
   if (code === 'backup-stale' || code === 'backup-absent') return 'backup.stale';
   if (code === 'node-offline') return 'node.offline';
   if (code === 'tasks-failed') return 'task.failed';
+  if (code === 'tasks-warning') return 'task.warning';
   if (code === 'storage-critical' || code === 'storage-offline') return 'storage.critical';
   if (code === 'storage-high') return 'storage.warning';
   if (code === 'cpu-high') return 'resources.cpu';
@@ -2699,8 +2701,8 @@ function discordEventColor(eventType, severity='info') {
 }
 function discordEventLabel(type) {
   const labels = {
-    'backup.success':'Sauvegarde réussie','backup.failed':'Sauvegarde échouée','backup.stale':'Sauvegarde en retard','backup.unprotected':'Machine non protégée',
-    'node.offline':'Nœud hors ligne','node.recovered':'Nœud de nouveau en ligne','task.failed':'Tâche échouée','storage.warning':'Stockage en alerte','storage.critical':'Stockage critique',
+    'backup.success':'Sauvegarde réussie','backup.warning':'Sauvegarde avec avertissement','backup.failed':'Sauvegarde échouée','backup.stale':'Sauvegarde en retard','backup.unprotected':'Machine non protégée',
+    'node.offline':'Nœud hors ligne','node.recovered':'Nœud de nouveau en ligne','task.warning':'Tâche avec avertissement','task.failed':'Tâche échouée','storage.warning':'Stockage en alerte','storage.critical':'Stockage critique',
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
     'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.recovered':'Docker rétabli',
@@ -2720,10 +2722,12 @@ function eventIcon(event={}) {
 function defaultRecommendation(event={}) {
   if(event.recommendation)return String(event.recommendation);
   const map={
+    'backup.warning':'Consulte les logs de la tâche de sauvegarde pour identifier l’avertissement et confirmer l’intégrité des sauvegardes.',
     'backup.failed':'Consulte les logs de la tâche de sauvegarde et vérifie le stockage de destination.',
     'backup.stale':'Contrôle le job planifié et relance une sauvegarde si nécessaire.',
     'backup.unprotected':'Ajoute la machine à un job de sauvegarde ou confirme son exclusion volontaire.',
     'node.offline':'Vérifie l’alimentation, le réseau et les services Proxmox du nœud.',
+    'task.warning':'Ouvre ProxPanel → Tâches et consulte le log complet pour identifier l’avertissement.',
     'task.failed':'Ouvre ProxPanel → Tâches et consulte le log complet de la tâche en échec.',
     'storage.warning':'Surveille la croissance du stockage et libère de l’espace avant le seuil critique.',
     'storage.critical':'Libère ou étends le stockage rapidement avant interruption de service.',
@@ -2824,7 +2828,7 @@ function defaultMailTechnicalSource(event={}) {
   const type=String(event.type||'');
   if(type.startsWith('docker.'))return 'Docker / Portainer API';
   if(type.startsWith('pve.update.'))return 'APT / Proxmox API';
-  if(type.startsWith('backup.')||type==='task.failed'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
+  if(type.startsWith('backup.')||type==='task.failed'||type==='task.warning'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
   if(type==='system.update.available')return 'ProxPanel OTA';
   if(type==='auth.2fa.email')return 'ProxPanel Auth';
   return 'ProxPanel';
