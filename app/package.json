@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.2-beta.5",
+  "version": "1.7.2-beta.5.1",
   "private": true,
-  "description": "ProxPanel 1.7.2-beta.5 - Docker Image & Update Management.",
+  "description": "ProxPanel 1.7.2-beta.5.1 - 2FA Strong Re-authentication Security Hotfix.",
   "scripts": {
     "start": "node server.js"
   },
