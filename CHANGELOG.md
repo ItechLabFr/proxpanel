@@ -1,3 +1,23 @@
+# ProxPanel 1.7.2-beta.5.1
+
+## Français
+- Correctif sécurité de l’issue #18 : une session active seule ne peut plus désactiver la 2FA.
+- Ré-authentification forte obligatoire : mot de passe actuel + TOTP actuel.
+- Un administrateur qui réinitialise la 2FA d’un autre compte doit utiliser ses propres facteurs et disposer lui-même d’une 2FA active.
+- 5 échecs de ré-authentification en 15 minutes entraînent un blocage temporaire.
+- Audit succès/échec et e-mail de sécurité au propriétaire lorsque la messagerie est configurée.
+- Nouvelle modale de désactivation 2FA avec saisie des facteurs.
+- Issue #19 évaluée : migration React/Vue/Vite reportée pour 1.7.2, décision documentée.
+
+## English
+- Security fix for issue #18: an active session alone can no longer disable 2FA.
+- Strong re-authentication required: current password + current TOTP.
+- Administrators resetting another account’s 2FA must use their own factors and have 2FA enabled.
+- Five failed re-auth attempts inside 15 minutes trigger a temporary lock.
+- Success/failure audit and owner security email when mail is configured.
+- New 2FA disable modal requiring fresh factors.
+- Issue #19 evaluated: React/Vue/Vite migration deferred for 1.7.2 and documented.
+
 # ProxPanel 1.7.2-beta.5
 
 ## Français
