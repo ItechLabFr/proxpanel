@@ -405,12 +405,12 @@ async function readLmSensorsOverSsh(server,node,host) {
   if(!runtime.ssh)return {temperatureC:null,temperatureStatus:'unavailable',temperatureError:'Client OpenSSH absent de l’image ProxPanel.',temperatureSource:'lm-sensors',...temperatureDiagnostic(
     'ssh-client-missing','Client SSH absent',
     'La commande ssh n’est pas disponible dans le conteneur ProxPanel. La température ne peut pas être lue sur le nœud.',
-    'Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.0-beta.14 ou plus récente.'
+    'Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.2-beta.5 ou plus récente.'
   )};
   if(!runtime.sshpass)return {temperatureC:null,temperatureStatus:'unavailable',temperatureError:'sshpass absent de l’image ProxPanel.',temperatureSource:'lm-sensors',...temperatureDiagnostic(
     'sshpass-missing','Composant SSH incomplet',
     'Le client SSH est présent mais sshpass est absent du conteneur. ProxPanel ne peut pas utiliser le mot de passe PAM configuré.',
-    'Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.0-beta.14 ou plus récente.'
+    'Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.2-beta.5 ou plus récente.'
   )};
   if(!host)return {temperatureC:null,temperatureStatus:'unavailable',temperatureError:'Adresse du nœud introuvable dans Proxmox.',temperatureSource:'lm-sensors',...temperatureDiagnostic(
     'node-address-missing','Adresse du nœud introuvable',
@@ -436,7 +436,7 @@ async function readLmSensorsOverSsh(server,node,host) {
     const raw=String(e?.stderr||e?.message||e||'').trim();
     const msg=raw.split(/\r?\n/).filter(Boolean).slice(-2).join(' · ');
     let diag;
-    if(e?.code==='ENOENT')diag=temperatureDiagnostic('ssh-component-missing','Composant SSH absent','Le processus de collecte SSH ne peut pas être lancé dans le conteneur ProxPanel.','Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.0-beta.14 ou plus récente.');
+    if(e?.code==='ENOENT')diag=temperatureDiagnostic('ssh-component-missing','Composant SSH absent','Le processus de collecte SSH ne peut pas être lancé dans le conteneur ProxPanel.','Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.2-beta.5 ou plus récente.');
     else if(/permission denied|authentication failed|access denied/i.test(raw))diag=temperatureDiagnostic('ssh-auth-failed','Authentification SSH refusée',`Le nœud ${node||host} répond, mais refuse l’authentification du compte ${identity.user}@pam.`,'Vérifie le mot de passe enregistré dans ProxPanel et que ce compte PAM peut ouvrir une session SSH sur le nœud.');
     else if(/sensors:\s*(not found|command not found)|command not found.*sensors|sensors.*command not found|no such file or directory.*sensors/i.test(raw))diag=temperatureDiagnostic('lm-sensors-missing','lm-sensors absent du nœud',`La connexion SSH vers ${node||host} fonctionne, mais la commande « sensors » n’est pas disponible.`,'Installe le paquet lm-sensors sur ce nœud Proxmox puis exécute sensors-detect si nécessaire.');
     else if(/connection timed out|operation timed out|no route to host|network is unreachable|connection refused|could not resolve hostname|name or service not known|connection reset|connection closed/i.test(raw))diag=temperatureDiagnostic('node-unreachable','Nœud injoignable en SSH',`ProxPanel n’arrive pas à ouvrir une connexion SSH vers ${node||host} (${host}).`,'Vérifie que le nœud est joignable depuis le conteneur ProxPanel, que SSH écoute sur le port 22 et qu’aucun pare-feu ne bloque la connexion.');
@@ -3227,7 +3227,7 @@ function mailTestScenario(type,username='admin'){
     'docker.storage.pressure':{subject:'Stockage Docker sous pression',text:'Docker PROD dépasse le seuil de stockage mesurable.',event:{...base,serverName:'Portainer',target:'Docker PROD',details:['Utilisé : 91 %','Source : Docker DriverStatus']}},
     'docker.stack.degraded':{subject:'Stack Docker dégradée',text:'La stack monitoring contient un conteneur en défaut.',event:{...base,serverName:'Portainer',target:'monitoring · Docker PROD',details:['Conteneurs : 3','En défaut : grafana']}},
     'docker.recovered':{subject:'Docker rétabli',text:'La ressource Docker répond de nouveau normalement.',event:{...base,severity:'info',serverName:'Portainer',target:'Docker PROD',details:['Incident résolu : Docker Engine inaccessible']}},
-    'system.update.available':{subject:'Mise à jour ProxPanel disponible',text:`Une nouvelle version de ProxPanel est disponible sur le canal ${updateChannelLabel}.`,event:{...base,serverName:'ProxPanel',target:updateChannel==='stable'?'1.7.0':'1.7.0-beta.14',channel:updateChannel,details:[`Version installée : ${APP_VERSION}`,`Canal sélectionné : ${updateChannelLabel}`,'Signature : vérifiée']}},
+    'system.update.available':{subject:'Mise à jour ProxPanel disponible',text:`Une nouvelle version de ProxPanel est disponible sur le canal ${updateChannelLabel}.`,event:{...base,serverName:'ProxPanel',target:updateChannel==='stable'?'1.7.0':'1.7.2-beta.5',channel:updateChannel,details:[`Version installée : ${APP_VERSION}`,`Canal sélectionné : ${updateChannelLabel}`,'Signature : vérifiée']}},
     'pve.update.available':{subject:'Mises à jour Proxmox disponibles',text:'Des paquets peuvent être mis à jour sur le nœud PVE-PROD01.',event:{...base,target:'PVE-PROD01',details:['Paquets : 14','Sécurité : 0','Redémarrage : non détecté']}},
     'pve.update.security':{subject:'Correctifs de sécurité Proxmox disponibles',text:'Des mises à jour de sécurité sont disponibles sur le nœud PVE-PROD01.',event:{...base,target:'PVE-PROD01',details:['Paquets : 6','Correctifs sécurité : 3','Maintenance recommandée : oui']}},
     'pve.update.manual-report':{subject:'Rapport des mises à jour Proxmox',text:'Le contrôle manuel des mises à jour Proxmox est terminé.',event:{...base,target:'Infrastructure',details:['Nœuds contrôlés : 9','Nœuds à jour : 7','Nœuds avec mises à jour : 2']}},
