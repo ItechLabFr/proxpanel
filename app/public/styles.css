@@ -1866,3 +1866,42 @@ html[data-theme="light"] .docker-tabs button.active{background:#fff!important}
 @media(max-width:1050px){.docker-dashboard-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:720px){.docker-dashboard-grid{grid-template-columns:1fr}.docker-topology-path{grid-template-columns:1fr}.docker-topology-path>b{transform:rotate(90deg);justify-self:center}.docker-dashboard-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.docker-dashboard-kpis{grid-template-columns:1fr}.docker-consumer-row{grid-template-columns:1fr}.docker-consumer-value b{text-align:left}.docker-topology-actions{display:grid;grid-template-columns:1fr}.docker-topology-actions .btn{width:100%;justify-content:center}.topology-suggestion{margin:0}}
+
+
+/* 1.7.2-beta.4.1 · Proxmox-style Docker charts */
+.docker-history-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.docker-range-switch{display:flex;gap:4px;padding:3px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}
+.docker-range-switch button{border:0;border-radius:7px;padding:7px 10px;background:transparent;color:var(--muted);font:inherit;font-size:9px;font-weight:850;cursor:pointer}
+.docker-range-switch button.active{background:var(--accent);color:#fff}
+.docker-history-toolbar label{display:flex;align-items:center;gap:7px;margin-left:auto;color:var(--muted);font-size:9px;font-weight:800}
+.docker-history-toolbar select{min-width:190px;max-width:320px}
+.docker-history-live{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:8px;font-weight:850;white-space:nowrap}
+.docker-history-live i{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 14%,transparent)}
+.docker-history-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.docker-history-chart{overflow:hidden;min-width:0}
+.docker-history-chart>.panel-head{padding:13px 14px 5px}
+.docker-history-chart>.panel-head p{font-size:9px}
+.docker-chart-legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 14px 5px}
+.docker-chart-legend span{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:8px}
+.docker-chart-legend i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.docker-chart-legend b{font-weight:800;color:var(--muted)}
+.docker-chart-legend strong{font-size:10px;color:var(--text)}
+.docker-chart-wrap{height:210px;padding:0 8px 7px}
+.docker-chart-wrap svg{display:block;width:100%;height:100%;overflow:visible}
+.docker-chart-grid-line{stroke:var(--line2);stroke-width:1;vector-effect:non-scaling-stroke}
+.docker-chart-axis-label{fill:var(--muted);font-size:9px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.docker-chart-line{fill:none;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
+.docker-chart-area{stroke:none;opacity:.08}
+.docker-chart-line.tone-cpu{stroke:var(--accent)}.docker-chart-area.tone-cpu{fill:var(--accent)}
+.docker-chart-line.tone-memory{stroke:var(--purple)}.docker-chart-area.tone-memory{fill:var(--purple)}
+.docker-chart-line.tone-rx{stroke:var(--cyan)}.docker-chart-line.tone-tx{stroke:var(--green)}
+.docker-chart-line.tone-running{stroke:var(--green)}.docker-chart-line.tone-stopped{stroke:var(--muted)}
+.docker-chart-line.tone-unhealthy{stroke:var(--red)}.docker-chart-line.tone-incident{stroke:var(--yellow)}
+.docker-chart-legend i.tone-cpu{color:var(--accent)}.docker-chart-legend i.tone-memory{color:var(--purple)}
+.docker-chart-legend i.tone-rx{color:var(--cyan)}.docker-chart-legend i.tone-tx{color:var(--green)}
+.docker-chart-legend i.tone-running{color:var(--green)}.docker-chart-legend i.tone-stopped{color:var(--muted)}
+.docker-chart-legend i.tone-unhealthy{color:var(--red)}.docker-chart-legend i.tone-incident{color:var(--yellow)}
+.docker-chart-empty{display:grid;place-items:center;min-height:190px;color:var(--muted);font-size:10px}
+html[data-theme="light"] .docker-history-toolbar,html[data-theme="light"] .docker-range-switch{background:#fff!important}
+@media(max-width:900px){.docker-history-grid{grid-template-columns:1fr}.docker-chart-wrap{height:190px}}
+@media(max-width:620px){.docker-history-toolbar{display:grid;grid-template-columns:1fr}.docker-range-switch{display:grid;grid-template-columns:repeat(4,1fr)}.docker-history-toolbar label{margin:0;display:grid;grid-template-columns:1fr}.docker-history-toolbar select{max-width:none;width:100%}.docker-history-live{justify-content:flex-start}.docker-chart-wrap{height:175px;padding-left:0;padding-right:0}.docker-chart-axis-label{font-size:8px}}
