@@ -128,7 +128,7 @@ The OTA service receives only:
 ```json
 {
   "installation_id": "persistent-local-uuid",
-  "version": "1.7.2-beta.5",
+  "version": "1.7.2-beta.5.1",
   "update_channel": "beta"
 }
 ```
@@ -206,13 +206,13 @@ Bug reports, focused feature requests and reviewed pull requests are welcome. Se
 
 The public history of the 1.7 branch is available in [`HISTORY.md`](HISTORY.md).
 
-Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.2-beta.5**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
+Historical notes are available from **1.7.0-beta.1** onward. **v1.7.0-beta.14** is the first reproducible GitHub Release. The latest published prerelease is **v1.7.2-beta.5.1**, with full ZIP, OTA ZIP, `release.json` and SHA-256 checksums.
 
 Docker images remain distributed through [Docker Hub](https://hub.docker.com/r/itechlab/proxpanel), while `updates.proxpanel.fr` remains responsible for OTA channels, rollout and revocation.
 
 ## 1.7.2 roadmap
 
-**1.7.2-beta.5 is the active release in this series.** Docker through Portainer now includes an Images & Updates center with inventory, digest checks, manual pulls, pre-redeploy preview, health verification, history and explicit scheduling disabled by default.
+**1.7.2-beta.5.1 is the active release in this series.** It keeps the Docker Images & Updates features from beta.5 and adds strong re-authentication before disabling 2FA, sensitive-action throttling and security notification to the account owner.
 
 
 The active **1.7.2-beta.x** series focuses on multi-platform HomeLab operations:
@@ -231,9 +231,9 @@ See [`ROADMAP.md`](ROADMAP.md) for the beta.1 → beta.10 plan.
 
 ## Project status
 
-Latest published development release: **1.7.2-beta.5**
+Latest published development release: **1.7.2-beta.5.1**
 
-Latest published GitHub Release: **1.7.2-beta.5**
+Latest published GitHub Release: **1.7.2-beta.5.1**
 
 Current development series: **1.7.2-beta.x** — Portainer/Docker, optional PBS, Automations, RBAC/Audit and Health Center. Maximum 10 betas per version series.
 
