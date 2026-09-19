@@ -3,10 +3,21 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {
-  backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
+  classifyProxmoxTaskStatus,backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
   normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,
   parseDockerSizeBytes,dockerDiskPressureFromInfo,dockerIncidentTransition
 }=require('../app/lib/reliability');
+
+
+
+test('Proxmox task status distinguishes warnings from failures',()=>{
+  assert.deepEqual(classifyProxmoxTaskStatus('OK'),{kind:'success',severity:'info',raw:'OK',warningCount:0});
+  assert.equal(classifyProxmoxTaskStatus('WARNINGS: 1').kind,'warning');
+  assert.equal(classifyProxmoxTaskStatus('WARNINGS: 1').warningCount,1);
+  assert.equal(classifyProxmoxTaskStatus('WARNING').severity,'warning');
+  assert.equal(classifyProxmoxTaskStatus('ERROR: storage unavailable').kind,'failure');
+  assert.equal(classifyProxmoxTaskStatus('ERROR: storage unavailable').severity,'critical');
+});
 
 test('daily backup around 24h stays healthy with a 36h threshold',()=>{
   const now=2_000_000;
