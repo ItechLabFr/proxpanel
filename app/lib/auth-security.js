@@ -1,7 +1,7 @@
 'use strict';
 
 function normalizeReauthCode(value='') {
-  return String(value||'').replace(/\D/g,'').slice(0,6);
+  return String(value||'').replace(/\D/g,'');
 }
 
 function strongReauthAllowed(actor,credentials={},verifiers={}) {
