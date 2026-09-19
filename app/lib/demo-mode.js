@@ -288,6 +288,43 @@ function demoDockerOverview() {
   };
 }
 
+function demoDockerImages(endpointId=1) {
+  const now=Math.floor(Date.now()/1000),containers=demoDockerContainers(endpointId);
+  const make=(reference,opts={})=>{
+    const usages=containers.filter(x=>x.image===reference).map(x=>({id:x.id,name:x.name,image:x.image,imageId:`sha256:${x.id.padEnd(64,'0').slice(0,64)}`,stack:x.stack||'',state:x.state,needsRedeploy:!!opts.redeployRequired}));
+    const stacks=[...new Set(usages.map(x=>x.stack).filter(Boolean))];
+    const status=opts.status||{kind:'up-to-date',label:'À jour',tone:'ok',updateAvailable:false,pullAvailable:false,redeployRequired:false};
+    return {key:`demo:${endpointId}:${reference}`,reference,pullRef:reference,repository:reference.replace(/:[^/:]+$/,''),tag:(reference.match(/:([^/:]+)$/)||[])[1]||'latest',digest:'',currentImageIds:[opts.currentId||`sha256:${reference.length.toString(16).padStart(64,'0')}`],currentImageId:opts.currentId||`sha256:${reference.length.toString(16).padStart(64,'0')}`,currentDigest:opts.localDigest||'sha256:1111111111111111111111111111111111111111111111111111111111111111',pulledImageId:opts.pulledId||opts.currentId||`sha256:${reference.length.toString(16).padStart(64,'0')}`,pulledDigest:opts.pulledDigest||opts.localDigest||'sha256:1111111111111111111111111111111111111111111111111111111111111111',remoteDigest:opts.remoteDigest||opts.localDigest||'sha256:1111111111111111111111111111111111111111111111111111111111111111',checkedAt:new Date(Date.now()-18*60*1000).toISOString(),checkError:opts.checkError||'',status,usages:usages.map(x=>({...x,needsRedeploy:!!opts.redeployRequired})),stacks,used:true,dangling:false,size:opts.size||420*1024*1024,created:now-86400*(opts.ageDays||21)};
+  };
+  const updateStatus={kind:'update-available',label:'Mise à jour disponible',tone:'warning',updateAvailable:true,pullAvailable:true,redeployRequired:false};
+  const redeployStatus={kind:'redeploy-required',label:'Image téléchargée · redeploy requis',tone:'warning',updateAvailable:true,pullAvailable:false,redeployRequired:true};
+  const unknownStatus={kind:'unknown',label:'Vérification impossible',tone:'neutral',updateAvailable:false,pullAvailable:true,redeployRequired:false};
+  const rows=Number(endpointId)===2?[
+    make('grafana/grafana:12.1.0',{ageDays:58}),
+    make('influxdb:2.7',{status:updateStatus,remoteDigest:'sha256:2222222222222222222222222222222222222222222222222222222222222222',ageDays:58}),
+    make('n8nio/n8n:latest',{status:redeployStatus,redeployRequired:true,pulledId:'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',pulledDigest:'sha256:3333333333333333333333333333333333333333333333333333333333333333',remoteDigest:'sha256:3333333333333333333333333333333333333333333333333333333333333333',ageDays:21}),
+    make('requarks/wiki:2',{ageDays:73}),
+    make('itzg/minecraft-server:latest',{status:unknownStatus,checkError:'Registry authentication required',ageDays:15})
+  ]:[
+    make('jc21/nginx-proxy-manager:latest',{status:updateStatus,remoteDigest:'sha256:4444444444444444444444444444444444444444444444444444444444444444',ageDays:46}),
+    make('portainer/portainer-ce:lts',{ageDays:80}),
+    make('louislam/uptime-kuma:2',{ageDays:65}),
+    make('vaultwarden/server:latest',{status:redeployStatus,redeployRequired:true,pulledId:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',pulledDigest:'sha256:5555555555555555555555555555555555555555555555555555555555555555',remoteDigest:'sha256:5555555555555555555555555555555555555555555555555555555555555555',ageDays:52}),
+    make('lscr.io/linuxserver/bookstack:latest',{status:unknownStatus,checkError:'Distribution inspect non disponible pour ce registre',ageDays:32}),
+    make('mariadb:11',{ageDays:32}),
+    make('traefik/whoami:latest',{ageDays:4})
+  ];
+  rows.push({key:`demo:${endpointId}:dangling`,reference:'sha256:deadbeefcafe',pullRef:'',repository:'',tag:'',digest:'',currentImageIds:[],currentImageId:'',currentDigest:'',pulledImageId:'sha256:deadbeefcafe0000000000000000000000000000000000000000000000000000',pulledDigest:'',remoteDigest:'',checkedAt:'',checkError:'',status:{kind:'unused',label:'Dangling',tone:'neutral',updateAvailable:false,pullAvailable:false,redeployRequired:false},usages:[],stacks:[],used:false,dangling:true,size:186*1024*1024,created:now-86400*90,repoTags:[],repoDigests:[]});
+  return {generatedAt:new Date().toISOString(),portainerId:'demo-portainer',portainerName:'Portainer CE · Démo',endpointId:Number(endpointId),summary:{total:rows.length,used:rows.filter(x=>x.used).length,updateAvailable:rows.filter(x=>x.status.kind==='update-available').length,redeployRequired:rows.filter(x=>x.status.kind==='redeploy-required').length,unused:rows.filter(x=>!x.used).length,dangling:rows.filter(x=>x.dangling).length,unknown:rows.filter(x=>x.status.kind==='unknown').length},images:rows,window:{open:false,window:null,timeZone:'Europe/Paris',localTime:'22:00',day:6}};
+}
+
+function demoDockerUpdateHistory(endpointId=1) {
+  const now=Date.now();
+  return [
+    {id:`demo-hist-${endpointId}-1`,at:new Date(now-86400000).toISOString(),action:'pull',status:'ok',portainerId:'demo-portainer',portainerName:'Portainer CE · Démo',endpointId:Number(endpointId),environmentName:Number(endpointId)===2?'DOCKER-LAB':'DOCKER-PROD',reference:Number(endpointId)===2?'n8nio/n8n:latest':'vaultwarden/server:latest',target:'image',details:{result:'Image téléchargée',redeployRequired:true}},
+    {id:`demo-hist-${endpointId}-2`,at:new Date(now-2*86400000).toISOString(),action:'redeploy',status:'ok',portainerId:'demo-portainer',portainerName:'Portainer CE · Démo',endpointId:Number(endpointId),environmentName:Number(endpointId)===2?'DOCKER-LAB':'DOCKER-PROD',reference:Number(endpointId)===2?'grafana/grafana:12.1.0':'portainer/portainer-ce:lts',target:'stack',details:{health:'healthy',durationSeconds:18}}
+  ];
+}
 function demoDockerContainerDetails(endpointId,containerId) {
   const row=demoDockerContainers(endpointId).find(c=>c.id===String(containerId));
   if(!row)return null;
@@ -338,5 +375,7 @@ module.exports = {
   demoDockerContainers,
   demoDockerStacks,
   demoDockerContainerDetails,
-  demoDockerLogs
+  demoDockerLogs,
+  demoDockerImages,
+  demoDockerUpdateHistory
 };
