@@ -2751,6 +2751,33 @@ async function runDockerBackgroundAlerts(settings,now=Date.now()) {
   state.checkedAt=new Date(now).toISOString();saveDockerMonitorState(state);
 }
 
+async function runDockerScheduledUpdateQueue(settings=getSettings(),now=Date.now()) {
+  const cfg=settings?.dockerUpdates||{};if(DEMO_MODE||cfg.scheduledActionsEnabled!==true)return;
+  const window=dockerUpdateWindowMatch(settings,new Date(now));if(!window.open)return;
+  const state=dockerUpdateState(),job=state.queue.find(x=>x&&x.status==='queued');if(!job)return;
+  job.status='running';job.startedAt=new Date(now).toISOString();saveDockerUpdateState(state);
+  const item=findPortainerIntegration(job.portainerId);
+  try{
+    if(!item)throw new Error('Intégration Portainer introuvable.');
+    const endpointId=dockerEndpointId(job.endpointId),reference=String(job.reference||'').trim();
+    if(reference)await dockerPullImage(item,endpointId,reference);
+    let result;
+    if(job.targetType==='stack')result=await redeployPortainerStack(item,endpointId,Number(job.stackId||0),{pullImage:false,verify:true});
+    else if(job.targetType==='container')result=await redeployStandaloneContainer(item,endpointId,dockerObjectId(job.containerId||''),{reference});
+    else throw new Error('Type de cible planifiée invalide.');
+    if(result?.health&&result.health.ok===false)throw new Error('La vérification de santé après redeploy a échoué.');
+    job.status='completed';job.completedAt=new Date().toISOString();job.result={health:result?.health||null,newContainerId:result?.newContainerId||''};
+    recordDockerUpdateHistory({action:'scheduled-redeploy',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName:job.environmentName,reference,target:job.targetType==='stack'?`stack:${job.stackId}`:`container:${job.containerId}`,details:{jobId:job.id,window:window.window,health:result?.health||null}});
+    await sendAlertChannels(settings,'Mise à jour Docker planifiée terminée',`${job.targetLabel||job.reference||'La cible Docker'} a été mise à jour dans le créneau de maintenance.`,{type:'docker.image.redeploy.success',severity:'info',serverName:item.name||'Portainer',target:job.targetLabel||job.reference||'',details:[`Environnement: ${job.environmentName||endpointId}`,`Image: ${reference||'—'}`,`Créneau: ${window.window.start}–${window.window.end}`],source:'ProxPanel Docker Update Scheduler'});
+    addAuditSystem('docker.update.scheduled',job.targetLabel||job.id,{jobId:job.id,status:'completed',reference},'ok');
+  }catch(e){
+    job.status='failed';job.completedAt=new Date().toISOString();job.error=String(e.message||e);
+    recordDockerUpdateHistory({action:'scheduled-redeploy',status:'error',portainerId:job.portainerId,portainerName:item?.name||'',endpointId:job.endpointId,environmentName:job.environmentName,reference:job.reference,target:job.targetLabel||'',details:{jobId:job.id,error:job.error,window:window.window}});
+    await sendAlertChannels(settings,'Échec d’une mise à jour Docker planifiée',`${job.targetLabel||job.reference||'Une cible Docker'} n’a pas pu être mise à jour.`,{type:'docker.image.update.failed',severity:'critical',serverName:item?.name||'Portainer',target:job.targetLabel||job.reference||'',error:job.error,details:[`Environnement: ${job.environmentName||job.endpointId}`,`Image: ${job.reference||'—'}`,`Créneau: ${window.window.start}–${window.window.end}`],source:'ProxPanel Docker Update Scheduler',recommendation:'Consulte l’historique Docker et les logs avant de replanifier cette mise à jour.'});
+    addAuditSystem('docker.update.scheduled',job.targetLabel||job.id,{jobId:job.id,status:'failed',error:job.error},'error');
+  }
+  const latest=dockerUpdateState(),idx=latest.queue.findIndex(x=>x.id===job.id);if(idx>=0)latest.queue[idx]=job;saveDockerUpdateState(latest);
+}
 async function runDockerImageUpdateWorker(settings=getSettings(),now=Date.now()) {
   const cfg=settings?.dockerUpdates||{};if(DEMO_MODE||cfg.autoCheckEnabled!==true)return;
   const initial=dockerUpdateState(),interval=Math.max(1,Math.min(168,Number(cfg.checkIntervalHours||12)))*60*60*1000;
@@ -4952,6 +4979,19 @@ async function handleApi(req, res, url) {
     const cfg=getSettings(),state=dockerUpdateState();
     return sendJson(res,200,{settings:cfg.dockerUpdates||{},window:dockerUpdateWindowMatch(cfg),lastAutoCheckAt:state.lastAutoCheckAt||0,lastAutoCheckError:state.lastAutoCheckError||'',queue:state.queue||[]});
   }
+  if(url.pathname==='/api/docker/update-queue'&&req.method==='POST'){
+    const settings=getSettings();if(settings?.dockerUpdates?.scheduledActionsEnabled!==true)return sendJson(res,409,{error:'Les actions Docker planifiées sont désactivées. Active-les d’abord dans les paramètres Docker.'});
+    const body=await readBody(req),targetType=String(body.targetType||''),reference=String(body.reference||'').trim(),portainerId=String(body.portainerId||''),endpointId=Number(body.endpointId||0);
+    if(!findPortainerIntegration(portainerId))return sendJson(res,404,{error:'Portainer introuvable.'});
+    if(!Number.isInteger(endpointId)||endpointId<=0||!['stack','container'].includes(targetType))return sendJson(res,400,{error:'Cible Docker planifiée invalide.'});
+    if(targetType==='stack'&&!Number(body.stackId||0))return sendJson(res,400,{error:'stackId requis.'});
+    if(targetType==='container'&&!String(body.containerId||''))return sendJson(res,400,{error:'containerId requis.'});
+    const state=dockerUpdateState(),job={id:crypto.randomUUID(),status:'queued',createdAt:new Date().toISOString(),createdBy:session.username,portainerId,endpointId,environmentName:String(body.environmentName||`Environment ${endpointId}`),reference,targetType,stackId:targetType==='stack'?Number(body.stackId):null,containerId:targetType==='container'?String(body.containerId):'',targetLabel:String(body.targetLabel||'').slice(0,200)};
+    state.queue.unshift(job);state.queue=state.queue.slice(0,200);saveDockerUpdateState(state);audit(req,'docker.update.queue',job.targetLabel||job.id,{jobId:job.id,reference,targetType,endpointId});return sendJson(res,201,{job,window:dockerUpdateWindowMatch(settings)});
+  }
+  if(url.pathname==='/api/docker/update-queue/cancel'&&req.method==='POST'){
+    const body=await readBody(req),id=String(body.id||''),state=dockerUpdateState(),job=state.queue.find(x=>x.id===id);if(!job)return sendJson(res,404,{error:'Action planifiée introuvable.'});if(job.status!=='queued')return sendJson(res,409,{error:'Seules les actions encore en attente peuvent être annulées.'});job.status='cancelled';job.completedAt=new Date().toISOString();saveDockerUpdateState(state);audit(req,'docker.update.cancel',job.targetLabel||id,{jobId:id});return sendJson(res,200,{ok:true,job});
+  }
   const dockerImagesMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/images$/);
   if(dockerImagesMatch&&req.method==='GET'){
     const item=findPortainerIntegration(dockerImagesMatch[1]);if(!item&&!DEMO_MODE)return sendJson(res,404,{error:'Portainer introuvable.'});
@@ -5182,6 +5222,7 @@ async function buildBackgroundDashboard(server, auth) {
 async function runBackgroundAlerts() {
   const settings=getSettings(),now=Date.now();
   try{await runDockerImageUpdateWorker(settings,now);}catch(e){addAuditSystem('docker.images.auto-check','Docker',{error:e.message},'error');}
+  try{await runDockerScheduledUpdateQueue(settings,now);}catch(e){addAuditSystem('docker.update.scheduler','Docker',{error:e.message},'error');}
   if(settings.alerts?.enabled===false)return;
   const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
   try{await runDockerBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.docker.poll','Docker',{error:e.message},'error');}
