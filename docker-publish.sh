@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 IMAGE="${DOCKERHUB_IMAGE:-itechlab/proxpanel}"
-VERSION="1.7.2-beta.5"
+VERSION="${PROXPANEL_VERSION:-$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' app/package.json | head -n 1)}"
+[ -n "$VERSION" ] || { echo "Impossible de déterminer la version depuis app/package.json" >&2; exit 1; }
 
 docker buildx inspect proxpanel-builder >/dev/null 2>&1 || docker buildx create --name proxpanel-builder --use
 docker buildx use proxpanel-builder
