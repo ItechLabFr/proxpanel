@@ -4,10 +4,10 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.4**
+- Latest published development release: **1.7.2-beta.4.1**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
-- A single X.Y.Z series remains limited to **beta.1 → beta.10**.
+- A single X.Y.Z series remains limited to **beta.1 → beta.10**; patch prereleases such as **beta.4.1** are allowed for targeted corrections/evolutions without consuming a new beta slot.
 
 The 1.7.2 series shifts ProxPanel from a monitoring-oriented panel toward a more complete **HomeLab operations console**, while keeping the application lightweight and avoiding duplication of every native Proxmox feature.
 
@@ -147,6 +147,19 @@ Domain
 
 - A Docker environment can always be manually corrected/reassigned.
 - Topology remains useful with several PVE servers and several Docker hosts.
+
+---
+
+### 1.7.2-beta.4.1 — Docker Metrics Dashboard
+
+Status: **implemented for publication**.
+
+- Proxmox-style historical Docker charts.
+- CPU, memory, network RX/TX and container-state history.
+- 1 h / 24 h / 7 d / 30 d ranges.
+- Global or per-environment scope.
+- Persistent 32-day local metric history with downsampling.
+- Live refresh and responsive PWA/mobile layout.
 
 ---
 
