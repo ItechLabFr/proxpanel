@@ -4,7 +4,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.3**
+- Latest published development release: **1.7.2-beta.4**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
 - A single X.Y.Z series remains limited to **beta.1 → beta.10**.
@@ -113,7 +113,12 @@ Status: **implemented for publication**.
 
 ---
 
-## 1.7.2-beta.4 — Proxmox ↔ Docker Topology
+## 1.7.2-beta.4 — Docker Dashboard & Proxmox ↔ Docker Topology
+
+Status: **implemented for publication**.
+
+- Add a consolidated Docker Dashboard with container/stack health and top CPU/RAM consumers.
+- Keep missing Docker metrics explicitly unavailable instead of estimating them.
 
 Create a topology model linking infrastructure layers.
 
