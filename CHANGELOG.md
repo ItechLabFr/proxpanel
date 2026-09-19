@@ -1,3 +1,27 @@
+# ProxPanel 1.7.2-beta.4.3
+
+## Français
+- Correction de `WARNINGS: n` : avertissement et non échec critique.
+- Classification centralisée des statuts de tâches Proxmox.
+- Health Score : les warnings ne sont plus comptés comme des échecs.
+- Nouveau type `backup.warning`.
+- Diagnostics warning/critical enrichis sur e-mail, Discord, Telegram et webhook.
+- Statut brut, type de tâche, utilisateur, horaires, durée, UPID, VMID/CT et logs lorsque disponibles.
+- Centre Notifications/PWA enrichi pour les warnings de sauvegarde.
+- Suppression des doublons tâche/backup pour `vzdump`.
+- Redaction centrale des secrets avant envoi.
+
+## English
+- Fixed `WARNINGS: n` classification: warning instead of critical failure.
+- Centralized Proxmox task status classification.
+- Health Score no longer counts warnings as failures.
+- New `backup.warning` event type.
+- Rich warning/critical diagnostics across email, Discord, Telegram and webhooks.
+- Raw status, task metadata, UPID, detected VMIDs/CTs and log excerpts when available.
+- Backup warnings surfaced in Notifications/PWA.
+- Removed duplicate generic task + backup alerts for `vzdump`.
+- Central secret redaction before delivery.
+
 # ProxPanel 1.7.2-beta.4.2
 
 ## Français

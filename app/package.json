@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.2-beta.4.2",
+  "version": "1.7.2-beta.4.3",
   "private": true,
-  "description": "ProxPanel 1.7.2-beta.4.2 - Mail Diagnostics & Logs.",
+  "description": "ProxPanel 1.7.2-beta.4.3 - Backup Warning Classification & Rich Diagnostics.",
   "scripts": {
     "start": "node server.js"
   },

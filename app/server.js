@@ -14,7 +14,7 @@ const { URL } = require('url');
 const QRCode = require('./vendor/QRCode');
 const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
 const {
-  backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
+  classifyProxmoxTaskStatus,backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
   normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,
   dockerDiskPressureFromInfo,dockerIncidentTransition
 } = require('./lib/reliability');
@@ -1554,12 +1554,14 @@ function calcDashboard(resources, tasks = [], backupJobs = [], rrdByNode = []) {
   const history = calcRrdHistory(rrdByNode);
   const networkLatest = history.network.length ? history.network[history.network.length - 1].value : null;
   const activeTasks = (Array.isArray(tasks) ? tasks : []).filter(t => !Number(t.endtime || 0));
-  const failedTasks = (Array.isArray(tasks) ? tasks : []).filter(t => Number(t.endtime || 0) && t.status && String(t.status).toUpperCase() !== 'OK');
+  const completedTasks=(Array.isArray(tasks)?tasks:[]).filter(t=>Number(t.endtime||0)&&t.status);
+  const failedTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='failure');
+  const warningTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='warning');
   const onlineNodes = nodes.filter(n => n.status === 'online' || n.status === 'unknown').length;
   const healthyStorages = storages.filter(s => s.status === 'available' || s.status === 'active' || s.status === 'unknown' || !s.status).length;
   const nodePenalty = nodes.length ? Math.round((nodes.length - onlineNodes) / nodes.length * 45) : 45;
   const storagePenalty = storages.length ? Math.round((storages.length - healthyStorages) / storages.length * 25) : 0;
-  const taskPenalty = Math.min(20, failedTasks.length * 4);
+  const taskPenalty = Math.min(20, failedTasks.length * 4 + warningTasks.length);
   const healthScore = Math.max(0, 100 - nodePenalty - storagePenalty - taskPenalty);
   return {
     collectedAt: new Date().toISOString(),
@@ -1578,7 +1580,7 @@ function calcDashboard(resources, tasks = [], backupJobs = [], rrdByNode = []) {
       memoryCommitPct: maxmem ? Number((allocatedMemory / maxmem * 100).toFixed(1)) : 0
     },
     history,
-    health: { score: healthScore, onlineNodes, totalNodes: nodes.length, healthyStorages, totalStorages: storages.length, activeTasks: activeTasks.length, failedTasks: failedTasks.length },
+    health: { score: healthScore, onlineNodes, totalNodes: nodes.length, healthyStorages, totalStorages: storages.length, activeTasks: activeTasks.length, failedTasks: failedTasks.length, warningTasks: warningTasks.length },
     nodes: nodes.map(n => ({ node: n.node, status: n.status, cpu: n.cpu, maxcpu: n.maxcpu || 0, mem: n.mem, maxmem: n.maxmem, uptime: n.uptime, disk: n.disk || 0, maxdisk: n.maxdisk || 0 })),
     machines: guests.map(g => ({
       vmid: g.vmid, name: g.name || `${g.type}-${g.vmid}`, type: g.type, status: g.status,
@@ -1626,14 +1628,15 @@ function mergeDashboardParts(parts=[],groupName='Vue infrastructure') {
   const allocatedCores=valid.reduce((a,p)=>a+Number(p.metrics?.allocatedCores||0),0), allocatedMemory=valid.reduce((a,p)=>a+Number(p.metrics?.allocatedMemory||0),0), guestDiskAllocated=valid.reduce((a,p)=>a+Number(p.metrics?.guestDiskAllocated||0),0), guestDiskUsed=valid.reduce((a,p)=>a+Number(p.metrics?.guestDiskUsed||0),0);
   const networkVals=valid.map(p=>Number(p.metrics?.networkMbps)).filter(Number.isFinite), networkMbps=networkVals.length?Number(networkVals.reduce((a,b)=>a+b,0).toFixed(3)):null;
   const temperatureVals=nodes.map(n=>Number(n.temperatureC)).filter(Number.isFinite),temperatureMaxC=temperatureVals.length?Number(Math.max(...temperatureVals).toFixed(1)):null,temperatureAvgC=temperatureVals.length?Number((temperatureVals.reduce((a,b)=>a+b,0)/temperatureVals.length).toFixed(1)):null;
-  const onlineNodes=nodes.filter(n=>n.status==='online'||n.status==='unknown').length, healthyStorages=storages.filter(st=>!st.status||['available','active','unknown'].includes(String(st.status))).length, failedTasks=tasks.filter(t=>Number(t.endtime||0)&&t.status&&String(t.status).toUpperCase()!=='OK').length, activeTasks=tasks.filter(t=>!Number(t.endtime||0)).length;
-  const nodePenalty=nodes.length?Math.round((nodes.length-onlineNodes)/nodes.length*45):45, storagePenalty=storages.length?Math.round((storages.length-healthyStorages)/storages.length*25):0, taskPenalty=Math.min(20,failedTasks*4);
+  const onlineNodes=nodes.filter(n=>n.status==='online'||n.status==='unknown').length, healthyStorages=storages.filter(st=>!st.status||['available','active','unknown'].includes(String(st.status))).length;
+  const completedTasks=tasks.filter(t=>Number(t.endtime||0)&&t.status),failedTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='failure').length,warningTasks=completedTasks.filter(t=>classifyProxmoxTaskStatus(t.status).kind==='warning').length,activeTasks=tasks.filter(t=>!Number(t.endtime||0)).length;
+  const nodePenalty=nodes.length?Math.round((nodes.length-onlineNodes)/nodes.length*45):45, storagePenalty=storages.length?Math.round((storages.length-healthyStorages)/storages.length*25):0, taskPenalty=Math.min(20,failedTasks*4+warningTasks);
   const backup={jobs:valid.flatMap(p=>p.backup?.jobs||[]),protectedCount:valid.reduce((a,p)=>a+Number(p.backup?.protectedCount||0),0),unprotectedCount:valid.reduce((a,p)=>a+Number(p.backup?.unprotectedCount||0),0),unprotected:valid.flatMap(p=>p.backup?.unprotected||[]),machines:valid.flatMap(p=>p.backup?.machines||[]),inventory:valid.flatMap(p=>p.backup?.inventory||[])};
   return {
     grouped:true,groupName,collectedAt:new Date().toISOString(),
     metrics:{cpu:cores?Number((cpuWeighted/cores).toFixed(1)):0,cores,memoryPct:memoryTotal?Number((memoryUsed/memoryTotal*100).toFixed(1)):0,memoryUsed,memoryTotal,storagePct:storageTotal?Number((storageUsed/storageTotal*100).toFixed(1)):0,storageUsed,storageTotal,networkMbps,temperatureMaxC,temperatureAvgC,temperatureAvailableNodes:temperatureVals.length,allocatedCores,allocatedMemory,guestDiskAllocated,guestDiskUsed,coreCommitPct:cores?Number((allocatedCores/cores*100).toFixed(1)):0,memoryCommitPct:memoryTotal?Number((allocatedMemory/memoryTotal*100).toFixed(1)):0},
     history:{cpu:mergeHistorySeries(valid,'cpu','avg'),memory:mergeHistorySeries(valid,'memory','avg'),storage:mergeHistorySeries(valid,'storage','avg'),network:mergeHistorySeries(valid,'network','sum')},
-    health:{score:Math.max(0,100-nodePenalty-storagePenalty-taskPenalty),onlineNodes,totalNodes:nodes.length,healthyStorages,totalStorages:storages.length,activeTasks,failedTasks},
+    health:{score:Math.max(0,100-nodePenalty-storagePenalty-taskPenalty),onlineNodes,totalNodes:nodes.length,healthyStorages,totalStorages:storages.length,activeTasks,failedTasks,warningTasks},
     nodes,machines,storages,tasks,backup,problems:valid.flatMap(p=>p.problems||[]),capacity:{memory:{status:'collecting',samples:0},storage:{status:'collecting',samples:0}},server:{name:groupName,grouped:true}
   };
 }
@@ -1800,11 +1803,29 @@ function computeProblems(dashboard, settings) {
       ]
     });
   }
-  const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&String(t.status).toUpperCase()!=='OK').slice(0,12);
-  if (failed.length) add('warning','tasks-failed','Tâches en erreur', `${failed.length} tâche(s) récente(s) en échec`, 'cluster', {
+  const backupWarnings=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&String(t.type||'').toLowerCase()==='vzdump'&&classifyProxmoxTaskStatus(t.status).kind==='warning').slice(0,12);
+  if(backupWarnings.length)add('warning','backup-task-warning','Sauvegarde avec avertissement',`${backupWarnings.length} job(s) vzdump récent(s) terminé(s) avec avertissement`,'backup',{
+    route:'backups',recommendation:'Consulte le log du job pour identifier les avertissements et confirmer que toutes les machines attendues ont bien été sauvegardées.',
+    facts:[{label:'Jobs avec avertissement',value:String(backupWarnings.length)},{label:'Dernier statut',value:String(backupWarnings[0]?.status||'WARNINGS')}],
+    items:backupWarnings.map(t=>({label:t.id?`VM/LXC ${t.id}`:'Job vzdump',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'warning'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
+  });
+  const backupFailures=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&String(t.type||'').toLowerCase()==='vzdump'&&classifyProxmoxTaskStatus(t.status).kind==='failure').slice(0,12);
+  if(backupFailures.length)add('critical','backup-task-failed','Sauvegarde échouée',`${backupFailures.length} job(s) vzdump récent(s) en échec`,'backup',{
+    route:'backups',recommendation:'Consulte immédiatement les logs du job et vérifie le stockage de destination avant la prochaine fenêtre de sauvegarde.',
+    facts:[{label:'Jobs en échec',value:String(backupFailures.length)},{label:'Dernier statut',value:String(backupFailures[0]?.status||'ERROR')}],
+    items:backupFailures.map(t=>({label:t.id?`VM/LXC ${t.id}`:'Job vzdump',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'erreur'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
+  });
+  const failed=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&classifyProxmoxTaskStatus(t.status).kind==='failure'&&String(t.type||'').toLowerCase()!=='vzdump').slice(0,12);
+  if (failed.length) add('critical','tasks-failed','Tâches en erreur', `${failed.length} tâche(s) récente(s) en échec`, 'cluster', {
     route:'tasks', recommendation:'Consulte les logs des tâches ci-dessous. Les erreurs de backup, migration ou stockage sont souvent explicites dans les dernières lignes.',
     facts:[{label:'Tâches en échec',value:String(failed.length)},{label:'Période',value:'tâches récentes remontées par Proxmox'}],
     items:failed.map(t=>({label:t.type||t.id||'Tâche Proxmox',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'erreur'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
+  });
+  const warnings=(dashboard?.tasks||[]).filter(t=>Number(t.endtime||0)>0&&t.status&&classifyProxmoxTaskStatus(t.status).kind==='warning'&&String(t.type||'').toLowerCase()!=='vzdump').slice(0,12);
+  if(warnings.length)add('warning','tasks-warning','Tâches avec avertissement',`${warnings.length} tâche(s) récente(s) terminée(s) avec avertissement`,'cluster',{
+    route:'tasks',recommendation:'Consulte les logs pour identifier les avertissements et confirmer qu’aucune action corrective n’est nécessaire.',
+    facts:[{label:'Tâches avec avertissement',value:String(warnings.length)},{label:'Période',value:'tâches récentes remontées par Proxmox'}],
+    items:warnings.map(t=>({label:t.type||t.id||'Tâche Proxmox',meta:`${t.node||'nœud inconnu'} · ${t.user||'utilisateur inconnu'} · ${t.status||'warning'} · ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'heure inconnue'}`,upid:t.upid||''}))
   });
   return problems;
 }
@@ -2651,8 +2672,8 @@ async function buildDependencyGraph(server, auth, dashboard) {
 }
 function listAlertsForDashboard(dashboard, settings) { return computeProblems(dashboard, settings).filter(p=>p.severity==='critical' || p.severity==='warning'); }
 const DISCORD_EVENT_TYPES = [
-  'backup.success','backup.failed','backup.stale','backup.unprotected',
-  'node.offline','node.recovered','task.failed','storage.warning','storage.critical',
+  'backup.success','backup.warning','backup.failed','backup.stale','backup.unprotected',
+  'node.offline','node.recovered','task.warning','task.failed','storage.warning','storage.critical',
   'resources.cpu','resources.memory','temperature.warning','temperature.critical',
   'docker.portainer.unreachable','docker.engine.unreachable','docker.container.stopped','docker.container.unhealthy','docker.container.restarts',
   'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.recovered',
@@ -2661,7 +2682,9 @@ const DISCORD_EVENT_TYPES = [
 function normalizeDiscordEvents(list) {
   const src = Array.isArray(list) ? list : [];
   const out = [...new Set(src.map(String).filter(x => DISCORD_EVENT_TYPES.includes(x)))];
-  return out.length ? out : ['backup.failed','backup.stale','node.offline','task.failed','storage.critical'];
+  if(out.includes('backup.failed')&&!out.includes('backup.warning'))out.push('backup.warning');
+  if(out.includes('task.failed')&&!out.includes('task.warning'))out.push('task.warning');
+  return out.length ? out : ['backup.warning','backup.failed','backup.stale','node.offline','task.warning','task.failed','storage.critical'];
 }
 function redactDiscordChannel(row) {
   return { id: row.id, name: row.name || 'Discord', enabled: row.enabled !== false, events: normalizeDiscordEvents(row.events), hasWebhook: !!(row.webhookEnc || row.webhook), createdAt: row.createdAt || null };
@@ -2670,8 +2693,11 @@ function problemEventType(problem) {
   const code = String(problem?.code || '');
   if (code === 'backup-missing') return 'backup.unprotected';
   if (code === 'backup-stale' || code === 'backup-absent') return 'backup.stale';
+  if (code === 'backup-task-warning') return 'backup.warning';
+  if (code === 'backup-task-failed') return 'backup.failed';
   if (code === 'node-offline') return 'node.offline';
   if (code === 'tasks-failed') return 'task.failed';
+  if (code === 'tasks-warning') return 'task.warning';
   if (code === 'storage-critical' || code === 'storage-offline') return 'storage.critical';
   if (code === 'storage-high') return 'storage.warning';
   if (code === 'cpu-high') return 'resources.cpu';
@@ -2690,8 +2716,8 @@ function discordEventColor(eventType, severity='info') {
 }
 function discordEventLabel(type) {
   const labels = {
-    'backup.success':'Sauvegarde réussie','backup.failed':'Sauvegarde échouée','backup.stale':'Sauvegarde en retard','backup.unprotected':'Machine non protégée',
-    'node.offline':'Nœud hors ligne','node.recovered':'Nœud de nouveau en ligne','task.failed':'Tâche échouée','storage.warning':'Stockage en alerte','storage.critical':'Stockage critique',
+    'backup.success':'Sauvegarde réussie','backup.warning':'Sauvegarde avec avertissement','backup.failed':'Sauvegarde échouée','backup.stale':'Sauvegarde en retard','backup.unprotected':'Machine non protégée',
+    'node.offline':'Nœud hors ligne','node.recovered':'Nœud de nouveau en ligne','task.warning':'Tâche avec avertissement','task.failed':'Tâche échouée','storage.warning':'Stockage en alerte','storage.critical':'Stockage critique',
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
     'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.recovered':'Docker rétabli',
@@ -2711,10 +2737,12 @@ function eventIcon(event={}) {
 function defaultRecommendation(event={}) {
   if(event.recommendation)return String(event.recommendation);
   const map={
+    'backup.warning':'Consulte les logs de la tâche de sauvegarde pour identifier l’avertissement et confirmer l’intégrité des sauvegardes.',
     'backup.failed':'Consulte les logs de la tâche de sauvegarde et vérifie le stockage de destination.',
     'backup.stale':'Contrôle le job planifié et relance une sauvegarde si nécessaire.',
     'backup.unprotected':'Ajoute la machine à un job de sauvegarde ou confirme son exclusion volontaire.',
     'node.offline':'Vérifie l’alimentation, le réseau et les services Proxmox du nœud.',
+    'task.warning':'Ouvre ProxPanel → Tâches et consulte le log complet pour identifier l’avertissement.',
     'task.failed':'Ouvre ProxPanel → Tâches et consulte le log complet de la tâche en échec.',
     'storage.warning':'Surveille la croissance du stockage et libère de l’espace avant le seuil critique.',
     'storage.critical':'Libère ou étends le stockage rapidement avant interruption de service.',
@@ -2756,13 +2784,19 @@ async function sendDiscordEvent(settings, event) {
     const details=normalizeEventDetails(event);
     const rawLines=messageLines(event.message);
     const summary=String(event.summary||rawLines.slice(0,2).join('\n')||event.message||'').slice(0,1400);
-    const detailText=(details.length?details:rawLines.slice(2)).slice(0,12).map(x=>`• ${x}`).join('\n').slice(0,1024);
+    const detailText=(details.length?details:rawLines.slice(2)).slice(0,14).map(x=>`• ${x}`).join('\n').slice(0,1024);
     const recommendation=defaultRecommendation(event).slice(0,1024);
+    const diagnostic=(event.severity==='warning'||event.severity==='critical')?normalizeMailTechnicalEvidence(event):[];
+    const technicalText=diagnostic.filter(x=>x.label!=='Extrait de log').slice(0,8).map(x=>`**${x.label} :** ${x.value}`).join('\n').slice(0,1024);
+    const logRow=diagnostic.find(x=>x.label==='Extrait de log');
+    const logText=logRow?String(logRow.value||'').replace(/```/g,'``').slice(-900):'';
     const fields = [
       { name: '📌 Priorité', value: `**${severityLabel(event.severity)}**`, inline: true },
       event.serverName ? { name: '🖥️ Serveur / cluster', value: String(event.serverName).slice(0,1024), inline: true } : null,
       event.target ? { name: '🎯 Cible', value: String(event.target).slice(0,1024), inline: true } : null,
       detailText ? { name: '📋 Détails', value: detailText, inline: false } : null,
+      technicalText ? { name: '🧰 Diagnostic technique', value: technicalText, inline: false } : null,
+      logText ? { name: '📜 Dernières lignes du log', value: `\`\`\`text\n${logText}\n\`\`\``, inline: false } : null,
       recommendation ? { name: '✅ Action recommandée', value: recommendation, inline: false } : null
     ].filter(Boolean);
     const payload = {
@@ -2781,7 +2815,9 @@ async function sendDiscordEvent(settings, event) {
     jobs.push(postWebhook(hook,payload));
   }
   if (settings?.alerts?.discordWebhook && channels.length === 0) {
-    jobs.push(postWebhook(settings.alerts.discordWebhook,{content:`**${eventIcon(event)} ${event.title || 'ProxPanel'}**\n${event.message || ''}\n\n**Action recommandée :** ${defaultRecommendation(event)}`}));
+    const diagnostics=(event.severity==='warning'||event.severity==='critical')?normalizeMailTechnicalEvidence(event):[];
+    const diag=diagnostics.slice(0,8).map(x=>`**${x.label} :** ${String(x.value||'').slice(0,500)}`).join('\n');
+    jobs.push(postWebhook(settings.alerts.discordWebhook,{allowed_mentions:{parse:[]},content:`**${eventIcon(event)} ${event.title || 'ProxPanel'}**\n${event.message || ''}${diag?`\n\n**Diagnostic :**\n${diag}`:''}\n\n**Action recommandée :** ${defaultRecommendation(event)}`.slice(0,1950)}));
   }
   await Promise.allSettled(jobs);
   return jobs.length;
@@ -2815,7 +2851,7 @@ function defaultMailTechnicalSource(event={}) {
   const type=String(event.type||'');
   if(type.startsWith('docker.'))return 'Docker / Portainer API';
   if(type.startsWith('pve.update.'))return 'APT / Proxmox API';
-  if(type.startsWith('backup.')||type==='task.failed'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
+  if(type.startsWith('backup.')||type==='task.failed'||type==='task.warning'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
   if(type==='system.update.available')return 'ProxPanel OTA';
   if(type==='auth.2fa.email')return 'ProxPanel Auth';
   return 'ProxPanel';
@@ -2844,6 +2880,13 @@ async function proxmoxTaskLogExcerpt(server,auth,upid,limit=40) {
     const lines=(Array.isArray(rows)?rows:[]).map(x=>String(x?.t??x??'')).filter(Boolean);
     return redactDiagnosticText(lines.slice(-Math.max(5,Math.min(100,Number(limit||40)))).join('\n')).slice(-12000);
   }catch{return '';}
+}
+function summarizeProxmoxTaskLog(log='') {
+  const lines=String(log||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const vmids=[...new Set(lines.flatMap(line=>[...line.matchAll(/\b(?:VM|CT)\s+(\d+)\b/gi)].map(m=>m[1])))].slice(0,30);
+  const warnings=lines.filter(line=>/\bwarn(?:ing|ings)?\b/i.test(line)).slice(-10);
+  const errors=lines.filter(line=>/\b(?:error|failed|failure|abort(?:ed)?)\b/i.test(line)).slice(-10);
+  return {vmids,warnings,errors};
 }
 async function dockerIncidentLogExcerpt(row={}) {
   if(!row.containerId||!row.portainerId||!row.endpointId)return '';
@@ -2909,9 +2952,11 @@ const MAIL_TEST_TEMPLATES = [
   {type:'temperature.warning',group:'Nœuds',label:'Température élevée',severity:'warning',description:'La température CPU dépasse le seuil warning.'},
   {type:'temperature.critical',group:'Nœuds',label:'Température critique',severity:'critical',description:'La température CPU dépasse le seuil critique.'},
   {type:'backup.success',group:'Sauvegardes',label:'Sauvegarde réussie',severity:'info',description:'Un job de sauvegarde s’est terminé correctement.'},
+  {type:'backup.warning',group:'Sauvegardes',label:'Sauvegarde avec avertissement',severity:'warning',description:'Un job de sauvegarde s’est terminé avec un statut WARNINGS.'},
   {type:'backup.failed',group:'Sauvegardes',label:'Sauvegarde échouée',severity:'critical',description:'Un job de sauvegarde a échoué.'},
   {type:'backup.stale',group:'Sauvegardes',label:'Sauvegarde en retard',severity:'warning',description:'La dernière sauvegarde dépasse l’âge maximum configuré.'},
   {type:'backup.unprotected',group:'Sauvegardes',label:'Machine non protégée',severity:'warning',description:'Une VM ou un LXC n’est couvert par aucun backup récent.'},
+  {type:'task.warning',group:'Infrastructure',label:'Tâche avec avertissement',severity:'warning',description:'Une tâche Proxmox s’est terminée avec un avertissement.'},
   {type:'task.failed',group:'Infrastructure',label:'Tâche échouée',severity:'critical',description:'Une tâche Proxmox s’est terminée en erreur.'},
   {type:'storage.warning',group:'Infrastructure',label:'Stockage en alerte',severity:'warning',description:'Le stockage dépasse le seuil warning.'},
   {type:'storage.critical',group:'Infrastructure',label:'Stockage critique',severity:'critical',description:'Le stockage dépasse le seuil critique.'},
@@ -2947,10 +2992,12 @@ function mailTestScenario(type,username='admin'){
     'temperature.warning':{subject:'Température CPU élevée',text:'La température CPU du nœud PVE-PROD01 dépasse le seuil warning.',event:{...base,target:'PVE-PROD01',details:['Température CPU : 78.4 °C','Seuil warning : 75 °C','Source : lm-sensors']}},
     'temperature.critical':{subject:'Température CPU critique',text:'La température CPU du nœud PVE-PROD01 dépasse le seuil critique.',event:{...base,target:'PVE-PROD01',details:['Température CPU : 88.1 °C','Seuil critique : 85 °C','Source : lm-sensors']}},
     'backup.success':{subject:'Sauvegarde terminée',text:'La sauvegarde de VM 105 · SRV-APP01 s’est terminée correctement.',event:{...base,target:'VM 105 · SRV-APP01',details:['Nœud : PVE-PROD01','Statut Proxmox : OK','Durée : 08 min 42 s','Destination : PBS-PROD']}},
-    'backup.failed':{subject:'Sauvegarde échouée',text:'La sauvegarde de VM 105 · SRV-APP01 s’est terminée en erreur.',event:{...base,target:'VM 105 · SRV-APP01',details:['Nœud : PVE-PROD01','Statut Proxmox : ERROR','Destination : PBS-PROD','Erreur : espace temporaire insuffisant']}},
+    'backup.warning':{subject:'Sauvegarde terminée avec avertissement',text:'Le job de sauvegarde s’est terminé avec un avertissement Proxmox.',event:{...base,target:'Job de sauvegarde',details:['Nœud : PVE-PROD01','Statut Proxmox brut : WARNINGS: 1','Avertissements : 1','Machines détectées : 100, 205, 400, 600','Durée : 20 min 03 s'],source:'Proxmox vzdump',upid:'UPID:PVE-PROD01:00001234:00005678:00000000:vzdump::root@pam:',technicalDetails:[{label:'Classification ProxPanel',value:'warning'},{label:'Avertissement détecté',value:'WARNINGS: 1'}],logExcerpt:'INFO: Starting Backup of VM 100\nINFO: Finished Backup of VM 100\nINFO: Backup job finished with warnings'}},
+    'backup.failed':{subject:'Sauvegarde échouée',text:'La sauvegarde de VM 105 · SRV-APP01 s’est terminée en erreur.',event:{...base,target:'VM 105 · SRV-APP01',details:['Nœud : PVE-PROD01','Statut Proxmox : ERROR','Destination : PBS-PROD','Erreur : espace temporaire insuffisant'],source:'Proxmox vzdump',upid:'UPID:PVE-PROD01:00001235:00005679:00000000:vzdump:105:root@pam:',technicalDetails:[{label:'Classification ProxPanel',value:'failure'}],logExcerpt:'INFO: Starting Backup of VM 105\nERROR: temporary storage unavailable\nTASK ERROR: backup failed'}},
     'backup.stale':{subject:'Sauvegarde en retard',text:'La dernière sauvegarde de VM 105 dépasse l’âge maximum configuré.',event:{...base,target:'VM 105 · SRV-APP01',details:['Dernière sauvegarde : il y a 41 h','Seuil : 36 h','Destination attendue : PBS-PROD']}},
     'backup.unprotected':{subject:'Machine non protégée',text:'Une machine active ne possède aucune sauvegarde récente détectée.',event:{...base,target:'LXC 220 · docker-prod',details:['Type : LXC','Nœud : PVE-PROD01','Sauvegarde récente : aucune']}},
-    'task.failed':{subject:'Tâche Proxmox échouée',text:'Une tâche Proxmox s’est terminée avec un statut d’erreur.',event:{...base,target:'VM 105',details:['Action : qmigrate','Statut : ERROR','Utilisateur : root@pam']}},
+    'task.warning':{subject:'Tâche Proxmox avec avertissement',text:'Une tâche Proxmox s’est terminée avec un avertissement.',event:{...base,target:'VM 105',details:['Action : qmigrate','Statut : WARNINGS: 1','Utilisateur : root@pam'],source:'Proxmox API',upid:'UPID:PVE-PROD01:00001236:00005680:00000000:qmigrate:105:root@pam:',logExcerpt:'INFO: migration completed\nWARNING: one optional cleanup step was skipped'}},
+    'task.failed':{subject:'Tâche Proxmox échouée',text:'Une tâche Proxmox s’est terminée avec un statut d’erreur.',event:{...base,target:'VM 105',details:['Action : qmigrate','Statut : ERROR','Utilisateur : root@pam'],source:'Proxmox API',upid:'UPID:PVE-PROD01:00001237:00005681:00000000:qmigrate:105:root@pam:',logExcerpt:'INFO: migration started\nERROR: target storage unavailable\nTASK ERROR: migration failed'}},
     'storage.warning':{subject:'Stockage bientôt saturé',text:'Le stockage local-lvm dépasse le seuil warning configuré.',event:{...base,target:'local-lvm',details:['Utilisation : 87 %','Seuil warning : 85 %','Libre : 214 Go']}},
     'storage.critical':{subject:'Stockage critique',text:'Le stockage local-lvm dépasse le seuil critique configuré.',event:{...base,target:'local-lvm',details:['Utilisation : 96 %','Seuil critique : 95 %','Libre : 51 Go']}},
     'resources.cpu':{subject:'Charge CPU élevée',text:'La charge CPU moyenne du nœud PVE-PROD01 dépasse le seuil configuré.',event:{...base,target:'PVE-PROD01',details:['CPU : 91 %','Seuil warning : 85 %','Durée : 10 min']}},
@@ -3078,16 +3125,41 @@ async function sendMailNotification(cfg, subject, text, event={}) {
   const finalSubject=professionalMailSubject(subject,mailEvent);
   return String(cfg.mode || 'smtp') === 'm365-graph' ? sendMicrosoftGraphMail(cfg, finalSubject, content) : sendSmtpMail(cfg, finalSubject, content);
 }
+function sanitizeAlertEvent(event={}) {
+  const safeText=(value,max=12000)=>redactDiagnosticText(value).slice(0,max);
+  const details=(Array.isArray(event.details)?event.details:[]).slice(0,30).map(x=>safeText(typeof x==='string'?x:(x&&typeof x==='object'?`${x.label||x.name||'Détail'}${x.value||x.meta||x.detail?`: ${x.value||x.meta||x.detail}`:''}`:String(x)),2000)).filter(Boolean);
+  const technicalDetails=(Array.isArray(event.technicalDetails)?event.technicalDetails:[]).slice(0,20).map(row=>{
+    if(typeof row==='string')return safeText(row,4000);
+    if(!row||typeof row!=='object')return safeText(String(row||''),4000);
+    return {label:safeText(row.label||row.name||'Information',120),value:safeText(row.value||row.meta||row.detail||'',4000)};
+  }).filter(Boolean);
+  return {...event,title:safeText(event.title||'',500),message:safeText(event.message||'',6000),serverName:safeText(event.serverName||'',500),target:safeText(event.target||'',1000),recommendation:safeText(event.recommendation||'',2000),details,source:safeText(event.source||'',500),error:safeText(event.error||'',4000),upid:safeText(event.upid||'',1000),technicalDetails,logExcerpt:safeText(event.logExcerpt||'',12000)};
+}
+function telegramAlertText(event={}) {
+  const details=normalizeEventDetails(event).slice(0,12).map(x=>`• ${x}`).join('\n');
+  const diagnostics=(event.severity==='warning'||event.severity==='critical')?normalizeMailTechnicalEvidence(event):[];
+  const diag=diagnostics.filter(x=>x.label!=='Extrait de log').slice(0,8).map(x=>`${x.label}: ${x.value}`).join('\n');
+  const log=diagnostics.find(x=>x.label==='Extrait de log')?.value||'';
+  return [
+    `${eventIcon(event)} ${event.title||'ProxPanel'}`,
+    event.message||'',
+    event.serverName?`Serveur / cluster: ${event.serverName}`:'',
+    event.target?`Cible: ${event.target}`:'',
+    details?`Détails:\n${details}`:'',
+    diag?`Diagnostic technique:\n${diag}`:'',
+    log?`Dernières lignes du log:\n${String(log).slice(-1400)}`:'',
+    `Action recommandée: ${defaultRecommendation(event)}`
+  ].filter(Boolean).join('\n\n').slice(0,3900);
+}
 async function sendAlertChannels(settings, title, message, event = {}) {
   const a=settings.alerts||{}; const jobs=[];
-  const fullEvent={ type:event.type||'system.test', severity:event.severity||'info', title, message, serverName:event.serverName||'', target:event.target||'', at:event.at||Date.now(), recommendation:event.recommendation||'', details:event.details||[], source:event.source||'', error:event.error||'', upid:event.upid||'', technicalDetails:event.technicalDetails||[], logExcerpt:event.logExcerpt||'' };
+  const fullEvent=sanitizeAlertEvent({type:event.type||'system.test',severity:event.severity||'info',title,message,serverName:event.serverName||'',target:event.target||'',at:event.at||Date.now(),recommendation:event.recommendation||'',details:event.details||[],source:event.source||'',error:event.error||'',upid:event.upid||'',technicalDetails:event.technicalDetails||[],logExcerpt:event.logExcerpt||''});
   jobs.push(sendDiscordEvent(settings,fullEvent));
-  if(a.genericWebhook) jobs.push(postWebhook(a.genericWebhook,{source:'proxpanel',...fullEvent,at:new Date(fullEvent.at).toISOString()}));
-  if(a.telegramBotToken && a.telegramChatId) jobs.push(postWebhook(`https://api.telegram.org/bot${a.telegramBotToken}/sendMessage`,{chat_id:a.telegramChatId,text:`${title}\n${message}\n\nAction recommandée : ${defaultRecommendation(fullEvent)}`}));
-  if(a.smtp?.enabled) jobs.push(sendMailNotification(a.smtp,title,message,fullEvent));
+  if(a.genericWebhook)jobs.push(postWebhook(a.genericWebhook,{source:'proxpanel',...fullEvent,at:new Date(fullEvent.at).toISOString()}));
+  if(a.telegramBotToken&&a.telegramChatId)jobs.push(postWebhook(`https://api.telegram.org/bot${a.telegramBotToken}/sendMessage`,{chat_id:a.telegramChatId,text:telegramAlertText(fullEvent)}));
+  if(a.smtp?.enabled)jobs.push(sendMailNotification(a.smtp,fullEvent.title,fullEvent.message,fullEvent));
   await Promise.allSettled(jobs);
 }
-
 function normalizeReleaseNotes(value) {
   if (Array.isArray(value)) return value.map(x=>String(x).trim()).filter(Boolean).slice(0,100);
   if (typeof value === 'string') return value.split(/\r?\n/).map(x=>x.replace(/^[-•*]\s*/, '').trim()).filter(Boolean).slice(0,100);
@@ -4891,7 +4963,7 @@ async function runBackgroundAlerts() {
       for(const target of absentTargets)missingConfirmations[target]=Math.min(10,Number(missingConfirmations[target]||0)+1);
       const problems=rawProblems.filter(p=>p.code!=='backup-absent'||Number(missingConfirmations[String(p.target||'')]||0)>=2);
       const previousIds=new Set(Array.isArray(previousState.ids)?previousState.ids:previousProblems.map(p=>p.id));
-      const fresh=problems.filter(p=>!previousIds.has(p.id));
+      const fresh=problems.filter(p=>!previousIds.has(p.id)&&!['backup-task-warning','backup-task-failed'].includes(String(p.code||'')));
       for(const p of fresh){
         const type=problemEventType(p);
         const upids=(p.items||[]).map(i=>i.upid).filter(Boolean).slice(0,3);
@@ -4900,7 +4972,14 @@ async function runBackgroundAlerts() {
         await sendAlertChannels(settings,`ProxPanel · ${p.title}`,p.detail,{
           type,severity:p.severity,serverName:server.name,target:p.target||'',recommendation:p.recommendation||'',
           details:[...(p.facts||[]).map(f=>`${f.label}: ${f.value}`),...(p.items||[]).map(i=>`${i.label}: ${i.meta||''}`)],
-          source:'Proxmox API',upid:upids[0]||'',logExcerpt:excerpts.join('\n\n---\n\n')
+          source:'Proxmox API',upid:upids[0]||'',
+          technicalDetails:[
+            {label:'Code incident',value:p.code||type},
+            {label:'Identifiant incident',value:p.id||''},
+            p.route?{label:'Page ProxPanel',value:p.route}:null,
+            upids.length>1?{label:'UPID supplémentaires',value:upids.slice(1).join('\n')}:null
+          ].filter(Boolean),
+          logExcerpt:excerpts.join('\n\n---\n\n')
         });
         addAuditSystem('alerts.sent',server.name,{type,problem:p.id});
       }
@@ -4917,11 +4996,37 @@ async function runBackgroundAlerts() {
       const knownBackupIds=new Set(Array.isArray(previousState.backupTaskIds)?previousState.backupTaskIds:[]);
       if(previousState.checkedAt){
         for(const t of backupTasks.filter(t=>!knownBackupIds.has(t.upid)).sort((a,b)=>Number(a.endtime||0)-Number(b.endtime||0))){
-          const ok=String(t.status||'').toUpperCase()==='OK';
-          const target=t.id?`VM/LXC ${t.id}`:'Sauvegarde';
-          const logExcerpt=ok?'':await proxmoxTaskLogExcerpt(server,auth,t.upid,50);
-          await sendAlertChannels(settings,ok?'Sauvegarde terminée':'Sauvegarde échouée',`${target} sur ${t.node||server.name} · statut ${t.status||'inconnu'}.`,{type:ok?'backup.success':'backup.failed',severity:ok?'info':'critical',serverName:server.name,target,details:[`Nœud: ${t.node||server.name}`,`Statut Proxmox: ${t.status||'inconnu'}`,`Début: ${t.starttime?new Date(Number(t.starttime)*1000).toLocaleString('fr-FR'):'—'}`,`Fin: ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'—'}`],source:'Proxmox vzdump',upid:t.upid,logExcerpt});
-          addAuditSystem('alerts.backup',server.name,{type:ok?'backup.success':'backup.failed',upid:t.upid,status:t.status,id:t.id||''},ok?'ok':'error');
+          const outcome=classifyProxmoxTaskStatus(t.status);
+          const target=t.id?`VM/LXC ${t.id}`:'Job de sauvegarde';
+          const needsDiagnostics=outcome.kind==='warning'||outcome.kind==='failure';
+          const logExcerpt=needsDiagnostics?await proxmoxTaskLogExcerpt(server,auth,t.upid,80):'';
+          const logSummary=summarizeProxmoxTaskLog(logExcerpt);
+          const start=Number(t.starttime||0),end=Number(t.endtime||0),duration=start&&end&&end>=start?end-start:0;
+          const title=outcome.kind==='success'?'Sauvegarde terminée':outcome.kind==='warning'?'Sauvegarde terminée avec avertissement':'Sauvegarde échouée';
+          const type=outcome.kind==='success'?'backup.success':outcome.kind==='warning'?'backup.warning':'backup.failed';
+          const severity=outcome.kind==='success'?'info':outcome.kind==='warning'?'warning':'critical';
+          const message=outcome.kind==='warning'
+            ?`${target} sur ${t.node||server.name} est terminé avec ${outcome.warningCount||1} avertissement(s) · statut ${outcome.raw||'WARNINGS'}.`
+            :`${target} sur ${t.node||server.name} · statut ${outcome.raw||'inconnu'}.`;
+          const details=[
+            `Nœud: ${t.node||server.name}`,
+            `Type de tâche: ${t.type||'vzdump'}`,
+            `ID / cible Proxmox: ${t.id||'job multi-machines / non fourni'}`,
+            `Utilisateur: ${t.user||'inconnu'}`,
+            `Statut Proxmox brut: ${outcome.raw||'inconnu'}`,
+            outcome.kind==='warning'?`Nombre d’avertissements: ${outcome.warningCount||1}`:'',
+            `Début: ${start?new Date(start*1000).toLocaleString('fr-FR'):'—'}`,
+            `Fin: ${end?new Date(end*1000).toLocaleString('fr-FR'):'—'}`,
+            `Durée: ${duration?Math.floor(duration/60)+'m '+(duration%60)+'s':'—'}`,
+            logSummary.vmids.length?`Machines détectées dans le log: ${logSummary.vmids.join(', ')}`:''
+          ].filter(Boolean);
+          const technicalDetails=[
+            {label:'Classification ProxPanel',value:outcome.kind},
+            logSummary.warnings.length?{label:'Avertissements détectés',value:logSummary.warnings.join('\n')}:null,
+            logSummary.errors.length?{label:'Erreurs détectées',value:logSummary.errors.join('\n')}:null
+          ].filter(Boolean);
+          await sendAlertChannels(settings,title,message,{type,severity,serverName:server.name,target,details,source:'Proxmox vzdump',upid:t.upid,technicalDetails,logExcerpt});
+          addAuditSystem('alerts.backup',server.name,{type,upid:t.upid,status:t.status,id:t.id||'',classification:outcome.kind,warningCount:outcome.warningCount||0},outcome.kind==='failure'?'error':outcome.kind==='warning'?'warning':'ok');
         }
       }
       alertState[server.id]={

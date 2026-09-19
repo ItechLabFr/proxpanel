@@ -1,5 +1,18 @@
 'use strict';
 
+function classifyProxmoxTaskStatus(value='') {
+  const raw=String(value||'').trim();
+  const upper=raw.toUpperCase();
+  if(!raw)return {kind:'unknown',severity:'info',raw,warningCount:0};
+  if(upper==='OK')return {kind:'success',severity:'info',raw,warningCount:0};
+  const warningMatch=upper.match(/^WARNINGS?\s*:\s*(\d+)/);
+  if(upper==='WARNING'||upper==='WARNINGS'||warningMatch){
+    const warningCount=warningMatch?Math.max(1,Number(warningMatch[1]||1)):1;
+    return {kind:'warning',severity:'warning',raw,warningCount};
+  }
+  return {kind:'failure',severity:'critical',raw,warningCount:0};
+}
+
 function backupAlertDecision({ctime=0,maxAgeHours=36,absenceReliable=false,nowSec=Date.now()/1000}={}) {
   const maxAge=Math.max(1,Number(maxAgeHours||36));
   const ts=Number(ctime||0);
@@ -173,7 +186,7 @@ function redactDockerInspect(value,depth=0) {
 }
 
 module.exports={
-  backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
+  classifyProxmoxTaskStatus,backupAlertDecision,summarizeDockerContainers,classifyPortainerEnvironment,
   normalizeDockerContainer,normalizePortainerStack,redactDockerInspect,normalizeDockerPorts,normalizeDockerNetworks,
   parseDockerSizeBytes,dockerDiskPressureFromInfo,dockerIncidentTransition
 };

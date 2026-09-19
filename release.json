@@ -1,43 +1,55 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.4.2",
-  "title": "ProxPanel 1.7.2-beta.4.2 — Mail Diagnostics & Logs",
-  "title_en": "ProxPanel 1.7.2-beta.4.2 — Mail Diagnostics & Logs",
-  "summary": "Enrichit les e-mails d'avertissement et d'erreur avec la source, les informations techniques et des extraits de logs disponibles, avec filtrage des secrets.",
-  "summary_en": "Enriches warning and error emails with source, technical context and available log excerpts, with secret redaction.",
+  "version": "1.7.2-beta.4.3",
+  "title": "ProxPanel 1.7.2-beta.4.3 — Backup Warning Classification & Rich Diagnostics",
+  "title_en": "ProxPanel 1.7.2-beta.4.3 — Backup Warning Classification & Rich Diagnostics",
+  "summary": "Corrige la classification Proxmox WARNINGS pour les sauvegardes et enrichit tous les warnings/échecs avec le maximum de contexte technique disponible.",
+  "summary_en": "Fixes Proxmox WARNINGS classification for backups and enriches all warnings/failures with the maximum available technical context.",
   "improvements": [
-    "Ajout d’un bloc Détails techniques / Logs dans les e-mails warning/critical.",
-    "Affichage systématique de la source technique de l’événement.",
-    "Ajout des UPID Proxmox lorsque disponibles.",
-    "Ajout d’extraits de logs Proxmox pour les tâches et sauvegardes en erreur.",
-    "Ajout d’extraits de logs conteneur Docker pour les incidents conteneur lorsque disponibles.",
-    "Filtrage des tokens, API keys, mots de passe, secrets, tickets et cookies avant envoi par e-mail."
+    "Nouveau type backup.warning pour les jobs vzdump terminés avec WARNINGS.",
+    "Les notifications warning/critical incluent davantage de contexte sur e-mail, Discord, Telegram et webhook générique.",
+    "Ajout du statut brut Proxmox, type de tâche, utilisateur, horaires, durée, UPID et machines détectées lorsque disponibles.",
+    "Jusqu’aux 80 dernières lignes de log vzdump sont jointes aux warnings/échecs de sauvegarde.",
+    "Les lignes WARNING/ERROR utiles sont résumées séparément dans le diagnostic.",
+    "Les problèmes warning/critical affichent leur code interne, route ProxPanel et identifiants techniques.",
+    "Les warnings de sauvegarde apparaissent dans le centre Notifications et les notifications PWA.",
+    "Les anciennes configurations Discord abonnés à backup.failed reçoivent aussi backup.warning pour compatibilité.",
+    "Les secrets, tokens, mots de passe, tickets Proxmox et cookies restent masqués avant envoi."
   ],
   "improvements_en": [
-    "Adds a Technical details / Logs block to warning and critical emails.",
-    "Always identifies the technical event source.",
-    "Includes Proxmox UPIDs when available.",
-    "Includes Proxmox task/backup log excerpts for failed operations.",
-    "Includes Docker container log excerpts for container incidents when available.",
-    "Redacts tokens, API keys, passwords, secrets, tickets and cookies before email delivery."
+    "New backup.warning event type for vzdump jobs ending with WARNINGS.",
+    "Warning/critical notifications carry more context across email, Discord, Telegram and generic webhooks.",
+    "Raw Proxmox status, task type, user, timestamps, duration, UPID and detected machines are included when available.",
+    "Up to the latest 80 vzdump log lines are attached to backup warnings/failures.",
+    "Relevant WARNING/ERROR lines are summarized separately.",
+    "Warning/critical problems include internal code, ProxPanel route and technical identifiers.",
+    "Backup warnings are visible in the Notifications center and PWA browser notifications.",
+    "Existing Discord channels subscribed to backup.failed also receive backup.warning for compatibility.",
+    "Secrets, tokens, passwords, Proxmox tickets and cookies remain redacted before delivery."
   ],
   "fixes": [
-    "Les e-mails d’erreur ne se limitent plus à un résumé générique quand un log exploitable est disponible.",
-    "Les alertes de tâches Proxmox peuvent maintenant embarquer les dernières lignes du log correspondant.",
-    "Les erreurs Portainer/Docker conservent leur message technique dans l’e-mail."
+    "WARNINGS: 1, WARNINGS: n et WARNING ne sont plus classés comme échecs critiques.",
+    "Le Health Score ne compte plus les tâches WARNINGS comme des tâches échouées.",
+    "Les tâches vzdump ne génèrent plus un doublon notification tâche + notification sauvegarde.",
+    "Un compteur réseau/log ou un contexte diagnostic n’est jamais envoyé sans redaction centrale."
   ],
   "fixes_en": [
-    "Error emails no longer stop at a generic summary when useful logs are available.",
-    "Proxmox task alerts can now include the latest task log lines.",
-    "Portainer/Docker errors preserve their technical error message in email notifications."
+    "WARNINGS: 1, WARNINGS: n and WARNING are no longer classified as critical failures.",
+    "Health Score no longer counts WARNINGS tasks as failed tasks.",
+    "vzdump tasks no longer generate duplicate task + backup notifications.",
+    "Diagnostic payloads are centrally redacted before being sent to channels."
   ],
   "notes": [
-    "Cette version est un patch beta.4.x et ne remplace pas le contenu prévu pour beta.5.",
-    "Aucun secret sensible ne doit être envoyé par e-mail ; les informations techniques sont filtrées avant génération du message."
+    "Un job WARNINGS est considéré terminé avec avertissement, pas réussi silencieusement et pas échoué.",
+    "Un vrai ERROR/FAILED reste critique.",
+    "Les logs envoyés sont des extraits limités et filtrés, pas l’intégralité illimitée des journaux.",
+    "Docker reste géré exclusivement via Portainer."
   ],
   "notes_en": [
-    "This is a beta.4.x patch and does not replace the planned beta.5 scope.",
-    "Sensitive secrets must not be sent by email; technical information is redacted before message generation."
+    "A WARNINGS job is considered completed with warning: neither silently successful nor failed.",
+    "A true ERROR/FAILED status remains critical.",
+    "Delivered logs are bounded and redacted excerpts, not unlimited full logs.",
+    "Docker remains managed exclusively through Portainer."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
