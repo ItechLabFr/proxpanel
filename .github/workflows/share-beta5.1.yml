@@ -1,0 +1,42 @@
+name: Share ProxPanel beta.5.1 packages
+
+on:
+  push:
+    branches:
+      - share/1.7.2-beta.5.1
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download release packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          gh release download v1.7.2-beta.5.1 \
+            --repo "${{ github.repository }}" \
+            --pattern "proxpanel-update-v1.7.2-beta.5.1.zip" \
+            --pattern "proxpanel-v1.7.2-beta.5.1.zip" \
+            --dir out
+
+      - name: Upload OTA package
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxpanel-update-v1.7.2-beta.5.1
+          path: out/proxpanel-update-v1.7.2-beta.5.1.zip
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload full package
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxpanel-v1.7.2-beta.5.1
+          path: out/proxpanel-v1.7.2-beta.5.1.zip
+          if-no-files-found: error
+          retention-days: 1
