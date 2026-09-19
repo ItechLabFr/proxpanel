@@ -22,10 +22,16 @@ const {
   RANGE_MS,appendDockerHistory,selectDockerHistory,dockerNetworkMbps
 } = require('./lib/docker-history');
 const {
+  normalizeDockerImageId,splitDockerImageReference,normalizeDockerImage,imageUsages,
+  currentDigestForReference,distributionDigest,classifyDockerImageUpdate,summarizeDockerRedeployHealth,
+  normalizeDockerUpdateWindow
+} = require('./lib/docker-images');
+const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
   demoDockerOverview, demoDockerContainers, demoDockerStacks,
-  demoDockerContainerDetails, demoDockerLogs
+  demoDockerContainerDetails, demoDockerLogs,
+  demoDockerImages, demoDockerUpdateHistory
 } = require('./lib/demo-mode');
 
 const PORT = Number(process.env.PORT || 8080);
@@ -88,6 +94,8 @@ const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
 const DOCKER_MONITOR_STATE_FILE = path.join(DATA_DIR, 'docker-monitor-state.json');
 const DOCKER_TOPOLOGY_FILE = path.join(DATA_DIR, 'docker-topology.json');
 const DOCKER_METRICS_FILE = path.join(DATA_DIR, 'docker-metrics-history.json');
+const DOCKER_UPDATE_STATE_FILE = path.join(DATA_DIR, 'docker-update-state.json');
+const DOCKER_UPDATE_HISTORY_FILE = path.join(DATA_DIR, 'docker-update-history.json');
 const UPDATE_CHECK_STATE_FILE = path.join(DATA_DIR, 'update-check-state.json');
 const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
@@ -153,6 +161,7 @@ function defaultSettings() {
     },
     updates: { autoCheckEnabled: true, checkIntervalHours: 6, provider: 'ota', otaBaseUrl: OFFICIAL_OTA_BASE_URL, otaChannel: 'stable', otaPublicKeyPem: '', otaPublicKeyFingerprint: '', feedUrl: '', notifyPanel: true, notifyDiscord: true, notifyEmail: true, autoInstallEnabled: false, autoInstallWindows: [{ days:[0,1,2,3,4,5,6], start:'02:00', end:'05:00' }] },
     pveUpdates: { enabled: true, checkIntervalHours: 6, refreshApt: true, notifyPanel: true, notifyDiscord: true, notifyEmail: true, includeChangelog: true, manualReportEmail: true, manualReportDiscord: true, manualAudit: true },
+    dockerUpdates: { autoCheckEnabled:false, checkIntervalHours:12, notifyOnAvailable:true, scheduledActionsEnabled:false, maintenanceWindows:[{days:[0,1,2,3,4,5,6],start:'02:00',end:'05:00'}] },
     ui: {
       dashboardRefreshSeconds: 10,
       dashboardLayout: {
@@ -242,6 +251,12 @@ function normalizeSettings(settings) {
   out.updates.otaPublicKeyFingerprint = String(out.updates.otaPublicKeyFingerprint || '').trim().toLowerCase();
   out.updates.autoInstallEnabled = out.updates.autoInstallEnabled === true;
   out.updates.autoInstallWindows = normalizeAutoInstallWindows(out.updates.autoInstallWindows);
+  out.dockerUpdates = out.dockerUpdates && typeof out.dockerUpdates==='object' ? out.dockerUpdates : {};
+  out.dockerUpdates.autoCheckEnabled = out.dockerUpdates.autoCheckEnabled === true;
+  out.dockerUpdates.checkIntervalHours = Math.max(1,Math.min(168,Number(out.dockerUpdates.checkIntervalHours||12)));
+  out.dockerUpdates.notifyOnAvailable = out.dockerUpdates.notifyOnAvailable !== false;
+  out.dockerUpdates.scheduledActionsEnabled = out.dockerUpdates.scheduledActionsEnabled === true;
+  out.dockerUpdates.maintenanceWindows = (Array.isArray(out.dockerUpdates.maintenanceWindows)&&out.dockerUpdates.maintenanceWindows.length?out.dockerUpdates.maintenanceWindows:[{days:[0,1,2,3,4,5,6],start:'02:00',end:'05:00'}]).slice(0,8).map(normalizeDockerUpdateWindow);
   out.ui = out.ui && typeof out.ui === 'object' ? out.ui : {};
   const widgetKeys=['cpu','memory','storage','temperature','network','machines','health','problems','capacity','backups'];
   const sizeKeys=new Set(['s','m','l','xl']);
@@ -1091,7 +1106,7 @@ function rawBufferRequest(baseUrl, reqPath, options = {}) {
     if(body&&!headers['Content-Length'])headers['Content-Length']=Buffer.byteLength(body);
     const request=lib.request({
       protocol:base.protocol,hostname:base.hostname,port:base.port||(base.protocol==='https:'?443:80),
-      path:reqPath,method:options.method||'GET',headers,rejectUnauthorized:options.rejectUnauthorized!==false,timeout:15000
+      path:reqPath,method:options.method||'GET',headers,rejectUnauthorized:options.rejectUnauthorized!==false,timeout:Math.max(1000,Number(options.timeoutMs||15000))
     },response=>{
       const chunks=[];let bytes=0;
       response.on('data',chunk=>{const b=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);bytes+=b.length;if(bytes<=8*1024*1024)chunks.push(b)});
@@ -2137,6 +2152,159 @@ async function portainerStackList(item,endpointId) {
   const id=dockerEndpointId(endpointId),rows=await integrationJson(item.url,'/api/stacks',{headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
   return (Array.isArray(rows)?rows:[]).map(normalizePortainerStack).filter(s=>s.endpointId===id);
 }
+
+function dockerUpdateState() {
+  const raw=jsonRead(DOCKER_UPDATE_STATE_FILE,{});
+  return {checks:raw?.checks&&typeof raw.checks==='object'?raw.checks:{},queue:Array.isArray(raw?.queue)?raw.queue:[],lastAutoCheckAt:Number(raw?.lastAutoCheckAt||0),lastAutoCheckError:String(raw?.lastAutoCheckError||'')};
+}
+function saveDockerUpdateState(state){jsonWrite(DOCKER_UPDATE_STATE_FILE,state);}
+function dockerImageCheckKey(portainerId,endpointId,reference){return `${String(portainerId||'')}:${Number(endpointId||0)}:${String(reference||'')}`;}
+function recordDockerUpdateHistory(row={}) {
+  const rows=jsonRead(DOCKER_UPDATE_HISTORY_FILE,[]);
+  rows.unshift({id:row.id||crypto.randomUUID(),at:row.at||new Date().toISOString(),action:String(row.action||''),status:String(row.status||'ok'),portainerId:String(row.portainerId||''),portainerName:String(row.portainerName||''),endpointId:Number(row.endpointId||0),environmentName:String(row.environmentName||''),reference:String(row.reference||''),target:String(row.target||''),details:row.details&&typeof row.details==='object'?row.details:{}});
+  jsonWrite(DOCKER_UPDATE_HISTORY_FILE,rows.slice(0,1500));
+  return rows[0];
+}
+function dockerUpdateHistory({portainerId='',endpointId=0,limit=100}={}) {
+  return jsonRead(DOCKER_UPDATE_HISTORY_FILE,[]).filter(x=>(!portainerId||String(x.portainerId)===String(portainerId))&&(!endpointId||Number(x.endpointId)===Number(endpointId))).slice(0,Math.max(1,Math.min(500,Number(limit||100))));
+}
+function dockerUpdateWindowMatch(settings=getSettings(),date=new Date()) {
+  const cfg=settings?.dockerUpdates||{},tz=settings?.timezone||'UTC',parts=zonedParts(date,tz),day=dayIndexFromParts(parts),minute=Number(parts.hour)*60+Number(parts.minute),prevDay=(day+6)%7;
+  for(const window of (cfg.maintenanceWindows||[]).map(normalizeDockerUpdateWindow)){
+    const start=clockMinutes(window.start),end=clockMinutes(window.end);if(start===end)continue;
+    const same=start<end&&window.days.includes(day)&&minute>=start&&minute<end;
+    const overnight=start>end&&((window.days.includes(day)&&minute>=start)||(window.days.includes(prevDay)&&minute<end));
+    if(same||overnight)return {open:true,window,timeZone:tz,localTime:`${parts.hour}:${parts.minute}`,day};
+  }
+  return {open:false,window:null,timeZone:tz,localTime:`${parts.hour}:${parts.minute}`,day};
+}
+async function portainerImageList(item,endpointId) {
+  const rows=await portainerDockerJson(item,endpointId,'/images/json?all=1&digests=1');
+  return (Array.isArray(rows)?rows:[]).map(normalizeDockerImage);
+}
+async function portainerImageInspect(item,endpointId,reference) {
+  try{return await portainerDockerJson(item,endpointId,`/images/${encodeURIComponent(String(reference||''))}/json`);}catch{return null;}
+}
+function dockerImagePrimaryRef(image={}) {return String((image.repoTags||[])[0]||(image.repoDigests||[])[0]||'');}
+async function dockerImageInventory(item,endpointId,{checkRemote=false,notify=false,settings=getSettings()}={}) {
+  const [containers,images]=await Promise.all([portainerContainerList(item,endpointId),portainerImageList(item,endpointId)]);
+  const byId=new Map(images.map(img=>[normalizeDockerImageId(img.id),img]));
+  const groups=new Map();
+  for(const c of containers){const reference=String(c.image||'').trim();if(!reference)continue;if(!groups.has(reference))groups.set(reference,[]);groups.get(reference).push(c);}
+  const updateState=dockerUpdateState(),rows=[],consumed=new Set();
+  for(const [reference,usagesRaw] of [...groups.entries()].slice(0,80)){
+    const parsed=splitDockerImageReference(reference),usageIds=[...new Set(usagesRaw.map(x=>normalizeDockerImageId(x.imageId)).filter(Boolean))];
+    const currentImages=usageIds.map(id=>byId.get(id)).filter(Boolean);currentImages.forEach(x=>consumed.add(normalizeDockerImageId(x.id)));
+    const taggedRaw=await portainerImageInspect(item,endpointId,reference),tagged=taggedRaw?normalizeDockerImage(taggedRaw):null;
+    if(tagged?.id)consumed.add(normalizeDockerImageId(tagged.id));
+    const currentImage=currentImages[0]||tagged||null,currentDigest=currentImage?currentDigestForReference(currentImage,reference):'';
+    const pulledImageId=String(tagged?.id||''),pulledDigest=tagged?currentDigestForReference(tagged,reference):'';
+    const key=dockerImageCheckKey(item.id,endpointId,reference),previous=updateState.checks[key]||{};
+    let check={...previous};
+    if(checkRemote){
+      const checkedAt=new Date().toISOString();let remoteDigest='',error='';
+      if(parsed.digest)remoteDigest=parsed.digest;
+      else if(parsed.repository){
+        try{const dist=await portainerDockerJson(item,endpointId,`/distribution/${encodeURIComponent(parsed.pullRef)}/json`);remoteDigest=distributionDigest(dist);if(!remoteDigest)error='Le registre n’a pas fourni de digest exploitable.';}
+        catch(e){error=String(e?.message||e||'Vérification registre impossible.');}
+      }else error='Référence image invalide.';
+      check={...previous,remoteDigest,error,checkedAt,localDigest:pulledDigest||currentDigest,pulledImageId};
+      updateState.checks[key]=check;
+    }
+    const mismatch=!!pulledImageId&&usageIds.some(id=>id&&id!==normalizeDockerImageId(pulledImageId));
+    let status=mismatch
+      ?{kind:'redeploy-required',label:'Image téléchargée · redeploy requis',tone:'warning',updateAvailable:true,pullAvailable:false,redeployRequired:true,localDigest:currentDigest,remoteDigest:String(check.remoteDigest||''),checkedAt:String(check.checkedAt||'')}
+      :classifyDockerImageUpdate({localDigest:pulledDigest||currentDigest,remoteDigest:check.remoteDigest,currentImageId:usageIds[0]||'',pulledImageId:pulledImageId||usageIds[0]||'',checkedAt:check.checkedAt,error:check.error});
+    const usages=imageUsages(currentImage||{id:usagesRaw[0]?.imageId,repoTags:[reference]},usagesRaw);
+    const normalizedUsages=usagesRaw.map(c=>({id:c.id,name:c.name,image:c.image,imageId:c.imageId,stack:c.stack||'',state:c.state||'',needsRedeploy:!!pulledImageId&&normalizeDockerImageId(c.imageId)!==normalizeDockerImageId(pulledImageId)}));
+    const stacks=[...new Set(normalizedUsages.map(x=>x.stack).filter(Boolean))];
+    const row={key,reference,pullRef:parsed.pullRef,repository:parsed.repository,tag:parsed.tag,digest:parsed.digest,currentImageIds:usageIds,currentImageId:usageIds[0]||'',currentDigest,pulledImageId,pulledDigest,remoteDigest:String(check.remoteDigest||''),checkedAt:String(check.checkedAt||''),checkError:String(check.error||''),status,usages:normalizedUsages,stacks,used:true,dangling:false,size:Number(tagged?.size||currentImage?.size||0),created:Number(tagged?.created||currentImage?.created||0)};
+    rows.push(row);
+    if(checkRemote&&notify&&status.kind==='update-available'&&check.remoteDigest&&check.notifiedRemoteDigest!==check.remoteDigest&&settings?.dockerUpdates?.notifyOnAvailable!==false){
+      await sendAlertChannels(settings,'Mise à jour Docker disponible',`${reference} possède une nouvelle image disponible sur le registre.`,{type:'docker.image.update',severity:'warning',serverName:item.name||'Portainer',target:reference,details:[`Endpoint Portainer: ${endpointId}`,`Conteneurs concernés: ${normalizedUsages.map(x=>x.name).join(', ')||'—'}`,`Stacks: ${stacks.join(', ')||'—'}`,`Digest local: ${pulledDigest||currentDigest||'indisponible'}`,`Digest distant: ${check.remoteDigest}`],source:'Docker Registry via Portainer',recommendation:'Vérifie le changement puis utilise le workflow ProxPanel : aperçu → pull → redeploy explicite.'});
+      updateState.checks[key]={...check,notifiedRemoteDigest:check.remoteDigest};
+    }
+  }
+  for(const image of images){
+    const id=normalizeDockerImageId(image.id);if(consumed.has(id))continue;
+    const ref=dockerImagePrimaryRef(image)||`sha256:${image.shortId}`;
+    rows.push({key:`image:${id}`,reference:ref,pullRef:dockerImagePrimaryRef(image),repository:'',tag:'',digest:'',currentImageIds:[],currentImageId:'',currentDigest:'',pulledImageId:image.id,pulledDigest:currentDigestForReference(image,ref),remoteDigest:'',checkedAt:'',checkError:'',status:{kind:'unused',label:image.dangling?'Dangling':'Inutilisée',tone:'neutral',updateAvailable:false,pullAvailable:!!dockerImagePrimaryRef(image),redeployRequired:false},usages:[],stacks:[],used:false,dangling:!!image.dangling,size:image.size,created:image.created,repoTags:image.repoTags,repoDigests:image.repoDigests});
+  }
+  if(checkRemote)saveDockerUpdateState(updateState);
+  rows.sort((a,b)=>{const rank=x=>x.status?.kind==='update-available'?0:x.status?.kind==='redeploy-required'?1:x.used?2:x.dangling?4:3;return rank(a)-rank(b)||String(a.reference).localeCompare(String(b.reference));});
+  const summary={total:rows.length,used:rows.filter(x=>x.used).length,updateAvailable:rows.filter(x=>x.status?.kind==='update-available').length,redeployRequired:rows.filter(x=>x.status?.kind==='redeploy-required').length,unused:rows.filter(x=>!x.used).length,dangling:rows.filter(x=>x.dangling).length,unknown:rows.filter(x=>x.status?.kind==='unknown').length};
+  return {generatedAt:new Date().toISOString(),portainerId:item.id,portainerName:item.name||'Portainer',endpointId:Number(endpointId),summary,images:rows,window:dockerUpdateWindowMatch(settings)};
+}
+function dockerPullStreamSummary(buffer) {
+  const text=Buffer.isBuffer(buffer)?buffer.toString('utf8'):String(buffer||''),rows=[];let error='';
+  for(const line of text.split(/\r?\n/).filter(Boolean)){try{const row=JSON.parse(line);if(row?.error||row?.errorDetail?.message)error=String(row.error||row.errorDetail.message);if(row?.status)rows.push(String(row.status)+(row.id?` · ${row.id}`:''));}catch{if(line.trim())rows.push(line.trim());}}
+  return {error,lines:rows.slice(-12)};
+}
+async function dockerPullImage(item,endpointId,reference) {
+  const parsed=splitDockerImageReference(reference);if(!parsed.repository)throw new Error('Référence image invalide.');
+  const query=parsed.digest?`fromImage=${encodeURIComponent(parsed.repository+'@'+parsed.digest)}`:`fromImage=${encodeURIComponent(parsed.repository)}&tag=${encodeURIComponent(parsed.tag||'latest')}`;
+  const result=await portainerDockerBuffer(item,endpointId,`/images/create?${query}`,{method:'POST',headers:{Accept:'application/json'},timeoutMs:10*60*1000});
+  const summary=dockerPullStreamSummary(result.data);if(summary.error)throw new Error(summary.error);
+  const inspect=await portainerImageInspect(item,endpointId,parsed.pullRef||reference);if(!inspect)throw new Error('Image téléchargée mais impossible à relire depuis Docker.');
+  return {reference:parsed.pullRef||reference,image:normalizeDockerImage(inspect),log:summary.lines};
+}
+async function portainerRawStack(item,endpointId,stackId) {
+  const rows=await integrationJson(item.url,'/api/stacks',{headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
+  return (Array.isArray(rows)?rows:[]).find(x=>Number(x.Id||x.id)===Number(stackId)&&Number(x.EndpointId||x.EndpointID)===Number(endpointId))||null;
+}
+async function verifyDockerStackHealth(item,endpointId,stackName,timeoutMs=30000) {
+  const until=Date.now()+Math.max(5000,Math.min(60000,Number(timeoutMs||30000)));let last=[];
+  do{last=(await portainerContainerList(item,endpointId)).filter(c=>String(c.stack||'')===String(stackName||''));const summary=summarizeDockerRedeployHealth(last);if(summary.ok)return {...summary,containers:last.map(c=>({id:c.id,name:c.name,state:c.state,health:c.health}))};await sleep(2000);}while(Date.now()<until);
+  const summary=summarizeDockerRedeployHealth(last);return {...summary,containers:last.map(c=>({id:c.id,name:c.name,state:c.state,health:c.health}))};
+}
+async function redeployPortainerStack(item,endpointId,stackId,{pullImage=true,verify=true}={}) {
+  const raw=await portainerRawStack(item,endpointId,stackId);if(!raw)throw new Error('Stack introuvable.');
+  const stack=normalizePortainerStack(raw),baseHeaders=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
+  if(raw.GitConfig){await integrationJson(item.url,`/api/stacks/${stackId}/git/redeploy?endpointId=${endpointId}`,{method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{PullImage:!!pullImage,Prune:false}});}
+  else{const file=await integrationJson(item.url,`/api/stacks/${stackId}/file`,{headers:baseHeaders,rejectUnauthorized});const stackFile=String(file?.StackFileContent||file?.stackFileContent||'');if(!stackFile)throw new Error('Contenu Compose indisponible pour le redeploy.');await integrationJson(item.url,`/api/stacks/${stackId}?endpointId=${endpointId}`,{method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{StackFileContent:stackFile,Env:Array.isArray(raw.Env)?raw.Env:[],PullImage:!!pullImage,Prune:false}});}
+  const health=verify?await verifyDockerStackHealth(item,endpointId,stack.name,30000):null;
+  return {stack,health};
+}
+function dockerContainerHasStaticNetworking(inspect={}) {
+  if(String(inspect?.Config?.MacAddress||'').trim())return true;
+  const rows=inspect?.NetworkSettings?.Networks||{};
+  return Object.values(rows).some(n=>{const ipam=n?.IPAMConfig||{};return !!(String(ipam.IPv4Address||'').trim()||String(ipam.IPv6Address||'').trim()||String(n?.DriverOpts?.['com.docker.network.endpoint.sysctls']||'').trim());});
+}
+function dockerContainerNetworkingConfig(inspect={}) {
+  const rows=inspect?.NetworkSettings?.Networks||{},out={};
+  for(const [name,n] of Object.entries(rows)){out[name]={Aliases:Array.isArray(n?.Aliases)?n.Aliases:undefined,Links:Array.isArray(n?.Links)?n.Links:undefined,DriverOpts:n?.DriverOpts||undefined};}
+  return {EndpointsConfig:out};
+}
+async function verifyDockerContainerHealth(item,endpointId,containerId,timeoutMs=30000) {
+  const until=Date.now()+Math.max(5000,Math.min(60000,Number(timeoutMs||30000)));let state={};
+  do{const inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/json`);state=inspect?.State||{};const status=String(state.Status||'').toLowerCase(),health=String(state.Health?.Status||'').toLowerCase();if(status==='running'&&(!health||health==='healthy'))return {ok:true,status,health:health||'not-configured'};if(status==='exited'||status==='dead'||health==='unhealthy')break;await sleep(2000);}while(Date.now()<until);
+  return {ok:false,status:String(state.Status||'unknown').toLowerCase(),health:String(state.Health?.Status||'').toLowerCase()||'not-configured',exitCode:Number(state.ExitCode||0),error:String(state.Error||'')};
+}
+async function redeployStandaloneContainer(item,endpointId,containerId,{reference=''}={}) {
+  const inspect=await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/json`),labels=inspect?.Config?.Labels||{};
+  if(labels['com.docker.compose.project']||labels['io.portainer.stack.name'])throw new Error('Ce conteneur appartient à une stack. Utilise le redeploy de la stack pour conserver la définition Compose.');
+  if(inspect?.HostConfig?.AutoRemove)throw new Error('Redeploy sécurisé indisponible pour un conteneur AutoRemove.');
+  if(dockerContainerHasStaticNetworking(inspect))throw new Error('Redeploy automatique refusé : une adresse IP/MAC statique ou une configuration réseau avancée a été détectée. Utilise une stack Compose/Portainer ou effectue le changement manuellement afin de préserver le réseau.');
+  const originalName=String(inspect?.Name||'').replace(/^\//,'');if(!originalName)throw new Error('Nom du conteneur introuvable.');
+  const imageRef=String(reference||inspect?.Config?.Image||'').trim();if(!imageRef)throw new Error('Référence image introuvable.');
+  const targetImage=await portainerImageInspect(item,endpointId,imageRef);if(!targetImage)throw new Error('Image cible absente localement. Effectue d’abord le pull.');
+  const wasRunning=!!inspect?.State?.Running,backupName=`${originalName}.proxpanel-${Date.now()}`.slice(0,120);let createdId='',renamed=false;
+  const config=JSON.parse(JSON.stringify(inspect.Config||{}));config.Image=imageRef;
+  const body={...config,HostConfig:JSON.parse(JSON.stringify(inspect.HostConfig||{})),NetworkingConfig:dockerContainerNetworkingConfig(inspect)};
+  try{
+    if(wasRunning)await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/stop?t=15`,{method:'POST'});
+    await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/rename?name=${encodeURIComponent(backupName)}`,{method:'POST'});renamed=true;
+    const created=await portainerDockerJson(item,endpointId,`/containers/create?name=${encodeURIComponent(originalName)}`,{method:'POST',body});createdId=String(created?.Id||created?.id||'');if(!createdId)throw new Error('Docker n’a pas retourné l’identifiant du nouveau conteneur.');
+    await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(createdId)}/start`,{method:'POST'});
+    const health=await verifyDockerContainerHealth(item,endpointId,createdId,30000);if(!health.ok)throw new Error(`Le nouveau conteneur n’est pas sain (${health.status}/${health.health}).`);
+    await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}?v=0&force=0`,{method:'DELETE'});
+    return {ok:true,oldContainerId:containerId,newContainerId:createdId,name:originalName,image:imageRef,health,rollback:false};
+  }catch(error){
+    if(createdId){try{await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(createdId)}?v=0&force=1`,{method:'DELETE'});}catch{}}
+    if(renamed){try{await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/rename?name=${encodeURIComponent(originalName)}`,{method:'POST'});if(wasRunning)await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(containerId)}/start`,{method:'POST'});}catch{}}
+    const e=new Error(String(error?.message||error));e.rollbackAttempted=renamed;throw e;
+  }
+}
 function dockerTopologyMappings() {
   const rows=jsonRead(DOCKER_TOPOLOGY_FILE,{});
   return rows&&typeof rows==='object'&&!Array.isArray(rows)?rows:{};
@@ -2589,6 +2757,50 @@ async function runDockerBackgroundAlerts(settings,now=Date.now()) {
   state.checkedAt=new Date(now).toISOString();saveDockerMonitorState(state);
 }
 
+async function runDockerScheduledUpdateQueue(settings=getSettings(),now=Date.now()) {
+  const cfg=settings?.dockerUpdates||{};if(DEMO_MODE||cfg.scheduledActionsEnabled!==true)return;
+  const window=dockerUpdateWindowMatch(settings,new Date(now));if(!window.open)return;
+  const state=dockerUpdateState(),job=state.queue.find(x=>x&&x.status==='queued');if(!job)return;
+  job.status='running';job.startedAt=new Date(now).toISOString();saveDockerUpdateState(state);
+  const item=findPortainerIntegration(job.portainerId);
+  try{
+    if(!item)throw new Error('Intégration Portainer introuvable.');
+    const endpointId=dockerEndpointId(job.endpointId),reference=String(job.reference||'').trim();
+    if(reference)await dockerPullImage(item,endpointId,reference);
+    let result;
+    if(job.targetType==='stack')result=await redeployPortainerStack(item,endpointId,Number(job.stackId||0),{pullImage:false,verify:true});
+    else if(job.targetType==='container')result=await redeployStandaloneContainer(item,endpointId,dockerObjectId(job.containerId||''),{reference});
+    else throw new Error('Type de cible planifiée invalide.');
+    if(result?.health&&result.health.ok===false)throw new Error('La vérification de santé après redeploy a échoué.');
+    job.status='completed';job.completedAt=new Date().toISOString();job.result={health:result?.health||null,newContainerId:result?.newContainerId||''};
+    recordDockerUpdateHistory({action:'scheduled-redeploy',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName:job.environmentName,reference,target:job.targetType==='stack'?`stack:${job.stackId}`:`container:${job.containerId}`,details:{jobId:job.id,window:window.window,health:result?.health||null}});
+    await sendAlertChannels(settings,'Mise à jour Docker planifiée terminée',`${job.targetLabel||job.reference||'La cible Docker'} a été mise à jour dans le créneau de maintenance.`,{type:'docker.image.redeploy.success',severity:'info',serverName:item.name||'Portainer',target:job.targetLabel||job.reference||'',details:[`Environnement: ${job.environmentName||endpointId}`,`Image: ${reference||'—'}`,`Créneau: ${window.window.start}–${window.window.end}`],source:'ProxPanel Docker Update Scheduler'});
+    addAuditSystem('docker.update.scheduled',job.targetLabel||job.id,{jobId:job.id,status:'completed',reference},'ok');
+  }catch(e){
+    job.status='failed';job.completedAt=new Date().toISOString();job.error=String(e.message||e);
+    recordDockerUpdateHistory({action:'scheduled-redeploy',status:'error',portainerId:job.portainerId,portainerName:item?.name||'',endpointId:job.endpointId,environmentName:job.environmentName,reference:job.reference,target:job.targetLabel||'',details:{jobId:job.id,error:job.error,window:window.window}});
+    await sendAlertChannels(settings,'Échec d’une mise à jour Docker planifiée',`${job.targetLabel||job.reference||'Une cible Docker'} n’a pas pu être mise à jour.`,{type:'docker.image.update.failed',severity:'critical',serverName:item?.name||'Portainer',target:job.targetLabel||job.reference||'',error:job.error,details:[`Environnement: ${job.environmentName||job.endpointId}`,`Image: ${job.reference||'—'}`,`Créneau: ${window.window.start}–${window.window.end}`],source:'ProxPanel Docker Update Scheduler',recommendation:'Consulte l’historique Docker et les logs avant de replanifier cette mise à jour.'});
+    addAuditSystem('docker.update.scheduled',job.targetLabel||job.id,{jobId:job.id,status:'failed',error:job.error},'error');
+  }
+  const latest=dockerUpdateState(),idx=latest.queue.findIndex(x=>x.id===job.id);if(idx>=0)latest.queue[idx]=job;saveDockerUpdateState(latest);
+}
+async function runDockerImageUpdateWorker(settings=getSettings(),now=Date.now()) {
+  const cfg=settings?.dockerUpdates||{};if(DEMO_MODE||cfg.autoCheckEnabled!==true)return;
+  const initial=dockerUpdateState(),interval=Math.max(1,Math.min(168,Number(cfg.checkIntervalHours||12)))*60*60*1000;
+  if(now-Number(initial.lastAutoCheckAt||0)<interval)return;
+  initial.lastAutoCheckAt=now;initial.lastAutoCheckError='';saveDockerUpdateState(initial);
+  const errors=[],portainers=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
+  for(const item of portainers){
+    let overview;try{overview=await cachedPortainerOverview(item,true);}catch(e){errors.push(`${item.name||'Portainer'}: ${String(e.message||e)}`);continue;}
+    for(const env of overview.environments||[]){
+      if(!env.reachable||!env.supported)continue;
+      try{const inv=await dockerImageInventory(item,env.id,{checkRemote:true,notify:true,settings});recordDockerUpdateHistory({action:'auto-check',status:'ok',portainerId:item.id,portainerName:item.name,endpointId:env.id,environmentName:env.name,target:'registry',details:{...inv.summary}});}
+      catch(e){const message=String(e.message||e);errors.push(`${item.name||'Portainer'} / ${env.name}: ${message}`);recordDockerUpdateHistory({action:'auto-check',status:'error',portainerId:item.id,portainerName:item.name,endpointId:env.id,environmentName:env.name,target:'registry',details:{error:message}});}
+    }
+  }
+  const final=dockerUpdateState();final.lastAutoCheckAt=now;final.lastAutoCheckError=errors.join('\n').slice(0,8000);saveDockerUpdateState(final);
+  addAuditSystem('docker.images.auto-check','Docker',{portainers:portainers.length,errors:errors.length},errors.length?'warning':'ok');
+}
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
@@ -2676,7 +2888,7 @@ const DISCORD_EVENT_TYPES = [
   'node.offline','node.recovered','task.warning','task.failed','storage.warning','storage.critical',
   'resources.cpu','resources.memory','temperature.warning','temperature.critical',
   'docker.portainer.unreachable','docker.engine.unreachable','docker.container.stopped','docker.container.unhealthy','docker.container.restarts',
-  'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.recovered',
+  'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.image.update','docker.image.update.failed','docker.image.redeploy.success','docker.recovered',
   'system.update.available','pve.update.available','pve.update.security','pve.update.manual-report','system.test'
 ];
 function normalizeDiscordEvents(list) {
@@ -2720,7 +2932,7 @@ function discordEventLabel(type) {
     'node.offline':'Nœud hors ligne','node.recovered':'Nœud de nouveau en ligne','task.warning':'Tâche avec avertissement','task.failed':'Tâche échouée','storage.warning':'Stockage en alerte','storage.critical':'Stockage critique',
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
-    'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.recovered':'Docker rétabli',
+    'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.image.update':'Mise à jour image Docker','docker.image.update.failed':'Échec mise à jour Docker','docker.image.redeploy.success':'Redeploy Docker réussi','docker.recovered':'Docker rétabli',
     'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','system.test':'Test système'
   };
   return labels[type] || type;
@@ -2757,6 +2969,9 @@ function defaultRecommendation(event={}) {
     'docker.resources.memory':'Contrôle la mémoire du conteneur et recherche une fuite ou une limite trop basse.',
     'docker.storage.pressure':'Nettoie les images/volumes inutilisés ou augmente la capacité après vérification.',
     'docker.stack.degraded':'Vérifie les conteneurs en défaut de la stack avant un redeploy.',
+    'docker.image.update':'Vérifie le digest, consulte l’aperçu puis lance manuellement le pull et le redeploy si souhaité.',
+    'docker.image.update.failed':'Vérifie le registre, les logs Docker/Portainer et l’état de la stack ou du conteneur avant une nouvelle tentative.',
+    'docker.image.redeploy.success':'Aucune action requise si la vérification de santé reste correcte.',
     'docker.recovered':'Aucune action requise si la ressource reste stable après récupération.',
     'temperature.warning':'Surveille la charge et le refroidissement du nœud. Vérifie les ventilateurs et le flux d’air si la température continue de monter.',
     'temperature.critical':'Vérifie immédiatement le refroidissement, les ventilateurs, les dissipateurs et la charge du nœud.',
@@ -4091,6 +4306,16 @@ async function handleApi(req, res, url) {
     if (!body.updates || body.updates.otaPublicKeyFingerprint === undefined) next.updates.otaPublicKeyFingerprint = current.updates?.otaPublicKeyFingerprint || '';
     next.pveUpdates = next.pveUpdates || {};
     next.pveUpdates.checkIntervalHours = clampNumber(next.pveUpdates.checkIntervalHours, 1, 168, 6);
+    next.dockerUpdates = next.dockerUpdates || {};
+    next.dockerUpdates.checkIntervalHours = clampNumber(next.dockerUpdates.checkIntervalHours,1,168,12);
+    next.dockerUpdates.autoCheckEnabled = next.dockerUpdates.autoCheckEnabled === true;
+    next.dockerUpdates.notifyOnAvailable = next.dockerUpdates.notifyOnAvailable !== false;
+    next.dockerUpdates.scheduledActionsEnabled = next.dockerUpdates.scheduledActionsEnabled === true;
+    if(body.dockerUpdates?.maintenanceWindows!==undefined){
+      if(!Array.isArray(body.dockerUpdates.maintenanceWindows)||!body.dockerUpdates.maintenanceWindows.length)return sendJson(res,400,{error:'Ajoute au moins un créneau de maintenance Docker.'});
+      next.dockerUpdates.maintenanceWindows=body.dockerUpdates.maintenanceWindows.slice(0,8).map(normalizeDockerUpdateWindow);
+      if(next.dockerUpdates.maintenanceWindows.some(w=>w.start===w.end))return sendJson(res,400,{error:'Un créneau Docker doit avoir des heures de début et de fin différentes.'});
+    }
     next.ui = next.ui || {};
     next.ui.dashboardRefreshSeconds = clampNumber(next.ui.dashboardRefreshSeconds, 5, 300, 10);
     saveSettings(next);
@@ -4751,6 +4976,62 @@ async function handleApi(req, res, url) {
   if(url.pathname==='/api/docker/alerts'&&req.method==='GET'){
     return sendJson(res,200,{alerts:activeDockerAlerts(),checkedAt:dockerMonitorState().checkedAt||''});
   }
+  if(url.pathname==='/api/docker/update-history'&&req.method==='GET'){
+    const portainerId=String(url.searchParams.get('portainerId')||''),endpointId=Number(url.searchParams.get('endpointId')||0);
+    if(DEMO_MODE)return sendJson(res,200,{history:demoDockerUpdateHistory(endpointId||1)});
+    return sendJson(res,200,{history:dockerUpdateHistory({portainerId,endpointId,limit:Number(url.searchParams.get('limit')||150)})});
+  }
+  if(url.pathname==='/api/docker/update-status'&&req.method==='GET'){
+    const cfg=getSettings(),state=dockerUpdateState();
+    return sendJson(res,200,{settings:cfg.dockerUpdates||{},window:dockerUpdateWindowMatch(cfg),lastAutoCheckAt:state.lastAutoCheckAt||0,lastAutoCheckError:state.lastAutoCheckError||'',queue:state.queue||[]});
+  }
+  if(url.pathname==='/api/docker/update-queue'&&req.method==='POST'){
+    const settings=getSettings();if(settings?.dockerUpdates?.scheduledActionsEnabled!==true)return sendJson(res,409,{error:'Les actions Docker planifiées sont désactivées. Active-les d’abord dans les paramètres Docker.'});
+    const body=await readBody(req),targetType=String(body.targetType||''),reference=String(body.reference||'').trim(),portainerId=String(body.portainerId||''),endpointId=Number(body.endpointId||0);
+    if(!findPortainerIntegration(portainerId))return sendJson(res,404,{error:'Portainer introuvable.'});
+    if(!Number.isInteger(endpointId)||endpointId<=0||!['stack','container'].includes(targetType))return sendJson(res,400,{error:'Cible Docker planifiée invalide.'});
+    if(targetType==='stack'&&!Number(body.stackId||0))return sendJson(res,400,{error:'stackId requis.'});
+    if(targetType==='container'&&!String(body.containerId||''))return sendJson(res,400,{error:'containerId requis.'});
+    const state=dockerUpdateState(),job={id:crypto.randomUUID(),status:'queued',createdAt:new Date().toISOString(),createdBy:session.username,portainerId,endpointId,environmentName:String(body.environmentName||`Environment ${endpointId}`),reference,targetType,stackId:targetType==='stack'?Number(body.stackId):null,containerId:targetType==='container'?String(body.containerId):'',targetLabel:String(body.targetLabel||'').slice(0,200)};
+    state.queue.unshift(job);state.queue=state.queue.slice(0,200);saveDockerUpdateState(state);audit(req,'docker.update.queue',job.targetLabel||job.id,{jobId:job.id,reference,targetType,endpointId});return sendJson(res,201,{job,window:dockerUpdateWindowMatch(settings)});
+  }
+  if(url.pathname==='/api/docker/update-queue/cancel'&&req.method==='POST'){
+    const body=await readBody(req),id=String(body.id||''),state=dockerUpdateState(),job=state.queue.find(x=>x.id===id);if(!job)return sendJson(res,404,{error:'Action planifiée introuvable.'});if(job.status!=='queued')return sendJson(res,409,{error:'Seules les actions encore en attente peuvent être annulées.'});job.status='cancelled';job.completedAt=new Date().toISOString();saveDockerUpdateState(state);audit(req,'docker.update.cancel',job.targetLabel||id,{jobId:id});return sendJson(res,200,{ok:true,job});
+  }
+  const dockerImagesMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/images$/);
+  if(dockerImagesMatch&&req.method==='GET'){
+    const item=findPortainerIntegration(dockerImagesMatch[1]);if(!item&&!DEMO_MODE)return sendJson(res,404,{error:'Portainer introuvable.'});
+    let endpointId;try{endpointId=dockerEndpointId(dockerImagesMatch[2]);}catch(e){return sendJson(res,400,{error:e.message});}
+    if(DEMO_MODE)return sendJson(res,200,demoDockerImages(endpointId));
+    try{return sendJson(res,200,await dockerImageInventory(item,endpointId,{checkRemote:false,settings:getSettings()}));}catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  const dockerImageActionMatch=url.pathname.match(/^\/api\/docker\/portainers\/([^/]+)\/environments\/(\d+)\/images\/(check|pull|redeploy|remove)$/);
+  if(dockerImageActionMatch&&req.method==='POST'){
+    const item=findPortainerIntegration(dockerImageActionMatch[1]);if(!item)return sendJson(res,404,{error:'Portainer introuvable.'});
+    let endpointId;try{endpointId=dockerEndpointId(dockerImageActionMatch[2]);}catch(e){return sendJson(res,400,{error:e.message});}
+    const action=dockerImageActionMatch[3],settings=getSettings(),body=await readBody(req),environmentName=String(body.environmentName||`Environment ${endpointId}`);
+    if(action==='check'){
+      try{const inventory=await dockerImageInventory(item,endpointId,{checkRemote:true,notify:true,settings});recordDockerUpdateHistory({action:'check',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,target:'registry',details:{...inventory.summary}});audit(req,'docker.images.check',environmentName,{portainer:item.name,endpointId,...inventory.summary});return sendJson(res,200,inventory);}catch(e){recordDockerUpdateHistory({action:'check',status:'error',portainerId:item.id,portainerName:item.name,endpointId,environmentName,target:'registry',details:{error:String(e.message||e)}});audit(req,'docker.images.check',environmentName,{portainer:item.name,endpointId,error:String(e.message||e)},'error');return sendJson(res,502,{error:e.message});}
+    }
+    if(action==='pull'){
+      const reference=String(body.reference||'').trim();if(!reference)return sendJson(res,400,{error:'Référence image requise.'});
+      try{const result=await dockerPullImage(item,endpointId,reference);recordDockerUpdateHistory({action:'pull',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target:'image',details:{imageId:result.image.id,digest:currentDigestForReference(result.image,reference),log:result.log}});audit(req,'docker.image.pull',reference,{portainer:item.name,endpointId,imageId:result.image.id});PORTAINER_OVERVIEW_CACHE.delete(String(item.id));const inventory=await dockerImageInventory(item,endpointId,{checkRemote:false,settings});return sendJson(res,200,{ok:true,result,inventory});}
+      catch(e){recordDockerUpdateHistory({action:'pull',status:'error',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target:'image',details:{error:String(e.message||e)}});audit(req,'docker.image.pull',reference,{portainer:item.name,endpointId,error:String(e.message||e)},'error');await sendAlertChannels(settings,'Échec du pull d’une image Docker',`${reference} n’a pas pu être téléchargée.`,{type:'docker.image.update.failed',severity:'warning',serverName:item.name||'Portainer',target:reference,error:String(e.message||e),details:[`Endpoint Portainer: ${endpointId}`,`Environnement: ${environmentName}`],source:'Docker Engine via Portainer',recommendation:'Vérifie le registre, les identifiants éventuels et la connectivité avant de réessayer.'});return sendJson(res,502,{error:e.message});}
+    }
+    if(action==='redeploy'){
+      const reference=String(body.reference||'').trim(),targetType=String(body.targetType||''),started=Date.now();
+      try{let result,target='';
+        if(targetType==='stack'){const stackId=Number(body.stackId||0);if(!stackId)return sendJson(res,400,{error:'stackId requis.'});result=await redeployPortainerStack(item,endpointId,stackId,{pullImage:false,verify:true});target=`stack:${result.stack.name||stackId}`;if(result.health&&!result.health.ok)throw new Error(`Redeploy terminé mais santé de la stack non conforme (${result.health.running}/${result.health.total} running, ${result.health.unhealthy} unhealthy).`);}
+        else if(targetType==='container'){const containerId=dockerObjectId(body.containerId||'');result=await redeployStandaloneContainer(item,endpointId,containerId,{reference});target=`container:${result.name||containerId}`;}
+        else return sendJson(res,400,{error:'targetType doit être stack ou container.'});
+        const durationSeconds=Math.round((Date.now()-started)/1000);recordDockerUpdateHistory({action:'redeploy',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target,details:{durationSeconds,health:result.health||null,newContainerId:result.newContainerId||''}});audit(req,'docker.image.redeploy',target,{portainer:item.name,endpointId,reference,durationSeconds,health:result.health||null});PORTAINER_OVERVIEW_CACHE.delete(String(item.id));const inventory=await dockerImageInventory(item,endpointId,{checkRemote:false,settings});return sendJson(res,200,{ok:true,result,durationSeconds,inventory});
+      }catch(e){const durationSeconds=Math.round((Date.now()-started)/1000),target=targetType==='stack'?`stack:${body.stackId||''}`:`container:${body.containerId||''}`;recordDockerUpdateHistory({action:'redeploy',status:'error',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference,target,details:{error:String(e.message||e),durationSeconds,rollbackAttempted:!!e.rollbackAttempted}});audit(req,'docker.image.redeploy',target,{portainer:item.name,endpointId,reference,error:String(e.message||e),durationSeconds,rollbackAttempted:!!e.rollbackAttempted},'error');const logExcerpt=targetType==='container'&&body.containerId?await dockerIncidentLogExcerpt({portainerId:item.id,endpointId,containerId:String(body.containerId)}):'';await sendAlertChannels(settings,'Échec du redeploy Docker',`${target} n’a pas été remis en service correctement.`,{type:'docker.image.update.failed',severity:'critical',serverName:item.name||'Portainer',target,error:String(e.message||e),details:[`Environnement: ${environmentName}`,`Endpoint Portainer: ${endpointId}`,`Image: ${reference||'—'}`,`Durée: ${durationSeconds}s`,e.rollbackAttempted?'Rollback de sécurité tenté: oui':'Rollback de sécurité tenté: non'],source:'Docker Engine / Portainer',logExcerpt,recommendation:'Consulte les détails techniques et les logs. Vérifie l’état de l’ancien conteneur ou de la stack avant toute nouvelle tentative.'});return sendJson(res,502,{error:e.message,rollbackAttempted:!!e.rollbackAttempted});}
+    }
+    if(action==='remove'){
+      const imageId=String(body.imageId||'').trim();if(!imageId)return sendJson(res,400,{error:'imageId requis.'});
+      try{const containers=await portainerContainerList(item,endpointId),images=await portainerImageList(item,endpointId),image=images.find(x=>normalizeDockerImageId(x.id)===normalizeDockerImageId(imageId));if(!image)return sendJson(res,404,{error:'Image introuvable.'});const usages=imageUsages(image,containers);if(usages.length)return sendJson(res,409,{error:`Image encore utilisée par ${usages.length} conteneur(s). Suppression refusée.`});await portainerDockerJson(item,endpointId,`/images/${encodeURIComponent(image.id)}?force=0&noprune=1`,{method:'DELETE'});recordDockerUpdateHistory({action:'remove',status:'ok',portainerId:item.id,portainerName:item.name,endpointId,environmentName,reference:dockerImagePrimaryRef(image)||image.shortId,target:'image',details:{imageId:image.id,size:image.size,dangling:image.dangling}});audit(req,'docker.image.remove',image.shortId,{portainer:item.name,endpointId,size:image.size,dangling:image.dangling});return sendJson(res,200,{ok:true});}catch(e){return sendJson(res,502,{error:e.message});}
+    }
+  }
   if(url.pathname==='/api/docker/overview'&&req.method==='GET'){
     if(DEMO_MODE)return sendJson(res,200,demoDockerOverview());
     const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
@@ -4863,27 +5144,17 @@ async function handleApi(req, res, url) {
       if(req.method==='POST'&&stackId&&op==='action'){
         const body=await readBody(req),action=String(body.action||'').toLowerCase();
         if(!['start','stop','redeploy'].includes(action))return sendJson(res,400,{error:'Action stack invalide.'});
-        const baseHeaders=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
+        let result=null;
         if(action==='start'||action==='stop'){
+          const baseHeaders=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
           await integrationJson(item.url,`/api/stacks/${stackId}/${action}?endpointId=${endpointId}`,{method:'POST',headers:baseHeaders,rejectUnauthorized});
         }else{
-          const rows=await integrationJson(item.url,'/api/stacks',{headers:baseHeaders,rejectUnauthorized});
-          const raw=(Array.isArray(rows)?rows:[]).find(x=>Number(x.Id||x.id)===stackId&&Number(x.EndpointId||x.EndpointID)===endpointId);
-          if(!raw)throw new Error('Stack introuvable.');
-          if(raw.GitConfig){
-            await integrationJson(item.url,`/api/stacks/${stackId}/git/redeploy?endpointId=${endpointId}`,{method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{PullImage:true,Prune:false}});
-          }else{
-            const file=await integrationJson(item.url,`/api/stacks/${stackId}/file`,{headers:baseHeaders,rejectUnauthorized});
-            const stackFile=String(file?.StackFileContent||file?.stackFileContent||'');
-            if(!stackFile)throw new Error('Contenu Compose indisponible pour le redeploy.');
-            await integrationJson(item.url,`/api/stacks/${stackId}?endpointId=${endpointId}`,{
-              method:'PUT',headers:baseHeaders,rejectUnauthorized,body:{StackFileContent:stackFile,Env:Array.isArray(raw.Env)?raw.Env:[],PullImage:true,Prune:false}
-            });
-          }
+          result=await redeployPortainerStack(item,endpointId,stackId,{pullImage:true,verify:true});
+          if(result.health&&!result.health.ok)throw new Error(`Redeploy terminé mais contrôle de santé non conforme (${result.health.running}/${result.health.total} running, ${result.health.unhealthy} unhealthy, ${result.health.restarting} restarting).`);
         }
-        audit(req,`docker.stack.${action}`,String(stackId),{portainer:item.name,endpointId});
+        audit(req,`docker.stack.${action}`,String(stackId),{portainer:item.name,endpointId,health:result?.health||null});
         PORTAINER_OVERVIEW_CACHE.delete(String(item.id));
-        return sendJson(res,200,{ok:true,action});
+        return sendJson(res,200,{ok:true,action,health:result?.health||null});
       }
     }catch(e){return sendJson(res,502,{error:e.message});}
   }
@@ -4945,8 +5216,11 @@ async function buildBackgroundDashboard(server, auth) {
   return dashboard;
 }
 async function runBackgroundAlerts() {
-  const settings=getSettings(); if(settings.alerts?.enabled===false)return;
-  const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000,now=Date.now();
+  const settings=getSettings(),now=Date.now();
+  try{await runDockerImageUpdateWorker(settings,now);}catch(e){addAuditSystem('docker.images.auto-check','Docker',{error:e.message},'error');}
+  try{await runDockerScheduledUpdateQueue(settings,now);}catch(e){addAuditSystem('docker.update.scheduler','Docker',{error:e.message},'error');}
+  if(settings.alerts?.enabled===false)return;
+  const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
   try{await runDockerBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.docker.poll','Docker',{error:e.message},'error');}
   const alertState=jsonRead(ALERT_STATE_FILE,{}); let changed=false;
   for(const server of jsonRead(SERVERS_FILE,[])) {
