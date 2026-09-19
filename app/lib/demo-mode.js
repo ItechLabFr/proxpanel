@@ -21,6 +21,8 @@ function demoResources() {
     { type:'qemu', vmid:110, name:'SQL01', status:'running', node:'pve-demo-02', cpu:0.21, maxcpu:8, mem:gib(11.4), maxmem:gib(16), disk:gib(118), maxdisk:gib(200), uptime:22*day, tags:'production;windows;database', netin:7300000, netout:5100000 },
     { type:'qemu', vmid:120, name:'MONITORING', status:'running', node:'pve-demo-03', cpu:0.09, maxcpu:4, mem:gib(6.2), maxmem:gib(8), disk:gib(54), maxdisk:gib(100), uptime:6*day, tags:'monitoring;linux', netin:16200000, netout:4200000 },
     { type:'qemu', vmid:130, name:'WIN-LAB', status:'stopped', node:'pve-demo-03', cpu:0, maxcpu:4, mem:0, maxmem:gib(8), disk:gib(31), maxdisk:gib(64), uptime:0, tags:'lab;windows', netin:0, netout:0 },
+    { type:'qemu', vmid:140, name:'ITL-DCK-PROD01', status:'running', node:'pve-demo-01', cpu:0.08, maxcpu:8, mem:gib(7.4), maxmem:gib(16), disk:gib(46), maxdisk:gib(96), uptime:29*day, tags:'docker;production', netin:12800000, netout:9400000 },
+    { type:'qemu', vmid:141, name:'ITL-DCK-LAB01', status:'running', node:'pve-demo-03', cpu:0.05, maxcpu:6, mem:gib(5.2), maxmem:gib(12), disk:gib(32), maxdisk:gib(72), uptime:14*day, tags:'docker;lab', netin:6300000, netout:4100000 },
 
     { type:'lxc', vmid:200, name:'npm-proxy', status:'running', node:'pve-demo-01', cpu:0.03, maxcpu:2, mem:gib(1.2), maxmem:gib(2), disk:gib(7), maxdisk:gib(16), uptime:31*day, tags:'network;docker', netin:5700000, netout:8100000 },
     { type:'lxc', vmid:201, name:'uptime-kuma', status:'running', node:'pve-demo-02', cpu:0.02, maxcpu:2, mem:gib(0.8), maxmem:gib(2), disk:gib(5), maxdisk:gib(12), uptime:27*day, tags:'monitoring', netin:2100000, netout:1300000 },
