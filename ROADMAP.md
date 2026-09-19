@@ -4,7 +4,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.5**
+- Latest published development release: **1.7.2-beta.5.1**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
 - Official Docker image architectures: **`linux/amd64` + `linux/arm64`** (Raspberry Pi 64-bit supported).
@@ -189,6 +189,13 @@ Status: **implemented for publication**.
 - Live refresh and responsive PWA/mobile layout.
 
 ---
+
+### 1.7.2-beta.5.1 — Security hotfix
+
+- Strong re-authentication required before disabling 2FA.
+- Dedicated throttling and audit for sensitive re-authentication.
+- Owner email notification when 2FA is disabled.
+- Frontend framework evaluation documented; migration deferred for the 1.7.2 series.
 
 ## 1.7.2-beta.5 — Docker Image & Update Management
 
