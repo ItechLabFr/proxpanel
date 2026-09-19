@@ -1838,3 +1838,31 @@ html[data-theme="light"] .docker-tabs button.active{background:#fff!important}
 @media(max-width:620px){
   .docker-monitor-config .admin-form-grid{grid-template-columns:1fr}
 }
+
+
+/* 1.7.2-beta.4 · Docker Dashboard & Proxmox topology */
+.docker-dashboard{display:grid;gap:14px;margin-bottom:14px}
+.docker-dashboard-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.docker-dashboard-kpis>.panel{padding:13px 14px;min-width:0}
+.docker-dashboard-kpis span,.docker-dashboard-kpis small{display:block;color:var(--muted)}
+.docker-dashboard-kpis span{font-size:8px;font-weight:850;text-transform:uppercase;letter-spacing:.06em}
+.docker-dashboard-kpis strong{display:block;margin:4px 0 3px;font-size:21px}
+.docker-dashboard-kpis small{font-size:9px}
+.docker-dashboard-kpis .docker-warning{border-color:color-mix(in srgb,var(--red) 30%,var(--line))}
+.docker-dashboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.docker-consumer-panel{overflow:hidden}
+.docker-consumer-panel>.panel-head{padding:13px 14px;border-bottom:1px solid var(--line2)}
+.docker-consumer-list{display:grid}
+.docker-consumer-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,.7fr);gap:14px;align-items:center;padding:10px 14px;border:0;border-bottom:1px solid var(--line2);background:transparent;color:var(--text);text-align:left;cursor:pointer}
+.docker-consumer-row:last-child{border-bottom:0}.docker-consumer-row:hover{background:var(--panel2)}
+.docker-consumer-row strong,.docker-consumer-row small{display:block}.docker-consumer-row small{margin-top:2px;color:var(--muted);font-size:9px}
+.docker-consumer-value b{display:block;text-align:right;font-size:12px}.docker-consumer-value i{display:block;height:5px;margin-top:5px;border-radius:99px;background:var(--panel3);overflow:hidden}.docker-consumer-value em{display:block;height:100%;background:var(--accent);border-radius:99px}
+.docker-topology-panel{overflow:hidden}.docker-topology-panel>.panel-head{padding:14px 15px;border-bottom:1px solid var(--line2)}
+.docker-topology-list{display:grid}.docker-topology-row{padding:12px 14px;border-bottom:1px solid var(--line2)}.docker-topology-row:last-child{border-bottom:0}
+.docker-topology-path{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:10px;align-items:center}
+.docker-topology-path>b{color:var(--accent)}.docker-topology-node{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);min-width:0}
+.docker-topology-node small,.docker-topology-node strong,.docker-topology-node em{display:block}.docker-topology-node small{color:var(--muted);font-size:8px;text-transform:uppercase;letter-spacing:.06em}.docker-topology-node strong{margin-top:3px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.docker-topology-node em{margin-top:2px;color:var(--muted);font-size:9px;font-style:normal;overflow-wrap:anywhere}
+.docker-topology-actions{display:flex;justify-content:flex-end;align-items:center;gap:7px;margin-top:9px;flex-wrap:wrap}.topology-suggestion{margin-right:auto;color:var(--muted);font-size:9px}
+@media(max-width:1050px){.docker-dashboard-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:720px){.docker-dashboard-grid{grid-template-columns:1fr}.docker-topology-path{grid-template-columns:1fr}.docker-topology-path>b{transform:rotate(90deg);justify-self:center}.docker-dashboard-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){.docker-dashboard-kpis{grid-template-columns:1fr}.docker-consumer-row{grid-template-columns:1fr}.docker-consumer-value b{text-align:left}.docker-topology-actions{display:grid;grid-template-columns:1fr}.docker-topology-actions .btn{width:100%;justify-content:center}.topology-suggestion{margin:0}}
