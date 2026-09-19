@@ -2866,6 +2866,13 @@ async function proxmoxTaskLogExcerpt(server,auth,upid,limit=40) {
     return redactDiagnosticText(lines.slice(-Math.max(5,Math.min(100,Number(limit||40)))).join('\n')).slice(-12000);
   }catch{return '';}
 }
+function summarizeProxmoxTaskLog(log='') {
+  const lines=String(log||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const vmids=[...new Set(lines.flatMap(line=>[...line.matchAll(/\b(?:VM|CT)\s+(\d+)\b/gi)].map(m=>m[1])))].slice(0,30);
+  const warnings=lines.filter(line=>/\bwarn(?:ing|ings)?\b/i.test(line)).slice(-10);
+  const errors=lines.filter(line=>/\b(?:error|failed|failure|abort(?:ed)?)\b/i.test(line)).slice(-10);
+  return {vmids,warnings,errors};
+}
 async function dockerIncidentLogExcerpt(row={}) {
   if(!row.containerId||!row.portainerId||!row.endpointId)return '';
   try{
@@ -4963,11 +4970,37 @@ async function runBackgroundAlerts() {
       const knownBackupIds=new Set(Array.isArray(previousState.backupTaskIds)?previousState.backupTaskIds:[]);
       if(previousState.checkedAt){
         for(const t of backupTasks.filter(t=>!knownBackupIds.has(t.upid)).sort((a,b)=>Number(a.endtime||0)-Number(b.endtime||0))){
-          const ok=String(t.status||'').toUpperCase()==='OK';
-          const target=t.id?`VM/LXC ${t.id}`:'Sauvegarde';
-          const logExcerpt=ok?'':await proxmoxTaskLogExcerpt(server,auth,t.upid,50);
-          await sendAlertChannels(settings,ok?'Sauvegarde terminée':'Sauvegarde échouée',`${target} sur ${t.node||server.name} · statut ${t.status||'inconnu'}.`,{type:ok?'backup.success':'backup.failed',severity:ok?'info':'critical',serverName:server.name,target,details:[`Nœud: ${t.node||server.name}`,`Statut Proxmox: ${t.status||'inconnu'}`,`Début: ${t.starttime?new Date(Number(t.starttime)*1000).toLocaleString('fr-FR'):'—'}`,`Fin: ${t.endtime?new Date(Number(t.endtime)*1000).toLocaleString('fr-FR'):'—'}`],source:'Proxmox vzdump',upid:t.upid,logExcerpt});
-          addAuditSystem('alerts.backup',server.name,{type:ok?'backup.success':'backup.failed',upid:t.upid,status:t.status,id:t.id||''},ok?'ok':'error');
+          const outcome=classifyProxmoxTaskStatus(t.status);
+          const target=t.id?`VM/LXC ${t.id}`:'Job de sauvegarde';
+          const needsDiagnostics=outcome.kind==='warning'||outcome.kind==='failure';
+          const logExcerpt=needsDiagnostics?await proxmoxTaskLogExcerpt(server,auth,t.upid,80):'';
+          const logSummary=summarizeProxmoxTaskLog(logExcerpt);
+          const start=Number(t.starttime||0),end=Number(t.endtime||0),duration=start&&end&&end>=start?end-start:0;
+          const title=outcome.kind==='success'?'Sauvegarde terminée':outcome.kind==='warning'?'Sauvegarde terminée avec avertissement':'Sauvegarde échouée';
+          const type=outcome.kind==='success'?'backup.success':outcome.kind==='warning'?'backup.warning':'backup.failed';
+          const severity=outcome.kind==='success'?'info':outcome.kind==='warning'?'warning':'critical';
+          const message=outcome.kind==='warning'
+            ?`${target} sur ${t.node||server.name} est terminé avec ${outcome.warningCount||1} avertissement(s) · statut ${outcome.raw||'WARNINGS'}.`
+            :`${target} sur ${t.node||server.name} · statut ${outcome.raw||'inconnu'}.`;
+          const details=[
+            `Nœud: ${t.node||server.name}`,
+            `Type de tâche: ${t.type||'vzdump'}`,
+            `ID / cible Proxmox: ${t.id||'job multi-machines / non fourni'}`,
+            `Utilisateur: ${t.user||'inconnu'}`,
+            `Statut Proxmox brut: ${outcome.raw||'inconnu'}`,
+            outcome.kind==='warning'?`Nombre d’avertissements: ${outcome.warningCount||1}`:'',
+            `Début: ${start?new Date(start*1000).toLocaleString('fr-FR'):'—'}`,
+            `Fin: ${end?new Date(end*1000).toLocaleString('fr-FR'):'—'}`,
+            `Durée: ${duration?Math.floor(duration/60)+'m '+(duration%60)+'s':'—'}`,
+            logSummary.vmids.length?`Machines détectées dans le log: ${logSummary.vmids.join(', ')}`:''
+          ].filter(Boolean);
+          const technicalDetails=[
+            {label:'Classification ProxPanel',value:outcome.kind},
+            logSummary.warnings.length?{label:'Avertissements détectés',value:logSummary.warnings.join('\n')}:null,
+            logSummary.errors.length?{label:'Erreurs détectées',value:logSummary.errors.join('\n')}:null
+          ].filter(Boolean);
+          await sendAlertChannels(settings,title,message,{type,severity,serverName:server.name,target,details,source:'Proxmox vzdump',upid:t.upid,technicalDetails,logExcerpt});
+          addAuditSystem('alerts.backup',server.name,{type,upid:t.upid,status:t.status,id:t.id||'',classification:outcome.kind,warningCount:outcome.warningCount||0},outcome.kind==='failure'?'error':outcome.kind==='warning'?'warning':'ok');
         }
       }
       alertState[server.id]={
