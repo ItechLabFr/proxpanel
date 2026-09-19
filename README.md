@@ -46,7 +46,7 @@ Development is **AI-assisted** for parts of design, code generation, refactoring
 - Persistent installation identity with privacy-minimal OTA heartbeat
 - PWA support
 - French / English interface
-- Docker deployment
+- Docker deployment on `linux/amd64` and `linux/arm64` (Raspberry Pi 64-bit and other ARM64 systems)
 
 ## Screenshots
 
@@ -170,7 +170,15 @@ docker run -d \
 
 ## Multi-architecture Docker publishing
 
-The provided publishing script targets `linux/amd64` and `linux/arm64`:
+The official ProxPanel Docker image is published for both `linux/amd64` and `linux/arm64`. Docker automatically selects the matching image variant, so the same `itechlab/proxpanel` image works on x86_64 servers and on 64-bit ARM systems such as Raspberry Pi 3/4/5 running a 64-bit OS.
+
+Verify the architectures published for the current beta image:
+
+```bash
+docker buildx imagetools inspect itechlab/proxpanel:beta
+```
+
+The provided publishing script targets both architectures:
 
 ```bash
 DOCKERHUB_IMAGE=itechlab/proxpanel ./docker-publish.sh
