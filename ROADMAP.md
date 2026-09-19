@@ -4,7 +4,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.4.3**
+- Latest published development release: **1.7.2-beta.5**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
 - A single X.Y.Z series remains limited to **beta.1 → beta.10**; patch prereleases such as **beta.4.1 / beta.4.2** are allowed for targeted corrections/evolutions without consuming a new beta slot.
@@ -190,6 +190,8 @@ Status: **implemented for publication**.
 
 ## 1.7.2-beta.5 — Docker Image & Update Management
 
+Status: **implemented for publication**.
+
 - Detect currently used image/tag/digest.
 - Surface image update availability when it can be determined reliably.
 - Separate:
@@ -201,13 +203,19 @@ Status: **implemented for publication**.
 - Pre-update summary.
 - Post-redeploy health verification.
 - Update history / audit.
-- Optional scheduled Docker update windows.
+- Optional scheduled Docker update windows with an explicit per-target queue.
+- Individual removal of unused/dangling images only; no blind global prune.
+- Deterministic public-demo fixtures for image/update states.
+- Responsive phone/tablet/PWA interface.
 - **No uncontrolled automatic update by default.**
 
 ### Acceptance criteria
 
 - ProxPanel never silently redeploys production containers with the default settings.
+- Scheduled operations only run after an authorized user explicitly queues a target.
 - Failed redeploys remain visible and actionable.
+- Standalone containers with static/advanced networking are refused rather than modified unsafely.
+- Remote update checks that cannot be verified remain explicitly unknown.
 
 ---
 
