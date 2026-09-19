@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish, for example 1.7.2-beta.4.1'
+        description: 'Version to publish, for example 1.7.2-beta.5'
         required: true
         type: string
       publish_docker:
