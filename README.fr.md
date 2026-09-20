@@ -73,8 +73,6 @@ Au premier démarrage, ProxPanel demande de créer le premier compte administrat
 
 ## Autorisations API Proxmox VE
 
-Le rôle `PVEVMUser` seul n'est pas suffisant pour toutes les fonctions de ProxPanel. Le dashboard et le monitoring ont également besoin de droits de lecture sur le cluster, les nœuds et les stockages.
-
 La configuration recommandée, les différences PVE 8 / PVE 9, la séparation de privilèges des tokens et les droits optionnels pour les sauvegardes sont documentés ici :
 
 **[Autorisations API Proxmox VE pour ProxPanel](docs/PROXMOX_API_PERMISSIONS.md)**
