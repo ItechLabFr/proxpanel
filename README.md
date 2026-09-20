@@ -75,6 +75,14 @@ http://YOUR-SERVER-IP:8080
 
 At first launch, ProxPanel asks you to create the first administrator account and then add your Proxmox VE server or cluster.
 
+## Proxmox VE API permissions
+
+The built-in `PVEVMUser` role alone is not sufficient for every ProxPanel feature. Dashboard and monitoring views also require read access to cluster, node and storage information.
+
+See the recommended least-privilege role, PVE 8 / PVE 9 differences, API-token privilege separation and optional backup-storage permissions:
+
+**[Proxmox VE API permissions for ProxPanel](docs/PROXMOX_API_PERMISSIONS.md)**
+
 ## Docker Compose
 
 ```bash
