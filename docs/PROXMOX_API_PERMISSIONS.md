@@ -2,10 +2,6 @@
 
 > ProxPanel applique le principe du moindre privilège. Il n'est pas nécessaire d'utiliser le rôle `Administrator`.
 
-Le rôle prédéfini `PVEVMUser` **ne suffit pas à lui seul** pour ProxPanel.
-
-Il couvre les opérations courantes sur les VM/LXC (lecture, sauvegarde, console et alimentation), mais ProxPanel lit également des informations au niveau **cluster**, **nœuds** et **stockages** pour construire le dashboard et le monitoring.
-
 ## Profil minimum recommandé
 
 Pour un usage standard de ProxPanel (dashboard, inventaire VM/LXC, métriques, démarrage/arrêt/redémarrage, console et informations invité), créez un rôle personnalisé.
@@ -85,19 +81,6 @@ Pour récupérer les informations QEMU Guest Agent :
 
 Les actions d'alimentation, la console et les opérations de sauvegarde seront alors indisponibles.
 
-## Pourquoi `PVEVMUser` seul ne suffit pas
-
-La documentation Proxmox décrit `PVEVMUser` comme permettant de voir les VM, les sauvegarder, utiliser la console et gérer leur alimentation. ProxPanel interroge aussi des API telles que :
-
-- `/cluster/resources`
-- `/cluster/status`
-- `/cluster/tasks`
-- `/nodes/{node}/rrddata`
-- `/nodes/{node}/storage/{storage}/rrddata`
-- les endpoints VM/LXC et QEMU Guest Agent
-
-Les droits d'audit système et stockage sont donc nécessaires pour que les vues cluster, nœud et stockage soient complètes.
-
 ## Fonctions avancées
 
 Certaines fonctions ProxPanel peuvent demander des privilèges supplémentaires (par exemple snapshots, restauration, migration, modification de configuration, upload d'ISO/template ou administration du nœud).
@@ -113,8 +96,6 @@ Ces droits ne font volontairement **pas** partie du profil minimum ci-dessus. Aj
 ---
 
 # English summary
-
-The built-in `PVEVMUser` role alone is **not sufficient** for the full ProxPanel dashboard because ProxPanel also reads cluster, node and storage information.
 
 Recommended standard role on **PVE 9**:
 
