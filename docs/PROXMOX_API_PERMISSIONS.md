@@ -2,8 +2,6 @@
 
 > ProxPanel applique le principe du moindre privilège. Il n'est pas nécessaire d'utiliser le rôle `Administrator`.
 
-## Réponse courte
-
 Le rôle prédéfini `PVEVMUser` **ne suffit pas à lui seul** pour ProxPanel.
 
 Il couvre les opérations courantes sur les VM/LXC (lecture, sauvegarde, console et alimentation), mais ProxPanel lit également des informations au niveau **cluster**, **nœuds** et **stockages** pour construire le dashboard et le monitoring.
