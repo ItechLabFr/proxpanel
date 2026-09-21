@@ -2890,6 +2890,9 @@ async function wazuhOverviewData({period='24h',force=false}={}) {
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
+  if (item.type === 'wazuh') {
+    return testWazuhConnection(wazuhRuntimeItem(item));
+  }
   if (item.type === 'portainer') {
     const r=await cachedPortainerOverview(item,true);
     return {
@@ -5036,27 +5039,44 @@ async function handleApi(req, res, url) {
   if(url.pathname==='/api/integrations'&&req.method==='GET')return sendJson(res,200,jsonRead(INTEGRATIONS_FILE,[]).map(redactIntegration));
   if(url.pathname==='/api/integrations'&&req.method==='POST'){
     const body=await readBody(req),type=String(body.type||'').toLowerCase();
-    if(!['pbs','uptimekuma','portainer','npm','grafana'].includes(type))return sendJson(res,400,{error:'Type d’intégration invalide.'});
+    if(!['pbs','uptimekuma','portainer','npm','grafana','wazuh'].includes(type))return sendJson(res,400,{error:'Type d’intégration invalide.'});
     let cleanUrl;try{cleanUrl=validateIntegrationUrl(body.url);}catch(e){return sendJson(res,400,{error:e.message});}
     if(type==='portainer'&&!String(body.apiKey||body.token||'').trim())return sendJson(res,400,{error:'Une API Key Portainer est requise.'});
+    if(type==='wazuh'&&(!String(body.username||'').trim()||!String(body.password||'').trim()))return sendJson(res,400,{error:'Utilisateur et mot de passe Wazuh Server API requis.'});
+    let indexerUrl='';
+    if(type==='wazuh'){
+      try{indexerUrl=validateIntegrationUrl(body.indexerUrl);}catch(e){return sendJson(res,400,{error:`Indexer Wazuh : ${e.message}`});}
+      if(!String(body.indexerUsername||'').trim()||!String(body.indexerPassword||'').trim())return sendJson(res,400,{error:'Utilisateur et mot de passe Wazuh Indexer requis.'});
+    }
     const row={
       id:crypto.randomUUID(),type,name:String(body.name||type).trim()||type,url:cleanUrl,
       username:String(body.username||''),statusPageSlug:String(body.statusPageSlug||''),
       allowSelfSigned:!!body.allowSelfSigned,enabled:body.enabled!==false,createdAt:new Date().toISOString(),
       lastStatus:'pending',lastTestAt:'',lastError:''
     };
+    if(type==='wazuh'){
+      row.indexerUrl=indexerUrl;row.indexerUsername=String(body.indexerUsername||'').trim();
+      row.wazuhDashboardUrl=String(body.wazuhDashboardUrl||'').trim().replace(/\/$/,'');
+      row.wazuhAlertLevel=Math.max(1,Math.min(16,Number(body.wazuhAlertLevel||12)));
+      row.wazuhNotifyHigh=body.wazuhNotifyHigh===true;row.wazuhNotifyAgentOffline=body.wazuhNotifyAgentOffline!==false;
+      row.indexerPasswordEnc=encryptText(String(body.indexerPassword));
+    }
     if(body.password)row.passwordEnc=encryptText(String(body.password));
     if(body.apiKey)row.apiKeyEnc=encryptText(String(body.apiKey));
     if(body.token)row.tokenEnc=encryptText(String(body.token));
     try{
-      if(type==='portainer'){
+      if(type==='portainer'||type==='wazuh'){
         const test=await testIntegration(row);
-        row.lastStatus='ok';row.lastTestAt=new Date().toISOString();row.lastError='';
-        row.portainerVersion=String(test.version||'');row.portainerEdition=String(test.edition||'');
-        row.environmentCount=Number(test.environmentCount||0);row.supportedDockerCount=Number(test.supportedDockerCount||0);
+        row.lastStatus=test.degraded?'degraded':'ok';row.lastTestAt=new Date().toISOString();row.lastError=test.degraded?String(test.detail||'Wazuh partiellement joignable'):'';
+        if(type==='portainer'){
+          row.portainerVersion=String(test.version||'');row.portainerEdition=String(test.edition||'');
+          row.environmentCount=Number(test.environmentCount||0);row.supportedDockerCount=Number(test.supportedDockerCount||0);
+        }else{
+          row.wazuhManagerVersion=String(test.managerVersion||'');row.wazuhIndexerStatus=String(test.indexerStatus||'');row.wazuhAgentCount=Number(test.agents||0);
+        }
       }
     }catch(error){
-      return sendJson(res,502,{error:`Connexion Portainer impossible : ${error.message}`});
+      return sendJson(res,502,{error:`Connexion ${type==='wazuh'?'Wazuh':'Portainer'} impossible : ${error.message}`});
     }
     const all=jsonRead(INTEGRATIONS_FILE,[]);all.push(row);jsonWrite(INTEGRATIONS_FILE,all);
     audit(req,'integration.add',row.name,{type,url:row.url,environmentCount:row.environmentCount||0});
@@ -5269,7 +5289,7 @@ async function handleApi(req, res, url) {
   if(integrationMatch&&req.method==='DELETE'&&!integrationMatch[2]){
     const all=jsonRead(INTEGRATIONS_FILE,[]),row=all.find(x=>x.id===integrationMatch[1]);
     if(!row)return sendJson(res,404,{error:'Intégration introuvable.'});
-    jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));PORTAINER_OVERVIEW_CACHE.delete(String(row.id));
+    jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));PORTAINER_OVERVIEW_CACHE.delete(String(row.id));WAZUH_OVERVIEW_CACHE.clear();
     audit(req,'integration.delete',row.name,{type:row.type});return sendJson(res,200,{ok:true});
   }
   if(integrationMatch&&req.method==='POST'&&integrationMatch[2]==='test'){
@@ -5281,6 +5301,11 @@ async function handleApi(req, res, url) {
       if(row.type==='portainer'){
         row.portainerVersion=String(result.version||'');row.portainerEdition=String(result.edition||'');
         row.environmentCount=Number(result.environmentCount||0);row.supportedDockerCount=Number(result.supportedDockerCount||0);
+      }
+      if(row.type==='wazuh'){
+        row.lastStatus=result.degraded?'degraded':'ok';row.lastError=result.degraded?String(result.detail||'Wazuh partiellement joignable'):'';
+        row.wazuhManagerVersion=String(result.managerVersion||'');row.wazuhIndexerStatus=String(result.indexerStatus||'');row.wazuhAgentCount=Number(result.agents||0);
+        WAZUH_OVERVIEW_CACHE.clear();
       }
       jsonWrite(INTEGRATIONS_FILE,all);audit(req,'integration.test',row.name,{...result,containers:undefined});
       return sendJson(res,200,result);
