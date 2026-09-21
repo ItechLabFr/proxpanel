@@ -66,9 +66,10 @@ function evaluateWazuhTransitions(previous={},overview={},config={}){
     }
   }
 
-  const currentVulnerabilities={},prevVulnerabilities=objectMap(prev.vulnerabilities);
+  const currentVulnerabilities={},prevVulnerabilities=objectMap(prev.vulnerabilities),newVulnerabilityKeys=[];
   for(const vRaw of overview.vulnerabilities||[]){
     const v=vulnerabilitySnapshot(vRaw);if(!v.key||!['critical','high'].includes(v.severity))continue;currentVulnerabilities[v.key]=v;
+    if(prev.baseline&&!prevVulnerabilities[v.key])newVulnerabilityKeys.push(v.key);
     if(prev.baseline&&!prevVulnerabilities[v.key]&&(v.severity==='critical'||config.notifyHigh===true)){
       events.push({
         type:v.severity==='critical'?'wazuh.vulnerability.critical':'wazuh.vulnerability.high',
@@ -95,6 +96,15 @@ function evaluateWazuhTransitions(previous={},overview={},config={}){
     }
   }
 
+  const prevFimKeys=new Set(Array.isArray(prev.fimKeys)?prev.fimKeys.map(String):[]),nextFimKeys=[];
+  const sensitivePath=/^(?:\/etc\/(?:ssh|sudoers(?:\.d)?|pam\.d|systemd|security|passwd|shadow|group)|[A-Za-z]:\\Windows\\System32\\|[A-Za-z]:\\ProgramData\\)/i;
+  for(const fim of overview.fim||[]){
+    const key=String(fim.key||'');if(!key)continue;nextFimKeys.push(key);
+    if(prev.baseline&&config.notifyFim===true&&!prevFimKeys.has(key)&&sensitivePath.test(String(fim.path||''))){
+      events.push({type:'wazuh.fim.sensitive',severity:Number(fim.level||0)>=12?'critical':'warning',title:'Modification sensible détectée par Wazuh',message:`${fim.agentName||fim.agentId||'Endpoint'} · ${fim.event||'modification'} · ${fim.path||'chemin non renseigné'}.`,target:fim.agentName||fim.agentId||'Endpoint',source:'Wazuh FIM / Indexer',details:[fim.path?`Chemin: ${fim.path}`:'',fim.event?`Action: ${fim.event}`:'',fim.ruleId?`Règle: ${fim.ruleId}`:'',`Niveau: ${Number(fim.level||0)}`,fim.timestamp?`Date: ${fim.timestamp}`:''].filter(Boolean),technicalDetails:[fim.sha256Before?{label:'SHA-256 avant',value:fim.sha256Before}:null,fim.sha256After?{label:'SHA-256 après',value:fim.sha256After}:null].filter(Boolean),recommendation:'Vérifie si cette modification était attendue puis ouvre Wazuh pour consulter le détail FIM complet.'});
+    }
+  }
+
   const currentCritical=Number(overview.summary?.critical||0),previousCritical=Number(prev.criticalCount||0);
   if(prev.baseline&&previousCritical>=0&&currentCritical>=previousCritical+5){
     events.push({type:'wazuh.vulnerability.spike',severity:'critical',title:'Hausse soudaine des vulnérabilités critiques',message:`Le nombre de vulnérabilités critiques actives est passé de ${previousCritical} à ${currentCritical}.`,target:config.name||'Wazuh',source:'ProxPanel Wazuh Security',details:[`Avant: ${previousCritical}`,`Maintenant: ${currentCritical}`,`Machines concernées: ${Number(overview.summary?.affectedEndpoints||0)}`],recommendation:'Priorise les nouvelles CVE critiques et vérifie si une mise à jour récente de l’inventaire ou des flux de vulnérabilités explique cette hausse.'});
@@ -102,7 +112,7 @@ function evaluateWazuhTransitions(previous={},overview={},config={}){
 
   return {
     events,
-    state:{baseline:true,checkedAt:now,failureCount,outageNotified,agents:keepObjectEntries(nextAgents,1000),agentConfirmations:keepObjectEntries(agentConfirmations,1000),agentNotified:keepObjectEntries(agentNotified,1000),vulnerabilities:keepObjectEntries(currentVulnerabilities,4000),alertKeys:[...new Set(nextAlertKeys)].slice(0,1500),criticalCount:currentCritical}
+    state:{baseline:true,checkedAt:now,failureCount,outageNotified,agents:keepObjectEntries(nextAgents,1000),agentConfirmations:keepObjectEntries(agentConfirmations,1000),agentNotified:keepObjectEntries(agentNotified,1000),vulnerabilities:keepObjectEntries(currentVulnerabilities,4000),newVulnerabilityKeys:newVulnerabilityKeys.slice(0,1000),alertKeys:[...new Set(nextAlertKeys)].slice(0,1500),fimKeys:[...new Set(nextFimKeys)].slice(0,1500),criticalCount:currentCritical}
   };
 }
 
