@@ -30,6 +30,10 @@ const {
   normalizeReauthCode,strongReauthAllowed,nextSensitiveAttempt,sensitiveAttemptBlocked
 } = require('./lib/auth-security');
 const {
+  collectWazuh,testWazuhConnection,period:wazuhPeriod,alertThreshold:wazuhAlertThreshold
+} = require('./lib/wazuh-client');
+const { demoWazuhOverview, vulnerabilityKey } = require('./lib/wazuh');
+const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
   demoDockerOverview, demoDockerContainers, demoDockerStacks,
@@ -102,6 +106,9 @@ const DOCKER_UPDATE_HISTORY_FILE = path.join(DATA_DIR, 'docker-update-history.js
 const UPDATE_CHECK_STATE_FILE = path.join(DATA_DIR, 'update-check-state.json');
 const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
+const WAZUH_STATE_FILE = path.join(DATA_DIR, 'wazuh-state.json');
+const WAZUH_HISTORY_FILE = path.join(DATA_DIR, 'wazuh-history.json');
+const WAZUH_TOPOLOGY_FILE = path.join(DATA_DIR, 'wazuh-topology.json');
 const CONSOLE_SESSIONS = new Map();
 const CONSOLE_ERRORS = new Map();
 const CONSOLE_STATES = new Map();
@@ -128,6 +135,8 @@ const NODE_TEMPERATURE_CACHE = new Map();
 const NODE_TEMPERATURE_CACHE_MS = 30 * 1000;
 const NODE_ADDRESS_CACHE = new Map();
 const NODE_ADDRESS_CACHE_MS = 5 * 60 * 1000;
+const WAZUH_OVERVIEW_CACHE = new Map();
+const WAZUH_OVERVIEW_CACHE_MS = 30 * 1000;
 
 for (const dir of [RUNTIME_DIR, RELEASES_DIR, UPDATE_UPLOAD_DIR, UPDATE_BACKUP_DIR]) fs.mkdirSync(dir, { recursive: true });
 
@@ -311,8 +320,8 @@ function storePveUserSession(session, serverId, auth) {
 function redactIntegration(i) {
   if (!i) return i;
   const o = { ...i };
-  for (const k of ['passwordEnc','tokenEnc','apiKeyEnc','secretEnc']) delete o[k];
-  o.hasSecret = !!(i.passwordEnc || i.tokenEnc || i.apiKeyEnc || i.secretEnc);
+  for (const k of ['passwordEnc','tokenEnc','apiKeyEnc','secretEnc','indexerPasswordEnc']) delete o[k];
+  o.hasSecret = !!(i.passwordEnc || i.tokenEnc || i.apiKeyEnc || i.secretEnc || i.indexerPasswordEnc);
   return o;
 }
 function encodeForm(obj) {
@@ -2072,7 +2081,7 @@ function portainerHeaders(item) {
 function validateIntegrationUrl(value) {
   const raw=String(value||'').trim().replace(/\/$/,'');
   let parsed;try{parsed=new URL(raw);}catch{throw new Error('URL invalide.');}
-  if(!['http:','https:'].includes(parsed.protocol))throw new Error('Portainer doit utiliser une URL HTTP ou HTTPS.');
+  if(!['http:','https:'].includes(parsed.protocol))throw new Error('L’intégration doit utiliser une URL HTTP ou HTTPS.');
   return raw;
 }
 async function portainerSystemInfo(item) {
@@ -2826,6 +2835,57 @@ async function runDockerImageUpdateWorker(settings=getSettings(),now=Date.now())
   }
   const final=dockerUpdateState();final.lastAutoCheckAt=now;final.lastAutoCheckError=errors.join('\n').slice(0,8000);saveDockerUpdateState(final);
   addAuditSystem('docker.images.auto-check','Docker',{portainers:portainers.length,errors:errors.length},errors.length?'warning':'ok');
+}
+function findWazuhIntegration(id='') {
+  const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='wazuh'&&x.enabled!==false);
+  return (id?rows.find(x=>String(x.id)===String(id)):rows[0])||null;
+}
+function wazuhRuntimeItem(item) {
+  if(!item)throw new Error('Intégration Wazuh introuvable.');
+  return {
+    id:item.id,name:item.name||'Wazuh',serverUrl:item.url,indexerUrl:item.indexerUrl||'',
+    username:item.username||'',password:item.passwordEnc?decryptText(item.passwordEnc):'',
+    indexerUsername:item.indexerUsername||'',indexerPassword:item.indexerPasswordEnc?decryptText(item.indexerPasswordEnc):'',
+    dashboardUrl:item.wazuhDashboardUrl||'',alertLevel:Number(item.wazuhAlertLevel||12),
+    rejectUnauthorized:!item.allowSelfSigned
+  };
+}
+function wazuhTopologyMappings() {
+  const rows=jsonRead(WAZUH_TOPOLOGY_FILE,{});
+  return rows&&typeof rows==='object'&&!Array.isArray(rows)?rows:{};
+}
+function applyWazuhTopology(overview) {
+  const mappings=wazuhTopologyMappings(),get=(id,name)=>mappings[String(id||name||'').trim()]||null;
+  overview.byEndpoint=(overview.byEndpoint||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.vulnerabilities=(overview.vulnerabilities||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.alerts=(overview.alerts||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.topologyMappings=mappings;
+  return overview;
+}
+function wazuhHistory() {
+  return jsonRead(WAZUH_HISTORY_FILE,[]).slice(0,1600);
+}
+function recordWazuhHistory(overview) {
+  if(!overview||overview.status==='offline')return;
+  const rows=wazuhHistory(),now=Date.now(),last=rows[0],lastAt=last?Date.parse(last.at||''):0;
+  if(lastAt&&now-lastAt<30*60*1000)return;
+  rows.unshift({at:new Date(now).toISOString(),critical:Number(overview.summary?.critical||0),high:Number(overview.summary?.high||0),importantAlerts:Number(overview.summary?.importantAlerts||0),affectedEndpoints:Number(overview.summary?.affectedEndpoints||0),agentsDisconnected:Number(overview.summary?.agentsDisconnected||0)});
+  jsonWrite(WAZUH_HISTORY_FILE,rows.filter(x=>now-Date.parse(x.at||0)<=32*86400000).slice(0,1600));
+}
+async function wazuhOverviewData({period='24h',force=false}={}) {
+  const selected=wazuhPeriod(period);
+  if(DEMO_MODE){const demo=applyWazuhTopology(demoWazuhOverview(selected));demo.history=wazuhHistory();return demo;}
+  const item=findWazuhIntegration();if(!item)throw new Error('Aucune intégration Wazuh configurée.');
+  const key=String(item.id)+':'+selected,cached=WAZUH_OVERVIEW_CACHE.get(key);
+  if(!force&&cached?.value&&cached.expiresAt>Date.now())return cached.value;
+  if(!force&&cached?.promise)return cached.promise;
+  const promise=(async()=>{
+    const overview=applyWazuhTopology(await collectWazuh(wazuhRuntimeItem(item),{period:selected}));
+    overview.integration={id:item.id,name:item.name||'Wazuh',url:item.url,indexerUrl:item.indexerUrl||'',dashboardUrl:item.wazuhDashboardUrl||'',alertThreshold:wazuhAlertThreshold(wazuhRuntimeItem(item))};
+    recordWazuhHistory(overview);overview.history=wazuhHistory();return overview;
+  })();
+  WAZUH_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});
+  try{const value=await promise;WAZUH_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});return value;}catch(error){WAZUH_OVERVIEW_CACHE.delete(key);throw error;}
 }
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
