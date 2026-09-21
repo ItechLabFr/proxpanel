@@ -1,49 +1,69 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.5.1",
-  "title": "ProxPanel 1.7.2-beta.5.1 — 2FA Strong Re-authentication Security Hotfix",
-  "title_en": "ProxPanel 1.7.2-beta.5.1 — 2FA Strong Re-authentication Security Hotfix",
-  "summary": "Correctif de sécurité imposant une ré-authentification forte avant toute désactivation 2FA, avec limitation des tentatives, audit renforcé et notification e-mail du propriétaire.",
-  "summary_en": "Security hotfix requiring strong re-authentication before any 2FA disable action, with attempt throttling, enhanced audit and owner email notification.",
+  "version": "1.7.2-beta.6",
+  "title": "ProxPanel 1.7.2-beta.6 — PBS + Wazuh Security Essentials",
+  "title_en": "ProxPanel 1.7.2-beta.6 — PBS + Wazuh Security Essentials",
+  "summary": "Nouvelle intégration Proxmox Backup Server et nouveau centre Wazuh Security Essentials avec CVE, agents, FIM, corrélation Proxmox/Docker et notifications professionnelles Panel, e-mail et Discord.",
+  "summary_en": "New Proxmox Backup Server integration and Wazuh Security Essentials center with CVEs, agents, FIM, Proxmox/Docker correlation and professional Panel, email and Discord notifications.",
   "improvements": [
-    "La désactivation 2FA exige désormais le mot de passe actuel et un code TOTP actuel du compte qui effectue l’action.",
-    "Un administrateur qui désactive la 2FA d’un autre utilisateur doit lui-même disposer d’une 2FA active et confirmer l’action avec ses propres facteurs.",
-    "Nouvelle limite dédiée aux ré-authentifications sensibles : 5 échecs dans une fenêtre de 15 minutes entraînent un blocage temporaire.",
-    "Audit explicite des succès et échecs de ré-authentification avant désactivation 2FA.",
-    "E-mail de sécurité envoyé au propriétaire du compte lorsque la 2FA est désactivée et que la messagerie ProxPanel est configurée.",
-    "Interface de confirmation remplacée par une modale de ré-authentification mot de passe + Authenticator.",
-    "Décision d’architecture documentée pour l’issue #19 : migration React/Vue/Vite reportée après évaluation coût/bénéfice."
+    "Proxmox Backup Server : connexion par utilisateur/mot de passe ou token API, état de santé, version et diagnostic de connexion.",
+    "PBS : datastores, capacité utilisée/libre, restore points, dernière sauvegarde par VM/LXC, jobs Verify/Prune/Sync et tâches récentes.",
+    "PBS : déclenchement manuel audité de Verify, Prune, Sync et Garbage Collection avec confirmation explicite.",
+    "Wazuh Security Essentials : état Manager/Indexer, agents actifs/déconnectés, alertes importantes et plages 24 h / 7 j / 30 j.",
+    "Vulnérabilités Wazuh : CVE, sévérité, CVSS, machine, paquet/logiciel, version installée et version corrigée uniquement quand la source la fournit.",
+    "Priorité sécurité par endpoint avec regroupement Critical/High, alertes importantes et statut de l’agent.",
+    "FIM essentiel et résumé des catégories sécurité : brute-force, authentification, malware, élévation de privilèges et intégrité.",
+    "Corrélation Wazuh → VM/LXC → nœud Proxmox → environnement Docker/Portainer lorsque le mapping est fiable.",
+    "Résumé Wazuh directement dans la fiche VM/LXC avec CVE, alertes, paquets vulnérables et contexte Docker.",
+    "Notifications Wazuh professionnelles dans le Panel, par e-mail et Discord avec CVE/règle, machine, versions, MITRE, contexte Proxmox/Docker et action recommandée.",
+    "Routage Discord dédié aux événements sécurité afin d’utiliser un salon Wazuh/Security séparé.",
+    "Anti-bruit Wazuh : baseline silencieuse, déduplication, confirmation des déconnexions, récupération explicite et alertes High/FIM configurables.",
+    "Données fictives PBS et Wazuh pour la démo publique et interfaces responsive téléphone/tablette/PWA.",
+    "Les JWT Wazuh restent en mémoire uniquement ; les secrets PBS/Wazuh persistants utilisent le chiffrement local ProxPanel."
   ],
   "improvements_en": [
-    "Disabling 2FA now requires the current password and a current TOTP code from the acting account.",
-    "An administrator disabling another user's 2FA must have 2FA enabled and confirm the action with their own factors.",
-    "Dedicated sensitive re-auth throttling: five failures inside a 15-minute window trigger a temporary lock.",
-    "Explicit audit events for strong re-authentication success and failure before 2FA disable.",
-    "Security email sent to the account owner when 2FA is disabled and ProxPanel mail is configured.",
-    "The simple confirmation dialog is replaced by a password + Authenticator re-authentication modal.",
-    "Architecture decision for issue #19 documented: React/Vue/Vite migration deferred after cost/benefit review."
+    "Proxmox Backup Server: username/password or API token connection, health, version and connection diagnostics.",
+    "PBS: datastores, used/free capacity, restore points, latest backup per VM/LXC, Verify/Prune/Sync jobs and recent tasks.",
+    "PBS: audited manual execution of Verify, Prune, Sync and Garbage Collection with explicit confirmation.",
+    "Wazuh Security Essentials: Manager/Indexer health, active/disconnected agents, important alerts and 24h / 7d / 30d ranges.",
+    "Wazuh vulnerabilities: CVE, severity, CVSS, endpoint, package/software, installed version and fixed version only when provided by the source.",
+    "Transparent endpoint security priority based on Critical/High vulnerabilities, important alerts and agent state.",
+    "Essential FIM and security category summary: brute force, authentication, malware, privilege escalation and integrity.",
+    "Wazuh → VM/LXC → Proxmox node → Docker/Portainer environment correlation when mappings are reliable.",
+    "Wazuh summary directly inside VM/LXC details with CVEs, alerts, vulnerable packages and Docker context.",
+    "Professional Wazuh Panel, email and Discord notifications with CVE/rule, endpoint, versions, MITRE, Proxmox/Docker context and recommended action.",
+    "Dedicated Discord routing for security events so Wazuh can use a separate security channel.",
+    "Wazuh anti-noise controls: silent baseline, deduplication, confirmed disconnects, explicit recovery and configurable High/FIM notifications.",
+    "Deterministic PBS and Wazuh public demo data plus responsive phone/tablet/PWA interfaces.",
+    "Wazuh JWTs remain memory-only; persistent PBS/Wazuh secrets use ProxPanel local encryption."
   ],
   "fixes": [
-    "Une session authentifiée seule ne suffit plus à désactiver la 2FA d’un compte.",
-    "Le endpoint totp-disable ne peut plus supprimer le second facteur sans preuve récente de possession des facteurs de l’acteur.",
-    "Les erreurs de ré-authentification utilisent un message générique et sont limitées afin de réduire les tentatives répétées."
+    "Une panne partielle Wazuh est affichée comme état dégradé et n’est jamais interprétée comme zéro vulnérabilité.",
+    "Les versions corrigées de paquets ne sont jamais inventées lorsque Wazuh ne les fournit pas.",
+    "Les alertes d’agent Wazuh attendent deux contrôles consécutifs avant notification afin de limiter les faux positifs.",
+    "La corrélation Docker n’attribue pas un conteneur précis sans donnée fiable ; seul l’environnement Portainer mappé est affiché.",
+    "Le menu PBS/Wazuh reste masqué tant que l’intégration correspondante n’est pas configurée, hors mode démo."
   ],
   "fixes_en": [
-    "An authenticated session alone is no longer sufficient to disable an account's 2FA.",
-    "The totp-disable endpoint can no longer strip the second factor without fresh proof of the acting user's factors.",
-    "Re-authentication failures use a generic message and are throttled to reduce repeated attempts."
+    "A partial Wazuh outage is shown as degraded and is never interpreted as zero vulnerabilities.",
+    "Fixed package versions are never invented when Wazuh does not provide them.",
+    "Wazuh agent alerts require two consecutive checks before notification to reduce false positives.",
+    "Docker correlation never assigns a specific container without reliable evidence; only the mapped Portainer environment is shown.",
+    "PBS/Wazuh navigation stays hidden until the corresponding integration is configured, except in demo mode."
   ],
   "notes": [
-    "La désactivation 2FA reste possible pour son propre compte après ré-authentification forte.",
-    "La réinitialisation administrateur d’un autre compte exige que l’administrateur soit lui-même protégé par 2FA.",
-    "L’envoi de l’e-mail de sécurité est best-effort et ne remet pas en cause une désactivation déjà validée cryptographiquement.",
-    "Aucun changement de framework front n’est introduit dans cette version."
+    "Wazuh reste une intégration de sécurité en lecture seule dans cette beta : aucune Active Response destructive n’est exécutée.",
+    "PBS n’effectue aucun restore automatique ; les opérations Verify/Prune/Sync/GC nécessitent une confirmation explicite et les permissions PBS adaptées.",
+    "Pour Wazuh, configure de préférence des comptes dédiés en lecture seule pour le Server API et l’Indexer.",
+    "Pour PBS, un token API dédié est recommandé lorsque les permissions nécessaires le permettent.",
+    "Les images Docker officielles restent publiées en multi-architecture linux/amd64 et linux/arm64."
   ],
   "notes_en": [
-    "Users can still disable their own 2FA after strong re-authentication.",
-    "Administrative reset of another account requires the administrator to be protected by 2FA.",
-    "The security email is best-effort and does not roll back a cryptographically validated disable action.",
-    "No frontend framework migration is introduced in this release."
+    "Wazuh remains a read-only security integration in this beta: no destructive Active Response is executed.",
+    "PBS performs no automatic restore; Verify/Prune/Sync/GC operations require explicit confirmation and matching PBS permissions.",
+    "For Wazuh, dedicated read-only accounts are recommended for the Server API and Indexer.",
+    "For PBS, a dedicated API token is recommended when the required permissions allow it.",
+    "Official Docker images remain multi-architecture for linux/amd64 and linux/arm64."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
