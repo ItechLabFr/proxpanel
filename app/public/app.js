@@ -1018,6 +1018,7 @@ const MAIL_TEST_CATALOG=[
   ['Wazuh','wazuh.vulnerability.high','Nouvelle CVE élevée','CVE High avec contexte de remédiation.','warning'],
   ['Wazuh','wazuh.vulnerability.solved','CVE résolue','Une vulnérabilité critique n’est plus active.','info'],
   ['Wazuh','wazuh.alert.important','Alerte Wazuh importante','Règle Wazuh prioritaire avec contexte MITRE.','warning'],
+  ['Wazuh','wazuh.fim.sensitive','Modification FIM sensible','Changement sensible SSH, sudoers, PAM ou service.','warning'],
   ['Sécurité','auth.2fa.email','Code de secours 2FA','Modèle envoyé pour le secours 2FA par e-mail.','warning']
 ];
 function mailTestPanel(a={}){
