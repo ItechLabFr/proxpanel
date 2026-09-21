@@ -2,7 +2,7 @@
 
 const state = {
   status:null,user:null,me:null,users:[],settings:null,servers:[],selectedServer:null,dashboard:null,dashboardError:null,latencyMs:null,loading:false,
-  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],dockerOverview:null,dockerDashboard:null,dockerHistory:null,dockerHistoryRange:localStorage.getItem('proxpanel.dockerHistoryRange')||'day',dockerHistoryScope:localStorage.getItem('proxpanel.dockerHistoryScope')||'all',dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerImages:null,dockerUpdateHistory:[],dockerUpdateStatus:null,dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
+  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],wazuhOverview:null,wazuhPeriod:localStorage.getItem('proxpanel.wazuhPeriod')||'24h',wazuhSeverity:'all',wazuhQuery:'',wazuhPanelNotifications:[],wazuhError:null,dockerOverview:null,dockerDashboard:null,dockerHistory:null,dockerHistoryRange:localStorage.getItem('proxpanel.dockerHistoryRange')||'day',dockerHistoryScope:localStorage.getItem('proxpanel.dockerHistoryScope')||'all',dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerImages:null,dockerUpdateHistory:[],dockerUpdateStatus:null,dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
   tasks:[],rrd:null,monitor:{scope:'node',timeframe:'day',cf:'AVERAGE',node:'',type:'qemu',vmid:'',storage:''},
   dashboardTimeframe:'day',dashboardLiveSeconds:10,liveUpdatedAt:null,dashboardLiveTimer:null,
   firewallRules:[],firewall:{scope:'cluster',node:'',type:'qemu',vmid:''},appliances:[],applianceNode:'',maintenancePlan:null,maintenanceUpdates:null,
@@ -40,8 +40,8 @@ function tempUnavailableMarkup(n,{compact=false}={}){
 }
 
 const I18N={
-  fr:{overview:'Vue d’ensemble',machines:'Machines',nodes:'Nœuds',monitoring:'Monitoring',storage:'Stockage',docker:'Docker',backups:'Sauvegardes',tasks:'Tâches',create:'Créer',templates:'Templates',firewall:'Pare-feu',problems:'Problèmes',dependencies:'Dépendances',changes:'Changements',maintenance:'Maintenance',pveupdates:'Mises à jour PVE',automations:'Automatisations',energy:'Énergie',integrations:'Intégrations',audit:'Audit',notifications:'Notifications',users:'Utilisateurs',admin:'Administration',connected:'Connecté',refresh:'Actualiser'},
-  en:{overview:'Overview',machines:'Machines',nodes:'Nodes',monitoring:'Monitoring',storage:'Storage',docker:'Docker',backups:'Backups',tasks:'Tasks',create:'Create',templates:'Templates',firewall:'Firewall',problems:'Problems',dependencies:'Dependencies',changes:'Changes',maintenance:'Maintenance',pveupdates:'PVE updates',automations:'Automations',energy:'Energy',integrations:'Integrations',audit:'Audit log',notifications:'Notifications',users:'Users',admin:'Administration',connected:'Connected',refresh:'Refresh'}
+  fr:{overview:'Vue d’ensemble',machines:'Machines',nodes:'Nœuds',monitoring:'Monitoring',storage:'Stockage',docker:'Docker',wazuh:'Wazuh',backups:'Sauvegardes',tasks:'Tâches',create:'Créer',templates:'Templates',firewall:'Pare-feu',problems:'Problèmes',dependencies:'Dépendances',changes:'Changements',maintenance:'Maintenance',pveupdates:'Mises à jour PVE',automations:'Automatisations',energy:'Énergie',integrations:'Intégrations',audit:'Audit',notifications:'Notifications',users:'Utilisateurs',admin:'Administration',connected:'Connecté',refresh:'Actualiser'},
+  en:{overview:'Overview',machines:'Machines',nodes:'Nodes',monitoring:'Monitoring',storage:'Storage',docker:'Docker',wazuh:'Wazuh',backups:'Backups',tasks:'Tasks',create:'Create',templates:'Templates',firewall:'Firewall',problems:'Problems',dependencies:'Dependencies',changes:'Changes',maintenance:'Maintenance',pveupdates:'PVE updates',automations:'Automations',energy:'Energy',integrations:'Integrations',audit:'Audit log',notifications:'Notifications',users:'Users',admin:'Administration',connected:'Connected',refresh:'Refresh'}
 };
 function tr(k){const l=currentLanguage();return I18N[l]?.[k]||I18N.fr[k]||k}
 const EN_UI={
@@ -308,6 +308,7 @@ function selectedServer(){return state.servers.find(s=>s.id===state.selectedServ
 function d(){return state.dashboard||{metrics:{},history:{cpu:[],memory:[],storage:[],network:[]},health:{},nodes:[],machines:[],storages:[],tasks:[],backup:{jobs:[],unprotected:[],machines:[],inventory:[]},problems:[],capacity:{},energy:{nodes:[]}}}
 function moduleEnabled(k){return state.settings?.modules?.[k]!==false}
 function hasPortainerIntegration(){return (state.integrations||[]).some(i=>i.type==='portainer'&&i.enabled!==false)}
+function hasWazuhIntegration(){return !!state.status?.demoMode||(state.integrations||[]).some(i=>i.type==='wazuh'&&i.enabled!==false)}
 function can(perm){const p=state.me?.permissions||[];return p.includes('*')||p.includes(perm)}
 function diskDisplay(m){
   const total=Number(m?.maxdisk||0),used=Number(m?.disk||0),free=Number(m?.diskFree),source=String(m?.diskSource||'');
@@ -397,6 +398,7 @@ function shell(content){
   const global=[['overview','◉',tr('overview')],['monitoring','⌁',tr('monitoring')],['problems','△',tr('problems'),x.problems?.length||'']];if(can('audit.view'))global.push(['audit','☷',tr('audit')]);
   const infrastructure=[['machines','⬡',tr('machines'),x.machines.length||''],['nodes','▤',tr('nodes'),x.nodes.length||''],['storage','▱',tr('storage'),x.storages.length||'']];
   if(hasPortainerIntegration()&&moduleEnabled('docker'))infrastructure.push(['docker','◆',tr('docker'),state.dockerOverview?.summary?.running||'']);
+  if(hasWazuhIntegration())infrastructure.push(['wazuh','◈',tr('wazuh'),state.wazuhOverview?.summary?.critical||'']);
   infrastructure.push(['backups','▣',tr('backups'),x.backup?.unprotectedCount||''],['dependencies','⌘',tr('dependencies')]);
   const operations=[['tasks','☷',tr('tasks'),x.health?.activeTasks||''],['templates','▧',tr('templates')]];if(can('machines.control'))operations.push(['changes','⇄',tr('changes'),state.changes.filter(c=>c.status==='pending').length||''],['maintenance','↻',tr('maintenance')],['automations','▶',tr('automations')]);if(can('pve.updates'))operations.push(['pveupdates','⬆',tr('pveupdates'),state.pveUpdates?.totalUpdates||'']);
   const administration=[];if(can('admin.manage')||can('admin.users')||can('*'))administration.push(['admin','⚙',tr('admin')]);
@@ -1149,7 +1151,7 @@ function adminPage(){
   return adminFrame(content);
 }
 
-function renderPage(){if(state.tvMode){app.innerHTML=tvModePage();applyRuntimeLanguage(app);return}const pages={overview:overviewPage,machines:machinesPage,nodes:nodesPage,monitoring:monitoringPage,storage:storagePage,docker:dockerPage,backups:backupsPage,tasks:tasksPage,templates:templatesPage,problems:problemsPage,dependencies:dependenciesPage,changes:changesPage,maintenance:maintenancePage,pveupdates:pveUpdatesPage,automations:automationsPage,audit:auditPage,notifications:notificationsPage,users:usersPage,admin:adminPage};app.innerHTML=shell((pages[state.currentPage]||overviewPage)());bindDrag();applyRuntimeLanguage(app);}
+function renderPage(){if(state.tvMode){app.innerHTML=tvModePage();applyRuntimeLanguage(app);return}const pages={overview:overviewPage,machines:machinesPage,nodes:nodesPage,monitoring:monitoringPage,storage:storagePage,docker:dockerPage,wazuh:wazuhPage,backups:backupsPage,tasks:tasksPage,templates:templatesPage,problems:problemsPage,dependencies:dependenciesPage,changes:changesPage,maintenance:maintenancePage,pveupdates:pveUpdatesPage,automations:automationsPage,audit:auditPage,notifications:notificationsPage,users:usersPage,admin:adminPage};app.innerHTML=shell((pages[state.currentPage]||overviewPage)());bindDrag();applyRuntimeLanguage(app);}
 
 function openProblemDetail(id){
   const p=[...(d().problems||[]),...(state.dockerAlerts||[])].find(x=>x.id===id);if(!p)return toast('Alerte introuvable.','error');
@@ -1330,6 +1332,10 @@ function openFirewallRule(pos=null){const r=pos==null?{}:state.firewallRules.fin
 
 async function loadDeferredBaseData(){
   const loaders=[['remoteUpdate',()=>api('/api/update/remote-status')],['pveUpdates',()=>api('/api/pve-updates/status')]];
+  if(hasWazuhIntegration()){
+    loaders.push(['wazuhOverview',()=>api(`/api/wazuh/overview?period=${encodeURIComponent(state.wazuhPeriod)}`)]);
+    loaders.push(['wazuhPanelNotifications',()=>api('/api/wazuh/panel-notifications?limit=100').then(r=>r.notifications||[])]);
+  }
   if(hasPortainerIntegration()){
     loaders.push(['dockerOverview',()=>api('/api/docker/overview')]);
     loaders.push(['dockerDashboard',()=>api('/api/docker/dashboard')]);
@@ -1476,6 +1482,9 @@ async function reloadSection(){
   const page=state.currentPage;
   try{
     if(page==='dependencies')await loadDependencies();
+    if(page==='wazuh'){
+      try{const [overview,panel]=await Promise.all([api(`/api/wazuh/overview?period=${encodeURIComponent(state.wazuhPeriod)}`),api('/api/wazuh/panel-notifications?limit=100')]);state.wazuhOverview=overview;state.wazuhPanelNotifications=panel.notifications||[];state.wazuhError=null}catch(e){state.wazuhError=e.message}
+    }
     if(page==='docker'){try{const [overview,dashboard,history,topology,alerts]=await Promise.all([api('/api/docker/overview'),api('/api/docker/dashboard'),api(`/api/docker/history?range=${encodeURIComponent(state.dockerHistoryRange)}&scope=${encodeURIComponent(state.dockerHistoryScope)}`),api('/api/docker/topology-mappings'),api('/api/docker/alerts')]);state.dockerOverview=overview;state.dockerDashboard=dashboard;state.dockerHistory=history;state.dockerTopology=topology.mappings||{};state.dockerAlerts=alerts.alerts||[];state.dockerAlertsCheckedAt=alerts.checkedAt||'';state.dockerError=null;if(state.dockerEnvironment)await loadDockerEnvironment(false)}catch(e){state.dockerError=e.message}}
     if(page==='notifications'){const da=await api('/api/docker/alerts').catch(()=>({alerts:[],checkedAt:''}));state.dockerAlerts=da.alerts||[];state.dockerAlertsCheckedAt=da.checkedAt||'';}
     if(page==='audit')state.audit=await api('/api/audit');
