@@ -48,6 +48,32 @@ Le développement est **assisté par IA** pour certaines tâches de design, gén
 - Interface Français / English
 - Déploiement Docker sur `linux/amd64` et `linux/arm64` (Raspberry Pi 64 bits et autres systèmes ARM64)
 
+## Captures d’écran
+
+La galerie ci-dessous correspond à l’interface actuelle de la démo publique. Les noms d’infrastructure, machines, métriques, CVE et autres données affichées sont entièrement fictifs.
+
+<table>
+  <tr>
+    <td width="50%"><a href="https://proxpanel.fr/assets/screenshots/dashboard.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/dashboard.png?v=1.7.2-beta.6" alt="Dashboard ProxPanel"></a><br><b>Dashboard</b></td>
+    <td width="50%"><a href="https://proxpanel.fr/assets/screenshots/machines.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/machines.png?v=1.7.2-beta.6" alt="Machines ProxPanel"></a><br><b>Machines</b></td>
+  </tr>
+  <tr>
+    <td><a href="https://proxpanel.fr/assets/screenshots/docker.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/docker.png?v=1.7.2-beta.6" alt="Docker et Portainer dans ProxPanel"></a><br><b>Docker / Portainer</b></td>
+    <td><a href="https://proxpanel.fr/assets/screenshots/pbs.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/pbs.png?v=1.7.2-beta.6" alt="Proxmox Backup Server dans ProxPanel"></a><br><b>Proxmox Backup Server</b></td>
+  </tr>
+  <tr>
+    <td><a href="https://proxpanel.fr/assets/screenshots/wazuh.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/wazuh.png?v=1.7.2-beta.6" alt="Wazuh Security dans ProxPanel"></a><br><b>Wazuh Security</b></td>
+    <td><a href="https://proxpanel.fr/assets/screenshots/admin-2fa.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/admin-2fa.png?v=1.7.2-beta.6" alt="Administration et double authentification ProxPanel"></a><br><b>Administration & 2FA</b></td>
+  </tr>
+</table>
+
+<p align="center">
+  <a href="https://proxpanel.fr/assets/screenshots/mobile.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/mobile.png?v=1.7.2-beta.6" width="900" alt="Interface mobile responsive de ProxPanel"></a><br>
+  <b>Interface mobile responsive</b>
+</p>
+
+Voir aussi la [galerie des captures](docs/screenshots/README.md) ou tester directement **https://demo.proxpanel.fr**.
+
 ## Installation rapide avec Docker
 
 ```bash
