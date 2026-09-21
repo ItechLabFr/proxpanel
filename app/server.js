@@ -33,6 +33,7 @@ const {
   collectWazuh,testWazuhConnection,period:wazuhPeriod,alertThreshold:wazuhAlertThreshold
 } = require('./lib/wazuh-client');
 const { demoWazuhOverview, vulnerabilityKey } = require('./lib/wazuh');
+const { evaluateWazuhTransitions } = require('./lib/wazuh-alerts');
 const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
@@ -109,6 +110,7 @@ const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
 const WAZUH_STATE_FILE = path.join(DATA_DIR, 'wazuh-state.json');
 const WAZUH_HISTORY_FILE = path.join(DATA_DIR, 'wazuh-history.json');
 const WAZUH_TOPOLOGY_FILE = path.join(DATA_DIR, 'wazuh-topology.json');
+const WAZUH_PANEL_FILE = path.join(DATA_DIR, 'wazuh-panel-notifications.json');
 const CONSOLE_SESSIONS = new Map();
 const CONSOLE_ERRORS = new Map();
 const CONSOLE_STATES = new Map();
@@ -2887,6 +2889,33 @@ async function wazuhOverviewData({period='24h',force=false}={}) {
   WAZUH_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});
   try{const value=await promise;WAZUH_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});return value;}catch(error){WAZUH_OVERVIEW_CACHE.delete(key);throw error;}
 }
+function wazuhPanelNotifications(limit=200) {
+  return jsonRead(WAZUH_PANEL_FILE,[]).slice(0,Math.max(1,Math.min(500,Number(limit||200))));
+}
+function recordWazuhPanelEvent(event={}) {
+  const rows=jsonRead(WAZUH_PANEL_FILE,[]);
+  const row={id:crypto.randomUUID(),at:new Date(event.at||Date.now()).toISOString(),read:false,type:String(event.type||'wazuh.alert'),severity:String(event.severity||'info'),title:String(event.title||'Wazuh'),message:String(event.message||''),target:String(event.target||''),details:Array.isArray(event.details)?event.details.slice(0,20):[],recommendation:String(event.recommendation||''),source:String(event.source||'Wazuh'),technicalDetails:Array.isArray(event.technicalDetails)?event.technicalDetails.slice(0,12):[]};
+  rows.unshift(row);jsonWrite(WAZUH_PANEL_FILE,rows.slice(0,500));return row;
+}
+async function runWazuhBackgroundAlerts(settings=getSettings(),now=Date.now()) {
+  if(DEMO_MODE)return;
+  const integrations=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='wazuh'&&x.enabled!==false);if(!integrations.length)return;
+  const allState=jsonRead(WAZUH_STATE_FILE,{}),interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
+  for(const item of integrations){
+    const previous=allState[item.id]||{};if(now-Number(previous.lastPollAt||0)<interval)continue;
+    let overview;
+    try{overview=await collectWazuh(wazuhRuntimeItem(item),{period:'24h'});overview=applyWazuhTopology(overview);}catch(error){overview={status:'offline',errors:[{component:'collector',message:String(error.message||error)}],agents:[],vulnerabilities:[],alerts:[],summary:{critical:0,high:0,affectedEndpoints:0}};}
+    const evaluated=evaluateWazuhTransitions(previous,overview,{name:item.name||'Wazuh',notifyHigh:item.wazuhNotifyHigh===true,notifyAgentOffline:item.wazuhNotifyAgentOffline!==false});
+    allState[item.id]={...evaluated.state,lastPollAt:now};
+    for(const event of evaluated.events){
+      const panel=recordWazuhPanelEvent(event);
+      await sendAlertChannels(settings,event.title,event.message,{...event,at:panel.at});
+      addAuditSystem('alerts.wazuh',event.target||item.name||'Wazuh',{type:event.type,severity:event.severity,integrationId:item.id,panelNotificationId:panel.id},event.severity==='critical'?'error':event.severity==='warning'?'warning':'ok');
+    }
+    recordWazuhHistory(overview);
+  }
+  jsonWrite(WAZUH_STATE_FILE,allState);
+}
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
@@ -5354,6 +5383,7 @@ async function runBackgroundAlerts() {
   if(settings.alerts?.enabled===false)return;
   const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
   try{await runDockerBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.docker.poll','Docker',{error:e.message},'error');}
+  try{await runWazuhBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.wazuh.poll','Wazuh',{error:e.message},'error');}
   const alertState=jsonRead(ALERT_STATE_FILE,{}); let changed=false;
   for(const server of jsonRead(SERVERS_FILE,[])) {
     if(!(server.passwordEnc||server.apiTokenSecretEnc))continue;
