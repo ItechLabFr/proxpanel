@@ -5125,6 +5125,41 @@ async function handleApi(req, res, url) {
     audit(req,'integration.add',row.name,{type,url:row.url,environmentCount:row.environmentCount||0});
     return sendJson(res,201,redactIntegration(row));
   }
+  // ----- Wazuh Security Essentials -----
+  if(url.pathname==='/api/wazuh/overview'&&req.method==='GET'){
+    try{return sendJson(res,200,await wazuhOverviewData({period:url.searchParams.get('period')||'24h',force:url.searchParams.get('force')==='1'}));}
+    catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  if(url.pathname==='/api/wazuh/panel-notifications'&&req.method==='GET'){
+    return sendJson(res,200,{notifications:wazuhPanelNotifications(Number(url.searchParams.get('limit')||200))});
+  }
+  if(url.pathname==='/api/wazuh/panel-notifications/read'&&req.method==='POST'){
+    const body=await readBody(req),ids=new Set((Array.isArray(body.ids)?body.ids:[]).map(String));
+    const rows=jsonRead(WAZUH_PANEL_FILE,[]).map(x=>ids.size&&!ids.has(String(x.id))?x:{...x,read:true});jsonWrite(WAZUH_PANEL_FILE,rows);
+    return sendJson(res,200,{ok:true});
+  }
+  if(url.pathname==='/api/wazuh/topology-mappings'&&req.method==='GET'){
+    return sendJson(res,200,{mappings:wazuhTopologyMappings()});
+  }
+  if(url.pathname==='/api/wazuh/topology-mappings'&&req.method==='PUT'){
+    const body=await readBody(req),agentId=String(body.agentId||'').trim();if(!agentId)return sendJson(res,400,{error:'Agent Wazuh requis.'});
+    const mappings=wazuhTopologyMappings();
+    if(body.clear===true||body.mapping===null)delete mappings[agentId];
+    else{
+      const m=body.mapping||{},type=String(m.type||'');if(!['qemu','lxc'].includes(type)||!Number.isInteger(Number(m.vmid)))return sendJson(res,400,{error:'Mapping VM/LXC invalide.'});
+      mappings[agentId]={serverId:String(m.serverId||''),type,vmid:Number(m.vmid),node:String(m.node||''),name:String(m.name||''),source:'manual',updatedAt:new Date().toISOString()};
+    }
+    jsonWrite(WAZUH_TOPOLOGY_FILE,mappings);WAZUH_OVERVIEW_CACHE.clear();audit(req,'wazuh.topology.map',agentId,{mapping:mappings[agentId]||null});
+    return sendJson(res,200,{mappings});
+  }
+  if(url.pathname==='/api/wazuh/test-notification'&&req.method==='POST'){
+    try{
+      const overview=await wazuhOverviewData({period:'24h',force:true}),v=overview.vulnerabilities?.find(x=>x.severity==='critical')||overview.vulnerabilities?.[0];
+      const event=v?{type:'wazuh.vulnerability.critical',severity:'critical',title:`Test Wazuh · ${v.id||'CVE critique'}`,message:`Notification de sécurité Wazuh de test pour ${v.agentName||'endpoint de démonstration'}.`,target:v.agentName||v.agentId||'Wazuh',source:'Wazuh Vulnerability Detection / Indexer',details:[v.id?`CVE: ${v.id}`:'',v.score!=null?`CVSS: ${v.score}`:'',v.packageName?`Paquet / logiciel: ${v.packageName}`:'',v.packageVersion?`Version installée: ${v.packageVersion}`:'',v.fixedVersion?`Version corrigée: ${v.fixedVersion}`:''].filter(Boolean),technicalDetails:[{label:'Mode',value:'Test manuel depuis ProxPanel'},{label:'Agent Wazuh',value:String(v.agentId||'—')}],recommendation:'Ceci est un test. Aucune action de remédiation n’est requise.'}:{type:'wazuh.alert.important',severity:'warning',title:'Test Wazuh',message:'Notification Wazuh de test envoyée depuis ProxPanel.',target:'Wazuh',source:'ProxPanel Wazuh Security',details:['Aucune vulnérabilité critique disponible : modèle générique utilisé.'],recommendation:'Ceci est un test. Aucune action requise.'};
+      const panel=recordWazuhPanelEvent(event);await sendAlertChannels(getSettings(),event.title,event.message,{...event,at:panel.at});audit(req,'wazuh.notification.test',event.target,{type:event.type,panelNotificationId:panel.id});
+      return sendJson(res,200,{ok:true,event,panelNotificationId:panel.id});
+    }catch(e){return sendJson(res,502,{error:e.message});}
+  }
   if(url.pathname==='/api/docker/dashboard'&&req.method==='GET'){
     try{return sendJson(res,200,await dockerDashboardData(url.searchParams.get('force')==='1'));}
     catch(e){return sendJson(res,502,{error:e.message});}
