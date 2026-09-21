@@ -56,14 +56,16 @@
     "PBS n’effectue aucun restore automatique ; les opérations Verify/Prune/Sync/GC nécessitent une confirmation explicite et les permissions PBS adaptées.",
     "Pour Wazuh, configure de préférence des comptes dédiés en lecture seule pour le Server API et l’Indexer.",
     "Pour PBS, un token API dédié est recommandé lorsque les permissions nécessaires le permettent.",
-    "Les images Docker officielles restent publiées en multi-architecture linux/amd64 et linux/arm64."
+    "Les images Docker officielles restent publiées en multi-architecture linux/amd64 et linux/arm64.",
+    "Publication officielle beta.6 : GitHub Release, package OTA et image Docker multi-architecture."
   ],
   "notes_en": [
     "Wazuh remains a read-only security integration in this beta: no destructive Active Response is executed.",
     "PBS performs no automatic restore; Verify/Prune/Sync/GC operations require explicit confirmation and matching PBS permissions.",
     "For Wazuh, dedicated read-only accounts are recommended for the Server API and Indexer.",
     "For PBS, a dedicated API token is recommended when the required permissions allow it.",
-    "Official Docker images remain multi-architecture for linux/amd64 and linux/arm64."
+    "Official Docker images remain multi-architecture for linux/amd64 and linux/arm64.",
+    "Official beta.6 publication: GitHub Release, OTA package and multi-architecture Docker image."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
@@ -72,4 +74,3 @@
   "restart_required": true,
   "rollout": 100
 }
-
