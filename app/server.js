@@ -2883,6 +2883,9 @@ async function wazuhOverviewData({period='24h',force=false}={}) {
   if(!force&&cached?.promise)return cached.promise;
   const promise=(async()=>{
     const overview=applyWazuhTopology(await collectWazuh(wazuhRuntimeItem(item),{period:selected}));
+    const alertState=jsonRead(WAZUH_STATE_FILE,{})[item.id]||{},newKeys=new Set(Array.isArray(alertState.newVulnerabilityKeys)?alertState.newVulnerabilityKeys:[]);
+    overview.vulnerabilities=(overview.vulnerabilities||[]).map(v=>({...v,isNew:newKeys.has(vulnerabilityKey(v))}));
+    overview.summary={...(overview.summary||{}),newCritical:overview.vulnerabilities.filter(v=>v.isNew&&v.severity==='critical').length,newHigh:overview.vulnerabilities.filter(v=>v.isNew&&v.severity==='high').length};
     overview.integration={id:item.id,name:item.name||'Wazuh',url:item.url,indexerUrl:item.indexerUrl||'',dashboardUrl:item.wazuhDashboardUrl||'',alertThreshold:wazuhAlertThreshold(wazuhRuntimeItem(item))};
     recordWazuhHistory(overview);overview.history=wazuhHistory();return overview;
   })();
@@ -2905,7 +2908,7 @@ async function runWazuhBackgroundAlerts(settings=getSettings(),now=Date.now()) {
     const previous=allState[item.id]||{};if(now-Number(previous.lastPollAt||0)<interval)continue;
     let overview;
     try{overview=await collectWazuh(wazuhRuntimeItem(item),{period:'24h'});overview=applyWazuhTopology(overview);}catch(error){overview={status:'offline',errors:[{component:'collector',message:String(error.message||error)}],agents:[],vulnerabilities:[],alerts:[],summary:{critical:0,high:0,affectedEndpoints:0}};}
-    const evaluated=evaluateWazuhTransitions(previous,overview,{name:item.name||'Wazuh',notifyHigh:item.wazuhNotifyHigh===true,notifyAgentOffline:item.wazuhNotifyAgentOffline!==false});
+    const evaluated=evaluateWazuhTransitions(previous,overview,{name:item.name||'Wazuh',notifyHigh:item.wazuhNotifyHigh===true,notifyAgentOffline:item.wazuhNotifyAgentOffline!==false,notifyFim:item.wazuhNotifyFim===true});
     allState[item.id]={...evaluated.state,lastPollAt:now};
     for(const event of evaluated.events){
       const panel=recordWazuhPanelEvent(event);
@@ -5117,7 +5120,7 @@ async function handleApi(req, res, url) {
       row.indexerUrl=indexerUrl;row.indexerUsername=String(body.indexerUsername||'').trim();
       row.wazuhDashboardUrl=String(body.wazuhDashboardUrl||'').trim().replace(/\/$/,'');
       row.wazuhAlertLevel=Math.max(1,Math.min(16,Number(body.wazuhAlertLevel||12)));
-      row.wazuhNotifyHigh=body.wazuhNotifyHigh===true;row.wazuhNotifyAgentOffline=body.wazuhNotifyAgentOffline!==false;
+      row.wazuhNotifyHigh=body.wazuhNotifyHigh===true;row.wazuhNotifyAgentOffline=body.wazuhNotifyAgentOffline!==false;row.wazuhNotifyFim=body.wazuhNotifyFim===true;
       row.indexerPasswordEnc=encryptText(String(body.indexerPassword));
     }
     if(body.password)row.passwordEnc=encryptText(String(body.password));
