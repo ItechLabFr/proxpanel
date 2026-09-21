@@ -129,7 +129,7 @@ function securityCategorySummary(alerts=[],fim=[]) {
   return out;
 }
 function vulnerabilityKey(v={}) {
-  return `${v.agentId||v.agentName||'agent'}|${v.id||'cve'}|${v.packageName||'package'}|${v.packageVersion||''}`;
+  return String(v.key||`${v.agentId||v.agentName||'agent'}|${v.id||'cve'}|${v.packageName||'package'}|${v.packageVersion||''}`);
 }
 function endpointKey(name,id='') {
   return String(id||name||'unknown');
