@@ -157,6 +157,22 @@ jobs:
           printf '**FR :** Docker Hub distribue les images conteneur. Le rollout et les révocations OTA restent gérés par \`updates.proxpanel.fr\`.\n\n' >> dist/RELEASE_NOTES.md
           printf '**EN:** Docker Hub distributes container images. OTA rollout and revocation remain managed by \`updates.proxpanel.fr\`.\n' >> dist/RELEASE_NOTES.md
 
+      - name: Upload full package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxpanel-v${{ steps.version.outputs.version }}
+          path: dist/proxpanel-v${{ steps.version.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload OTA package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxpanel-update-v${{ steps.version.outputs.version }}
+          path: dist/proxpanel-update-v${{ steps.version.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Create or update GitHub Release
         shell: bash
         run: |
