@@ -124,7 +124,7 @@ async function testWazuhConnection(item) {
 
 async function collectWazuh(item,{period:periodValue='24h'}={}) {
   const selectedPeriod=period(periodValue),errors=[];
-  let manager={},agents=[],indexerHealth={},vulnerabilities=[],alerts=[];
+  let manager={},agents=[],indexerHealth={},vulnerabilities=[],alerts=[],fim=[];
   try {
     const [managerRaw,agentsRaw]=await Promise.all([
       serverJson(item,'/manager/info'),
@@ -138,7 +138,7 @@ async function collectWazuh(item,{period:periodValue='24h'}={}) {
   try {
     const query={
       size:1000,
-      query:{bool:{must_not:[{terms:{'vulnerability.status.keyword':['Solved','solved','Resolved','resolved','Fixed','fixed']}}]}},
+      query:{match_all:{}},
       _source:[
         'agent.id','agent.name','agent.ip','host.hostname','host.ip','host.os.*',
         'vulnerability.id','vulnerability.severity','vulnerability.status','vulnerability.description',
@@ -170,7 +170,20 @@ async function collectWazuh(item,{period:periodValue='24h'}={}) {
     const raw=await indexerJson(item,'/wazuh-alerts-*/_search',{method:'POST',body:query});
     alerts=searchHits(raw);
   } catch(error) { errors.push({component:'indexer-alerts',message:String(error.message||error)}); }
-  return buildWazuhOverview({manager,indexerHealth,agents,vulnerabilities,alerts,errors,period:selectedPeriod});
+  try {
+    const hours=selectedPeriod==='30d'?720:selectedPeriod==='7d'?168:24;
+    const query={
+      size:100,
+      query:{bool:{filter:[
+        {range:{'timestamp':{gte:'now-'+hours+'h'}}},
+        {terms:{'rule.groups':['syscheck','syscheck_entry_added','syscheck_entry_modified','syscheck_entry_deleted']}}
+      ]}},
+      sort:[{'timestamp':{order:'desc',unmapped_type:'date'}}],
+      _source:['timestamp','@timestamp','agent.id','agent.name','agent.ip','host.hostname','host.ip','rule.id','rule.level','rule.description','rule.groups','syscheck.path','syscheck.event','syscheck.event_type','syscheck.uname_after','syscheck.user_name','syscheck.gname_after','syscheck.sha256_before','syscheck.sha256_after','event.action']
+    };
+    const raw=await indexerJson(item,'/wazuh-alerts-*/_search',{method:'POST',body:query});fim=searchHits(raw);
+  } catch(error) { errors.push({component:'indexer-fim',message:String(error.message||error)}); }
+  return buildWazuhOverview({manager,indexerHealth,agents,vulnerabilities,alerts,fim,errors,period:selectedPeriod});
 }
 
 module.exports={request,testWazuhConnection,collectWazuh,period,alertThreshold};
