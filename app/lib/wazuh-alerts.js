@@ -16,7 +16,8 @@ function commonVulnerabilityDetails(v){
     v.agentId?`Agent Wazuh: ${v.agentId}`:'',v.agentIp?`IP: ${v.agentIp}`:'',v.os?`OS: ${v.os}`:'',
     v.packageName?`Paquet / logiciel: ${v.packageName}`:'',v.packageVersion?`Version installée: ${v.packageVersion}`:'',
     v.fixedVersion?`Version corrigée: ${v.fixedVersion}`:'',v.mapping?.name?`VM/LXC Proxmox: ${v.mapping.name}${v.mapping.vmid?` · VMID ${v.mapping.vmid}`:''}`:'',
-    v.mapping?.node?`Nœud Proxmox: ${v.mapping.node}`:''
+    v.mapping?.node?`Nœud Proxmox: ${v.mapping.node}`:'',
+    ...(Array.isArray(v.mapping?.dockerEnvironments)?v.mapping.dockerEnvironments.map(x=>`Docker: ${x.portainerName||'Portainer'} / ${x.environmentName||('Environment '+(x.endpointId||''))}`):[])
   ].filter(Boolean);
 }
 function vulnerabilityTechnical(v){return [
@@ -53,15 +54,15 @@ function evaluateWazuhTransitions(previous={},overview={},config={}){
 
   const prevAgents=objectMap(prev.agents),agentConfirmations={...objectMap(prev.agentConfirmations)},agentNotified={...objectMap(prev.agentNotified)},nextAgents={};
   for(const agent of overview.agents||[]){
-    const id=String(agent.id||agent.name||'');if(!id)continue;const status=String(agent.status||'unknown');nextAgents[id]={id,name:String(agent.name||''),status,ip:String(agent.ip||''),lastKeepAlive:String(agent.lastKeepAlive||'')};
+    const id=String(agent.id||agent.name||'');if(!id)continue;const status=String(agent.status||'unknown');nextAgents[id]={id,name:String(agent.name||''),status,ip:String(agent.ip||''),lastKeepAlive:String(agent.lastKeepAlive||''),mapping:agent.mapping||null};
     const disconnected=status!=='active';
     if(disconnected){agentConfirmations[id]=Number(agentConfirmations[id]||0)+1;}else{agentConfirmations[id]=0;}
     if(disconnected&&agentConfirmations[id]>=2&&!agentNotified[id]&&config.notifyAgentOffline!==false&&prev.baseline){
-      events.push({type:'wazuh.agent.disconnected',severity:'warning',title:'Agent Wazuh déconnecté',message:`${agent.name||id} ne communique plus avec Wazuh après deux contrôles consécutifs.`,target:agent.name||id,source:'Wazuh Server API',details:[`Agent ID: ${id}`,agent.ip?`IP: ${agent.ip}`:'',agent.lastKeepAlive?`Dernier contact: ${agent.lastKeepAlive}`:''].filter(Boolean),technicalDetails:[{label:'Agent Wazuh',value:id},{label:'État',value:status}],recommendation:'Vérifie le service Wazuh Agent, le réseau et la connectivité vers le Manager.'});
+      events.push({type:'wazuh.agent.disconnected',severity:'warning',title:'Agent Wazuh déconnecté',message:`${agent.name||id} ne communique plus avec Wazuh après deux contrôles consécutifs.`,target:agent.name||id,source:'Wazuh Server API',details:[`Agent ID: ${id}`,agent.ip?`IP: ${agent.ip}`:'',agent.lastKeepAlive?`Dernier contact: ${agent.lastKeepAlive}`:'',agent.mapping?.name?`VM/LXC Proxmox: ${agent.mapping.name}${agent.mapping.vmid?` · VMID ${agent.mapping.vmid}`:''}`:'',agent.mapping?.node?`Nœud Proxmox: ${agent.mapping.node}`:'',...(Array.isArray(agent.mapping?.dockerEnvironments)?agent.mapping.dockerEnvironments.map(x=>`Docker: ${x.portainerName||'Portainer'} / ${x.environmentName||('Environment '+(x.endpointId||''))}`):[])].filter(Boolean),technicalDetails:[{label:'Agent Wazuh',value:id},{label:'État',value:status}],recommendation:'Vérifie le service Wazuh Agent, le réseau et la connectivité vers le Manager.'});
       agentNotified[id]=true;
     }
     if(!disconnected&&agentNotified[id]){
-      events.push({type:'wazuh.agent.recovered',severity:'info',title:'Agent Wazuh reconnecté',message:`${agent.name||id} communique de nouveau avec Wazuh.`,target:agent.name||id,source:'Wazuh Server API',details:[`Agent ID: ${id}`,agent.ip?`IP: ${agent.ip}`:''].filter(Boolean),recommendation:'Aucune action requise si l’agent reste stable.'});
+      events.push({type:'wazuh.agent.recovered',severity:'info',title:'Agent Wazuh reconnecté',message:`${agent.name||id} communique de nouveau avec Wazuh.`,target:agent.name||id,source:'Wazuh Server API',details:[`Agent ID: ${id}`,agent.ip?`IP: ${agent.ip}`:'',agent.mapping?.name?`VM/LXC Proxmox: ${agent.mapping.name}${agent.mapping.vmid?` · VMID ${agent.mapping.vmid}`:''}`:'',...(Array.isArray(agent.mapping?.dockerEnvironments)?agent.mapping.dockerEnvironments.map(x=>`Docker: ${x.portainerName||'Portainer'} / ${x.environmentName||('Environment '+(x.endpointId||''))}`):[])].filter(Boolean),recommendation:'Aucune action requise si l’agent reste stable.'});
       delete agentNotified[id];
     }
   }
