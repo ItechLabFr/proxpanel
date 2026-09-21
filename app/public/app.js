@@ -1105,7 +1105,7 @@ function adminHomePage(){
   <div class="admin-hub-grid">${ADMIN_SECTIONS.map(([key,title,desc,icon])=>`<button class="admin-hub-card" data-admin-search="${esc((title+' '+desc+' '+key).toLowerCase())}" data-action="admin-section:${key}"><span class="admin-hub-icon">${icon}</span><span><strong>${esc(title)}</strong><small>${esc(desc)}</small></span><b>→</b></button>`).join('')}</div>`;
 }
 function adminGeneralPage(){
-  const s=state.settings||{},moduleKeys=['overview','machines','nodes','monitoring','storage','docker','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'];
+  const s=state.settings||{},moduleKeys=['overview','machines','nodes','monitoring','storage','docker','pbs','wazuh','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'];
   return`${adminBack('Général','Réglages essentiels de l’application.')}<section class="panel admin-section-card"><div class="admin-form-grid">${selectField('Langue par défaut','setLanguage',[{value:'fr',label:'Français'},{value:'en',label:'English'}],s.language||'fr')}${selectField('Page d’accueil','setHome',moduleKeys.map(k=>({value:k,label:tr(k)})),s.homePage||'overview')}${field('Fuseau horaire','setTimezone',s.timezone||'Europe/Paris')}</div><div class="admin-savebar">${button('Enregistrer','save-general','primary')}</div></section>`;
 }
 function adminServersPage(){
