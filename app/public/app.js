@@ -1226,6 +1226,7 @@ function openWazuhIntegration(){
   ${field('Niveau minimal des alertes','wazuhAlertLevel','12','number','min="1" max="16"')}
   <label class="check"><input id="wazuhNotifyHigh" type="checkbox"> Notifier aussi les nouvelles CVE élevées (High)</label>
   <label class="check"><input id="wazuhNotifyAgentOffline" type="checkbox" checked> Notifier les agents déconnectés après confirmation</label>
+  <label class="check"><input id="wazuhNotifyFim" type="checkbox"> Notifier les modifications FIM sensibles (SSH, sudoers, PAM, services…)</label>
   <label class="check"><input id="wazuhSelfSigned" type="checkbox"> Autoriser les certificats TLS auto-signés</label>
   <div class="info-box"><strong>JWT éphémère</strong><p>Le JWT du Server API est gardé uniquement en mémoire. Les secrets persistants utilisent le chiffrement local ProxPanel.</p></div>`,
   `<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="save-wazuh">Tester et ajouter</button>`,'portainer-modal');
@@ -1638,7 +1639,7 @@ async function handleAction(action,el){try{
   }
   if(action==='add-wazuh'){openWazuhIntegration();return}
   if(action==='save-wazuh'){
-    const payload={type:'wazuh',name:qs('#wazuhName')?.value||'Wazuh',url:qs('#wazuhUrl')?.value||'',username:qs('#wazuhUser')?.value||'',password:qs('#wazuhPassword')?.value||'',indexerUrl:qs('#wazuhIndexerUrl')?.value||'',indexerUsername:qs('#wazuhIndexerUser')?.value||'',indexerPassword:qs('#wazuhIndexerPassword')?.value||'',wazuhDashboardUrl:qs('#wazuhDashboardUrl')?.value||'',wazuhAlertLevel:Number(qs('#wazuhAlertLevel')?.value||12),wazuhNotifyHigh:!!qs('#wazuhNotifyHigh')?.checked,wazuhNotifyAgentOffline:!!qs('#wazuhNotifyAgentOffline')?.checked,allowSelfSigned:!!qs('#wazuhSelfSigned')?.checked};
+    const payload={type:'wazuh',name:qs('#wazuhName')?.value||'Wazuh',url:qs('#wazuhUrl')?.value||'',username:qs('#wazuhUser')?.value||'',password:qs('#wazuhPassword')?.value||'',indexerUrl:qs('#wazuhIndexerUrl')?.value||'',indexerUsername:qs('#wazuhIndexerUser')?.value||'',indexerPassword:qs('#wazuhIndexerPassword')?.value||'',wazuhDashboardUrl:qs('#wazuhDashboardUrl')?.value||'',wazuhAlertLevel:Number(qs('#wazuhAlertLevel')?.value||12),wazuhNotifyHigh:!!qs('#wazuhNotifyHigh')?.checked,wazuhNotifyAgentOffline:!!qs('#wazuhNotifyAgentOffline')?.checked,wazuhNotifyFim:!!qs('#wazuhNotifyFim')?.checked,allowSelfSigned:!!qs('#wazuhSelfSigned')?.checked};
     if(!payload.username||!payload.password||!payload.indexerUsername||!payload.indexerPassword)throw new Error('Identifiants Wazuh Server API et Indexer requis.');
     const row=await api('/api/integrations',{method:'POST',body:JSON.stringify(payload)});state.integrations=await api('/api/integrations');
     const [overview,panel]=await Promise.all([api(`/api/wazuh/overview?period=${encodeURIComponent(state.wazuhPeriod)}&force=1`),api('/api/wazuh/panel-notifications?limit=100')]);state.wazuhOverview=overview;state.wazuhPanelNotifications=panel.notifications||[];state.wazuhError=null;
