@@ -34,6 +34,7 @@ const {
 } = require('./lib/wazuh-client');
 const { demoWazuhOverview, vulnerabilityKey } = require('./lib/wazuh');
 const { evaluateWazuhTransitions } = require('./lib/wazuh-alerts');
+const { collectPbs,testPbsConnection,runPbsAction,demoPbsOverview } = require('./lib/pbs-client');
 const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
@@ -139,6 +140,8 @@ const NODE_ADDRESS_CACHE = new Map();
 const NODE_ADDRESS_CACHE_MS = 5 * 60 * 1000;
 const WAZUH_OVERVIEW_CACHE = new Map();
 const WAZUH_OVERVIEW_CACHE_MS = 30 * 1000;
+const PBS_OVERVIEW_CACHE = new Map();
+const PBS_OVERVIEW_CACHE_MS = 45 * 1000;
 
 for (const dir of [RUNTIME_DIR, RELEASES_DIR, UPDATE_UPLOAD_DIR, UPDATE_BACKUP_DIR]) fs.mkdirSync(dir, { recursive: true });
 
@@ -322,8 +325,8 @@ function storePveUserSession(session, serverId, auth) {
 function redactIntegration(i) {
   if (!i) return i;
   const o = { ...i };
-  for (const k of ['passwordEnc','tokenEnc','apiKeyEnc','secretEnc','indexerPasswordEnc']) delete o[k];
-  o.hasSecret = !!(i.passwordEnc || i.tokenEnc || i.apiKeyEnc || i.secretEnc || i.indexerPasswordEnc);
+  for (const k of ['passwordEnc','tokenEnc','apiKeyEnc','secretEnc','indexerPasswordEnc','pbsTokenSecretEnc']) delete o[k];
+  o.hasSecret = !!(i.passwordEnc || i.tokenEnc || i.apiKeyEnc || i.secretEnc || i.indexerPasswordEnc || i.pbsTokenSecretEnc);
   return o;
 }
 function encodeForm(obj) {
@@ -2838,6 +2841,35 @@ async function runDockerImageUpdateWorker(settings=getSettings(),now=Date.now())
   const final=dockerUpdateState();final.lastAutoCheckAt=now;final.lastAutoCheckError=errors.join('\n').slice(0,8000);saveDockerUpdateState(final);
   addAuditSystem('docker.images.auto-check','Docker',{portainers:portainers.length,errors:errors.length},errors.length?'warning':'ok');
 }
+function findPbsIntegration(id=''){
+  const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='pbs'&&x.enabled!==false);
+  return (id?rows.find(x=>String(x.id)===String(id)):rows[0])||null;
+}
+function pbsRuntimeItem(item){
+  if(!item)throw new Error('Intégration PBS introuvable.');
+  return {id:item.id,name:item.name||'PBS',url:item.url,authMode:item.pbsAuthMode||'password',username:item.username||'',password:item.passwordEnc?decryptText(item.passwordEnc):'',tokenId:item.pbsTokenId||'',tokenSecret:item.pbsTokenSecretEnc?decryptText(item.pbsTokenSecretEnc):'',rejectUnauthorized:!item.allowSelfSigned};
+}
+async function pbsOverviewData(force=false){
+  if(DEMO_MODE)return demoPbsOverview();
+  const item=findPbsIntegration();if(!item)throw new Error('Aucune intégration PBS configurée.');
+  const key=String(item.id),cached=PBS_OVERVIEW_CACHE.get(key);
+  if(!force&&cached?.value&&cached.expiresAt>Date.now())return cached.value;
+  if(!force&&cached?.promise)return cached.promise;
+  const promise=(async()=>{const overview=await collectPbs(pbsRuntimeItem(item));overview.integration={id:item.id,name:item.name||'PBS',url:item.url,authMode:item.pbsAuthMode||'password'};return overview})();
+  PBS_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+PBS_OVERVIEW_CACHE_MS});
+  try{const value=await promise;PBS_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+PBS_OVERVIEW_CACHE_MS});return value}catch(e){PBS_OVERVIEW_CACHE.delete(key);throw e}
+}
+function sameProxmoxTarget(a,b){
+  if(!a||!b)return false;
+  if(String(a.type||'')!==String(b.type||'')||Number(a.vmid||0)!==Number(b.vmid||0))return false;
+  if(a.serverId&&b.serverId&&String(a.serverId)!==String(b.serverId))return false;
+  return true;
+}
+function wazuhDockerContexts(mapping){
+  if(!mapping)return [];const rows=dockerTopologyMappings(),integrations=jsonRead(INTEGRATIONS_FILE,[]);
+  const names=new Map(integrations.filter(x=>x.type==='portainer').map(x=>[String(x.id),String(x.name||'Portainer')]));
+  const out=[];for(const [key,target] of Object.entries(rows)){if(!sameProxmoxTarget(mapping,target))continue;const split=String(key).split(':'),portainerId=split.shift()||'',endpointId=Number(split.join(':')||0);out.push({portainerId,portainerName:names.get(portainerId)||'Portainer',endpointId,environmentName:`Environment ${endpointId}`,confidence:'mapped-environment'});}return out;
+}
 function findWazuhIntegration(id='') {
   const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='wazuh'&&x.enabled!==false);
   return (id?rows.find(x=>String(x.id)===String(id)):rows[0])||null;
@@ -2857,11 +2889,13 @@ function wazuhTopologyMappings() {
   return rows&&typeof rows==='object'&&!Array.isArray(rows)?rows:{};
 }
 function applyWazuhTopology(overview) {
-  const mappings=wazuhTopologyMappings(),get=(id,name)=>mappings[String(id||name||'').trim()]||null;
+  const mappings=wazuhTopologyMappings();
+  const get=(id,name)=>{const m=mappings[String(id||name||'').trim()]||null;return m?{...m,dockerEnvironments:wazuhDockerContexts(m)}:null;};
   overview.byEndpoint=(overview.byEndpoint||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
   overview.vulnerabilities=(overview.vulnerabilities||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
   overview.alerts=(overview.alerts||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
-  overview.topologyMappings=mappings;
+  overview.fim=(overview.fim||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.topologyMappings=Object.fromEntries(Object.entries(mappings).map(([k,m])=>[k,{...m,dockerEnvironments:wazuhDockerContexts(m)}]));
   return overview;
 }
 function wazuhHistory() {
@@ -2925,6 +2959,9 @@ async function testIntegration(item) {
   if (item.type === 'wazuh') {
     return testWazuhConnection(wazuhRuntimeItem(item));
   }
+  if (item.type === 'pbs') {
+    return testPbsConnection(pbsRuntimeItem(item));
+  }
   if (item.type === 'portainer') {
     const r=await cachedPortainerOverview(item,true);
     return {
@@ -2950,16 +2987,6 @@ async function testIntegration(item) {
     if (!token?.token) throw new Error('Token NPM non reçu.');
     const hosts = await integrationJson(url, '/api/nginx/proxy-hosts', { headers: { Authorization: `Bearer ${token.token}` }, rejectUnauthorized: !item.allowSelfSigned });
     return { ok: true, detail: `${Array.isArray(hosts) ? hosts.length : 0} proxy host(s)` };
-  }
-  if (item.type === 'pbs') {
-    const username = item.username || '';
-    const password = item.passwordEnc ? decryptText(item.passwordEnc) : '';
-    const login = await rawRequest(url, '/api2/json/access/ticket', { method: 'POST', body: encodeForm({ username, password }), headers: {'Content-Type':'application/x-www-form-urlencoded'}, rejectUnauthorized: !item.allowSelfSigned });
-    const ticket = login.data?.data?.ticket;
-    if (!ticket) throw new Error('Ticket PBS non reçu.');
-    let stores = [];
-    try { stores = await integrationJson(url, '/api2/json/admin/datastore', { headers: { Cookie: `PBSAuthCookie=${encodeURIComponent(ticket)}` }, rejectUnauthorized: !item.allowSelfSigned }); } catch {}
-    return { ok: true, detail: `${Array.isArray(stores) ? stores.length : 0} datastore(s)` };
   }
   throw new Error('Type d’intégration inconnu.');
 }
@@ -5106,6 +5133,12 @@ async function handleApi(req, res, url) {
     if(!['pbs','uptimekuma','portainer','npm','grafana','wazuh'].includes(type))return sendJson(res,400,{error:'Type d’intégration invalide.'});
     let cleanUrl;try{cleanUrl=validateIntegrationUrl(body.url);}catch(e){return sendJson(res,400,{error:e.message});}
     if(type==='portainer'&&!String(body.apiKey||body.token||'').trim())return sendJson(res,400,{error:'Une API Key Portainer est requise.'});
+    if(type==='pbs'){
+      const mode=String(body.pbsAuthMode||'password');
+      if(!['password','token'].includes(mode))return sendJson(res,400,{error:'Mode d’authentification PBS invalide.'});
+      if(mode==='password'&&(!String(body.username||'').trim()||!String(body.password||'').trim()))return sendJson(res,400,{error:'Utilisateur et mot de passe PBS requis.'});
+      if(mode==='token'&&(!String(body.pbsTokenId||'').trim()||!String(body.pbsTokenSecret||'').trim()))return sendJson(res,400,{error:'Token ID et secret PBS requis.'});
+    }
     if(type==='wazuh'&&(!String(body.username||'').trim()||!String(body.password||'').trim()))return sendJson(res,400,{error:'Utilisateur et mot de passe Wazuh Server API requis.'});
     let indexerUrl='';
     if(type==='wazuh'){
@@ -5118,6 +5151,10 @@ async function handleApi(req, res, url) {
       allowSelfSigned:!!body.allowSelfSigned,enabled:body.enabled!==false,createdAt:new Date().toISOString(),
       lastStatus:'pending',lastTestAt:'',lastError:''
     };
+    if(type==='pbs'){
+      row.pbsAuthMode=String(body.pbsAuthMode||'password');row.pbsTokenId=String(body.pbsTokenId||'').trim();
+      if(body.pbsTokenSecret)row.pbsTokenSecretEnc=encryptText(String(body.pbsTokenSecret));
+    }
     if(type==='wazuh'){
       row.indexerUrl=indexerUrl;row.indexerUsername=String(body.indexerUsername||'').trim();
       row.wazuhDashboardUrl=String(body.wazuhDashboardUrl||'').trim().replace(/\/$/,'');
@@ -5129,22 +5166,35 @@ async function handleApi(req, res, url) {
     if(body.apiKey)row.apiKeyEnc=encryptText(String(body.apiKey));
     if(body.token)row.tokenEnc=encryptText(String(body.token));
     try{
-      if(type==='portainer'||type==='wazuh'){
+      if(type==='portainer'||type==='wazuh'||type==='pbs'){
         const test=await testIntegration(row);
         row.lastStatus=test.degraded?'degraded':'ok';row.lastTestAt=new Date().toISOString();row.lastError=test.degraded?String(test.detail||'Wazuh partiellement joignable'):'';
         if(type==='portainer'){
           row.portainerVersion=String(test.version||'');row.portainerEdition=String(test.edition||'');
           row.environmentCount=Number(test.environmentCount||0);row.supportedDockerCount=Number(test.supportedDockerCount||0);
-        }else{
+        }else if(type==='wazuh'){
           row.wazuhManagerVersion=String(test.managerVersion||'');row.wazuhIndexerStatus=String(test.indexerStatus||'');row.wazuhAgentCount=Number(test.agents||0);
+        }else{
+          row.pbsVersion=String(test.version||'');row.pbsDatastoreCount=Number(test.datastores||0);
         }
       }
     }catch(error){
-      return sendJson(res,502,{error:`Connexion ${type==='wazuh'?'Wazuh':'Portainer'} impossible : ${error.message}`});
+      return sendJson(res,502,{error:`Connexion ${type==='wazuh'?'Wazuh':type==='pbs'?'PBS':'Portainer'} impossible : ${error.message}`});
     }
     const all=jsonRead(INTEGRATIONS_FILE,[]);all.push(row);jsonWrite(INTEGRATIONS_FILE,all);
     audit(req,'integration.add',row.name,{type,url:row.url,environmentCount:row.environmentCount||0});
     return sendJson(res,201,redactIntegration(row));
+  }
+  // ----- Proxmox Backup Server -----
+  if(url.pathname==='/api/pbs/overview'&&req.method==='GET'){
+    try{return sendJson(res,200,await pbsOverviewData(url.searchParams.get('force')==='1'))}catch(e){return sendJson(res,502,{error:e.message})}
+  }
+  const pbsAction=url.pathname.match(/^\/api\/pbs\/actions\/(verify|prune|sync|gc)$/);
+  if(pbsAction&&req.method==='POST'){
+    const body=await readBody(req);if(body.confirm!==true)return sendJson(res,400,{error:'Confirmation explicite requise.'});
+    const item=findPbsIntegration(String(body.integrationId||''));if(!item&&!DEMO_MODE)return sendJson(res,404,{error:'Intégration PBS introuvable.'});
+    if(DEMO_MODE)return sendJson(res,200,{ok:true,kind:pbsAction[1],id:String(body.id||''),store:String(body.store||''),upid:'UPID:demo:pbs-action'});
+    try{const result=await runPbsAction(pbsRuntimeItem(item),{kind:pbsAction[1],id:String(body.id||''),store:String(body.store||'')});PBS_OVERVIEW_CACHE.clear();audit(req,`pbs.${pbsAction[1]}`,String(body.id||body.store||'PBS'),{integrationId:item.id,upid:result.upid,path:result.path});return sendJson(res,200,result)}catch(e){audit(req,`pbs.${pbsAction[1]}`,String(body.id||body.store||'PBS'),{error:e.message},'error');return sendJson(res,502,{error:e.message})}
   }
   // ----- Wazuh Security Essentials -----
   if(url.pathname==='/api/wazuh/overview'&&req.method==='GET'){
@@ -5388,7 +5438,7 @@ async function handleApi(req, res, url) {
   if(integrationMatch&&req.method==='DELETE'&&!integrationMatch[2]){
     const all=jsonRead(INTEGRATIONS_FILE,[]),row=all.find(x=>x.id===integrationMatch[1]);
     if(!row)return sendJson(res,404,{error:'Intégration introuvable.'});
-    jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));PORTAINER_OVERVIEW_CACHE.delete(String(row.id));WAZUH_OVERVIEW_CACHE.clear();
+    jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));PORTAINER_OVERVIEW_CACHE.delete(String(row.id));WAZUH_OVERVIEW_CACHE.clear();PBS_OVERVIEW_CACHE.clear();
     audit(req,'integration.delete',row.name,{type:row.type});return sendJson(res,200,{ok:true});
   }
   if(integrationMatch&&req.method==='POST'&&integrationMatch[2]==='test'){
@@ -5400,6 +5450,9 @@ async function handleApi(req, res, url) {
       if(row.type==='portainer'){
         row.portainerVersion=String(result.version||'');row.portainerEdition=String(result.edition||'');
         row.environmentCount=Number(result.environmentCount||0);row.supportedDockerCount=Number(result.supportedDockerCount||0);
+      }
+      if(row.type==='pbs'){
+        row.lastStatus='ok';row.lastError='';row.pbsVersion=String(result.version||'');row.pbsDatastoreCount=Number(result.datastores||0);PBS_OVERVIEW_CACHE.clear();
       }
       if(row.type==='wazuh'){
         row.lastStatus=result.degraded?'degraded':'ok';row.lastError=result.degraded?String(result.detail||'Wazuh partiellement joignable'):'';
