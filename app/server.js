@@ -30,6 +30,12 @@ const {
   normalizeReauthCode,strongReauthAllowed,nextSensitiveAttempt,sensitiveAttemptBlocked
 } = require('./lib/auth-security');
 const {
+  collectWazuh,testWazuhConnection,period:wazuhPeriod,alertThreshold:wazuhAlertThreshold
+} = require('./lib/wazuh-client');
+const { demoWazuhOverview, vulnerabilityKey } = require('./lib/wazuh');
+const { evaluateWazuhTransitions } = require('./lib/wazuh-alerts');
+const { collectPbs,testPbsConnection,runPbsAction,demoPbsOverview } = require('./lib/pbs-client');
+const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
   demoDockerOverview, demoDockerContainers, demoDockerStacks,
@@ -102,6 +108,10 @@ const DOCKER_UPDATE_HISTORY_FILE = path.join(DATA_DIR, 'docker-update-history.js
 const UPDATE_CHECK_STATE_FILE = path.join(DATA_DIR, 'update-check-state.json');
 const OTA_INSTANCE_FILE = path.join(DATA_DIR, 'ota-instance-id.txt');
 const PVE_UPDATE_STATE_FILE = path.join(DATA_DIR, 'pve-update-state.json');
+const WAZUH_STATE_FILE = path.join(DATA_DIR, 'wazuh-state.json');
+const WAZUH_HISTORY_FILE = path.join(DATA_DIR, 'wazuh-history.json');
+const WAZUH_TOPOLOGY_FILE = path.join(DATA_DIR, 'wazuh-topology.json');
+const WAZUH_PANEL_FILE = path.join(DATA_DIR, 'wazuh-panel-notifications.json');
 const CONSOLE_SESSIONS = new Map();
 const CONSOLE_ERRORS = new Map();
 const CONSOLE_STATES = new Map();
@@ -128,6 +138,10 @@ const NODE_TEMPERATURE_CACHE = new Map();
 const NODE_TEMPERATURE_CACHE_MS = 30 * 1000;
 const NODE_ADDRESS_CACHE = new Map();
 const NODE_ADDRESS_CACHE_MS = 5 * 60 * 1000;
+const WAZUH_OVERVIEW_CACHE = new Map();
+const WAZUH_OVERVIEW_CACHE_MS = 30 * 1000;
+const PBS_OVERVIEW_CACHE = new Map();
+const PBS_OVERVIEW_CACHE_MS = 45 * 1000;
 
 for (const dir of [RUNTIME_DIR, RELEASES_DIR, UPDATE_UPLOAD_DIR, UPDATE_BACKUP_DIR]) fs.mkdirSync(dir, { recursive: true });
 
@@ -148,12 +162,12 @@ function defaultSettings() {
   return {
     branding: { name: 'ProxPanel', subtitle: 'PROXMOX CONSOLE', accent: '#ff7a00', logoText: '◇' },
     thresholds: { cpuWarning: 85, memoryWarning: 85, storageWarning: 85, storageCritical: 95, temperatureWarning: 75, temperatureCritical: 85, backupMaxAgeHours: 36 },
-    modules: { overview: true, machines: true, nodes: true, monitoring: true, storage: true, docker: true, backups: true, tasks: true, create: false, templates: true, firewall: false, problems: true, dependencies: true, changes: true, maintenance: true, pveupdates: true, automations: true, energy: false, audit: true, integrations: false, notifications: true, users: true, admin: true },
+    modules: { overview: true, machines: true, nodes: true, monitoring: true, storage: true, docker: true, pbs: true, wazuh: true, backups: true, tasks: true, create: false, templates: true, firewall: false, problems: true, dependencies: true, changes: true, maintenance: true, pveupdates: true, automations: true, energy: false, audit: true, integrations: false, notifications: true, users: true, admin: true },
     dashboardWidgets: ['cpu','memory','storage','temperature','network','machines','health','problems','capacity','backups'],
     homePage: 'overview',
     language: 'fr',
     timezone: 'UTC',
-    menuOrder: ['overview','machines','nodes','monitoring','storage','docker','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'],
+    menuOrder: ['overview','machines','nodes','monitoring','storage','docker','pbs','wazuh','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'],
     electricity: { pricePerKwh: 0.25, currency: 'EUR', nodes: {} },
     alerts: {
       enabled: true, pollMinutes: 5, discordWebhook: '', discordChannels: [], genericWebhook: '', telegramBotToken: '', telegramChatId: '',
@@ -311,8 +325,8 @@ function storePveUserSession(session, serverId, auth) {
 function redactIntegration(i) {
   if (!i) return i;
   const o = { ...i };
-  for (const k of ['passwordEnc','tokenEnc','apiKeyEnc','secretEnc']) delete o[k];
-  o.hasSecret = !!(i.passwordEnc || i.tokenEnc || i.apiKeyEnc || i.secretEnc);
+  for (const k of ['passwordEnc','tokenEnc','apiKeyEnc','secretEnc','indexerPasswordEnc','pbsTokenSecretEnc']) delete o[k];
+  o.hasSecret = !!(i.passwordEnc || i.tokenEnc || i.apiKeyEnc || i.secretEnc || i.indexerPasswordEnc || i.pbsTokenSecretEnc);
   return o;
 }
 function encodeForm(obj) {
@@ -2072,7 +2086,7 @@ function portainerHeaders(item) {
 function validateIntegrationUrl(value) {
   const raw=String(value||'').trim().replace(/\/$/,'');
   let parsed;try{parsed=new URL(raw);}catch{throw new Error('URL invalide.');}
-  if(!['http:','https:'].includes(parsed.protocol))throw new Error('Portainer doit utiliser une URL HTTP ou HTTPS.');
+  if(!['http:','https:'].includes(parsed.protocol))throw new Error('L’intégration doit utiliser une URL HTTP ou HTTPS.');
   return raw;
 }
 async function portainerSystemInfo(item) {
@@ -2827,9 +2841,128 @@ async function runDockerImageUpdateWorker(settings=getSettings(),now=Date.now())
   const final=dockerUpdateState();final.lastAutoCheckAt=now;final.lastAutoCheckError=errors.join('\n').slice(0,8000);saveDockerUpdateState(final);
   addAuditSystem('docker.images.auto-check','Docker',{portainers:portainers.length,errors:errors.length},errors.length?'warning':'ok');
 }
+function findPbsIntegration(id=''){
+  const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='pbs'&&x.enabled!==false);
+  return (id?rows.find(x=>String(x.id)===String(id)):rows[0])||null;
+}
+function pbsRuntimeItem(item){
+  if(!item)throw new Error('Intégration PBS introuvable.');
+  return {id:item.id,name:item.name||'PBS',url:item.url,authMode:item.pbsAuthMode||'password',username:item.username||'',password:item.passwordEnc?decryptText(item.passwordEnc):'',tokenId:item.pbsTokenId||'',tokenSecret:item.pbsTokenSecretEnc?decryptText(item.pbsTokenSecretEnc):'',rejectUnauthorized:!item.allowSelfSigned};
+}
+async function pbsOverviewData(force=false){
+  if(DEMO_MODE)return demoPbsOverview();
+  const item=findPbsIntegration();if(!item)throw new Error('Aucune intégration PBS configurée.');
+  const key=String(item.id),cached=PBS_OVERVIEW_CACHE.get(key);
+  if(!force&&cached?.value&&cached.expiresAt>Date.now())return cached.value;
+  if(!force&&cached?.promise)return cached.promise;
+  const promise=(async()=>{const overview=await collectPbs(pbsRuntimeItem(item));overview.integration={id:item.id,name:item.name||'PBS',url:item.url,authMode:item.pbsAuthMode||'password'};return overview})();
+  PBS_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+PBS_OVERVIEW_CACHE_MS});
+  try{const value=await promise;PBS_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+PBS_OVERVIEW_CACHE_MS});return value}catch(e){PBS_OVERVIEW_CACHE.delete(key);throw e}
+}
+function sameProxmoxTarget(a,b){
+  if(!a||!b)return false;
+  if(String(a.type||'')!==String(b.type||'')||Number(a.vmid||0)!==Number(b.vmid||0))return false;
+  if(a.serverId&&b.serverId&&String(a.serverId)!==String(b.serverId))return false;
+  return true;
+}
+function wazuhDockerContexts(mapping){
+  if(!mapping)return [];const rows=dockerTopologyMappings(),integrations=jsonRead(INTEGRATIONS_FILE,[]);
+  const names=new Map(integrations.filter(x=>x.type==='portainer').map(x=>[String(x.id),String(x.name||'Portainer')]));
+  const out=[];for(const [key,target] of Object.entries(rows)){if(!sameProxmoxTarget(mapping,target))continue;const split=String(key).split(':'),portainerId=split.shift()||'',endpointId=Number(split.join(':')||0);out.push({portainerId,portainerName:names.get(portainerId)||'Portainer',endpointId,environmentName:`Environment ${endpointId}`,confidence:'mapped-environment'});}return out;
+}
+function findWazuhIntegration(id='') {
+  const rows=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='wazuh'&&x.enabled!==false);
+  return (id?rows.find(x=>String(x.id)===String(id)):rows[0])||null;
+}
+function wazuhRuntimeItem(item) {
+  if(!item)throw new Error('Intégration Wazuh introuvable.');
+  return {
+    id:item.id,name:item.name||'Wazuh',serverUrl:item.url,indexerUrl:item.indexerUrl||'',
+    username:item.username||'',password:item.passwordEnc?decryptText(item.passwordEnc):'',
+    indexerUsername:item.indexerUsername||'',indexerPassword:item.indexerPasswordEnc?decryptText(item.indexerPasswordEnc):'',
+    dashboardUrl:item.wazuhDashboardUrl||'',alertLevel:Number(item.wazuhAlertLevel||12),
+    rejectUnauthorized:!item.allowSelfSigned
+  };
+}
+function wazuhTopologyMappings() {
+  const rows=jsonRead(WAZUH_TOPOLOGY_FILE,{});
+  return rows&&typeof rows==='object'&&!Array.isArray(rows)?rows:{};
+}
+function applyWazuhTopology(overview) {
+  const mappings=wazuhTopologyMappings();
+  const get=(id,name)=>{const m=mappings[String(id||name||'').trim()]||null;return m?{...m,dockerEnvironments:wazuhDockerContexts(m)}:null;};
+  overview.agents=(overview.agents||[]).map(x=>({...x,mapping:get(x.id,x.name)}));
+  overview.byEndpoint=(overview.byEndpoint||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.vulnerabilities=(overview.vulnerabilities||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.alerts=(overview.alerts||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.fim=(overview.fim||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
+  overview.topologyMappings=Object.fromEntries(Object.entries(mappings).map(([k,m])=>[k,{...m,dockerEnvironments:wazuhDockerContexts(m)}]));
+  return overview;
+}
+function wazuhHistory() {
+  return jsonRead(WAZUH_HISTORY_FILE,[]).slice(0,1600);
+}
+function recordWazuhHistory(overview) {
+  if(!overview||overview.status==='offline')return;
+  const rows=wazuhHistory(),now=Date.now(),last=rows[0],lastAt=last?Date.parse(last.at||''):0;
+  if(lastAt&&now-lastAt<30*60*1000)return;
+  rows.unshift({at:new Date(now).toISOString(),critical:Number(overview.summary?.critical||0),high:Number(overview.summary?.high||0),importantAlerts:Number(overview.summary?.importantAlerts||0),affectedEndpoints:Number(overview.summary?.affectedEndpoints||0),agentsDisconnected:Number(overview.summary?.agentsDisconnected||0)});
+  jsonWrite(WAZUH_HISTORY_FILE,rows.filter(x=>now-Date.parse(x.at||0)<=32*86400000).slice(0,1600));
+}
+async function wazuhOverviewData({period='24h',force=false}={}) {
+  const selected=wazuhPeriod(period);
+  if(DEMO_MODE){const demo=applyWazuhTopology(demoWazuhOverview(selected));demo.history=wazuhHistory();return demo;}
+  const item=findWazuhIntegration();if(!item)throw new Error('Aucune intégration Wazuh configurée.');
+  const key=String(item.id)+':'+selected,cached=WAZUH_OVERVIEW_CACHE.get(key);
+  if(!force&&cached?.value&&cached.expiresAt>Date.now())return cached.value;
+  if(!force&&cached?.promise)return cached.promise;
+  const promise=(async()=>{
+    const overview=applyWazuhTopology(await collectWazuh(wazuhRuntimeItem(item),{period:selected}));
+    const alertState=jsonRead(WAZUH_STATE_FILE,{})[item.id]||{},newKeys=new Set(Array.isArray(alertState.newVulnerabilityKeys)?alertState.newVulnerabilityKeys:[]);
+    overview.vulnerabilities=(overview.vulnerabilities||[]).map(v=>({...v,isNew:newKeys.has(vulnerabilityKey(v))}));
+    overview.summary={...(overview.summary||{}),newCritical:overview.vulnerabilities.filter(v=>v.isNew&&v.severity==='critical').length,newHigh:overview.vulnerabilities.filter(v=>v.isNew&&v.severity==='high').length};
+    overview.integration={id:item.id,name:item.name||'Wazuh',url:item.url,indexerUrl:item.indexerUrl||'',dashboardUrl:item.wazuhDashboardUrl||'',alertThreshold:wazuhAlertThreshold(wazuhRuntimeItem(item))};
+    recordWazuhHistory(overview);overview.history=wazuhHistory();return overview;
+  })();
+  WAZUH_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});
+  try{const value=await promise;WAZUH_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});return value;}catch(error){WAZUH_OVERVIEW_CACHE.delete(key);throw error;}
+}
+function wazuhPanelNotifications(limit=200) {
+  return jsonRead(WAZUH_PANEL_FILE,[]).slice(0,Math.max(1,Math.min(500,Number(limit||200))));
+}
+function recordWazuhPanelEvent(event={}) {
+  const rows=jsonRead(WAZUH_PANEL_FILE,[]);
+  const row={id:crypto.randomUUID(),at:new Date(event.at||Date.now()).toISOString(),read:false,type:String(event.type||'wazuh.alert'),severity:String(event.severity||'info'),title:String(event.title||'Wazuh'),message:String(event.message||''),target:String(event.target||''),details:Array.isArray(event.details)?event.details.slice(0,20):[],recommendation:String(event.recommendation||''),source:String(event.source||'Wazuh'),technicalDetails:Array.isArray(event.technicalDetails)?event.technicalDetails.slice(0,12):[]};
+  rows.unshift(row);jsonWrite(WAZUH_PANEL_FILE,rows.slice(0,500));return row;
+}
+async function runWazuhBackgroundAlerts(settings=getSettings(),now=Date.now()) {
+  if(DEMO_MODE)return;
+  const integrations=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='wazuh'&&x.enabled!==false);if(!integrations.length)return;
+  const allState=jsonRead(WAZUH_STATE_FILE,{}),interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
+  for(const item of integrations){
+    const previous=allState[item.id]||{};if(now-Number(previous.lastPollAt||0)<interval)continue;
+    let overview;
+    try{overview=await collectWazuh(wazuhRuntimeItem(item),{period:'24h'});overview=applyWazuhTopology(overview);}catch(error){overview={status:'offline',errors:[{component:'collector',message:String(error.message||error)}],agents:[],vulnerabilities:[],alerts:[],summary:{critical:0,high:0,affectedEndpoints:0}};}
+    const evaluated=evaluateWazuhTransitions(previous,overview,{name:item.name||'Wazuh',notifyHigh:item.wazuhNotifyHigh===true,notifyAgentOffline:item.wazuhNotifyAgentOffline!==false,notifyFim:item.wazuhNotifyFim===true});
+    allState[item.id]={...evaluated.state,lastPollAt:now};
+    for(const event of evaluated.events){
+      const panel=recordWazuhPanelEvent(event);
+      await sendAlertChannels(settings,event.title,event.message,{...event,at:panel.at});
+      addAuditSystem('alerts.wazuh',event.target||item.name||'Wazuh',{type:event.type,severity:event.severity,integrationId:item.id,panelNotificationId:panel.id},event.severity==='critical'?'error':event.severity==='warning'?'warning':'ok');
+    }
+    recordWazuhHistory(overview);
+  }
+  jsonWrite(WAZUH_STATE_FILE,allState);
+}
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
+  if (item.type === 'wazuh') {
+    return testWazuhConnection(wazuhRuntimeItem(item));
+  }
+  if (item.type === 'pbs') {
+    return testPbsConnection(pbsRuntimeItem(item));
+  }
   if (item.type === 'portainer') {
     const r=await cachedPortainerOverview(item,true);
     return {
@@ -2855,16 +2988,6 @@ async function testIntegration(item) {
     if (!token?.token) throw new Error('Token NPM non reçu.');
     const hosts = await integrationJson(url, '/api/nginx/proxy-hosts', { headers: { Authorization: `Bearer ${token.token}` }, rejectUnauthorized: !item.allowSelfSigned });
     return { ok: true, detail: `${Array.isArray(hosts) ? hosts.length : 0} proxy host(s)` };
-  }
-  if (item.type === 'pbs') {
-    const username = item.username || '';
-    const password = item.passwordEnc ? decryptText(item.passwordEnc) : '';
-    const login = await rawRequest(url, '/api2/json/access/ticket', { method: 'POST', body: encodeForm({ username, password }), headers: {'Content-Type':'application/x-www-form-urlencoded'}, rejectUnauthorized: !item.allowSelfSigned });
-    const ticket = login.data?.data?.ticket;
-    if (!ticket) throw new Error('Ticket PBS non reçu.');
-    let stores = [];
-    try { stores = await integrationJson(url, '/api2/json/admin/datastore', { headers: { Cookie: `PBSAuthCookie=${encodeURIComponent(ticket)}` }, rejectUnauthorized: !item.allowSelfSigned }); } catch {}
-    return { ok: true, detail: `${Array.isArray(stores) ? stores.length : 0} datastore(s)` };
   }
   throw new Error('Type d’intégration inconnu.');
 }
@@ -2915,6 +3038,8 @@ const DISCORD_EVENT_TYPES = [
   'resources.cpu','resources.memory','temperature.warning','temperature.critical',
   'docker.portainer.unreachable','docker.engine.unreachable','docker.container.stopped','docker.container.unhealthy','docker.container.restarts',
   'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.image.update','docker.image.update.failed','docker.image.redeploy.success','docker.recovered',
+  'wazuh.integration.unreachable','wazuh.integration.recovered','wazuh.agent.disconnected','wazuh.agent.recovered',
+  'wazuh.vulnerability.critical','wazuh.vulnerability.high','wazuh.vulnerability.solved','wazuh.vulnerability.spike','wazuh.alert.important','wazuh.fim.sensitive',
   'system.update.available','pve.update.available','pve.update.security','pve.update.manual-report','system.test'
 ];
 function normalizeDiscordEvents(list) {
@@ -2959,13 +3084,14 @@ function discordEventLabel(type) {
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
     'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.image.update':'Mise à jour image Docker','docker.image.update.failed':'Échec mise à jour Docker','docker.image.redeploy.success':'Redeploy Docker réussi','docker.recovered':'Docker rétabli',
+    'wazuh.integration.unreachable':'Wazuh indisponible','wazuh.integration.recovered':'Wazuh rétabli','wazuh.agent.disconnected':'Agent Wazuh déconnecté','wazuh.agent.recovered':'Agent Wazuh reconnecté','wazuh.vulnerability.critical':'Nouvelle CVE critique','wazuh.vulnerability.high':'Nouvelle CVE élevée','wazuh.vulnerability.solved':'CVE résolue','wazuh.vulnerability.spike':'Hausse des CVE critiques','wazuh.alert.important':'Alerte Wazuh importante','wazuh.fim.sensitive':'Modification sensible détectée',
     'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','auth.2fa.disabled':'Double authentification désactivée','system.test':'Test système'
   };
   return labels[type] || type;
 }
 function severityLabel(severity='info') { return severity==='critical'?'CRITIQUE':severity==='warning'?'AVERTISSEMENT':'INFORMATION'; }
 function eventIcon(event={}) {
-  if(event.type==='backup.success'||event.type==='node.recovered'||event.type==='docker.recovered')return '✅';
+  if(event.type==='backup.success'||event.type==='node.recovered'||event.type==='docker.recovered'||event.type==='wazuh.integration.recovered'||event.type==='wazuh.agent.recovered'||event.type==='wazuh.vulnerability.solved')return '✅';
   if(event.type==='pve.update.security')return '🚨';
   if(event.type==='pve.update.available'||event.type==='pve.update.manual-report'||event.type==='system.update.available')return '⬆️';
   if(event.severity==='critical')return '🚨';
@@ -2999,6 +3125,16 @@ function defaultRecommendation(event={}) {
     'docker.image.update.failed':'Vérifie le registre, les logs Docker/Portainer et l’état de la stack ou du conteneur avant une nouvelle tentative.',
     'docker.image.redeploy.success':'Aucune action requise si la vérification de santé reste correcte.',
     'docker.recovered':'Aucune action requise si la ressource reste stable après récupération.',
+    'wazuh.integration.unreachable':'Vérifie le Wazuh Manager, l’Indexer, les certificats TLS, les identifiants et la connectivité depuis ProxPanel.',
+    'wazuh.integration.recovered':'Aucune action requise si les prochaines collectes Wazuh restent stables.',
+    'wazuh.agent.disconnected':'Vérifie le service Wazuh Agent, le réseau et la connectivité vers le Manager.',
+    'wazuh.agent.recovered':'Aucune action requise si l’agent reste stable.',
+    'wazuh.vulnerability.critical':'Priorise la machine concernée, vérifie la version corrigée quand elle est fournie et planifie la remédiation après validation.',
+    'wazuh.vulnerability.high':'Évalue la CVE, la machine et le paquet concernés puis planifie la remédiation selon l’exposition réelle.',
+    'wazuh.vulnerability.solved':'Confirme la stabilité lors des prochaines collectes et conserve la trace du correctif appliqué.',
+    'wazuh.vulnerability.spike':'Analyse les nouvelles CVE critiques et vérifie si une mise à jour de l’inventaire ou des flux explique la hausse.',
+    'wazuh.alert.important':'Ouvre Wazuh pour l’investigation détaillée et vérifie la machine concernée avant toute action.',
+    'wazuh.fim.sensitive':'Vérifie si la modification était attendue et ouvre Wazuh pour consulter les détails FIM complets.',
     'temperature.warning':'Surveille la charge et le refroidissement du nœud. Vérifie les ventilateurs et le flux d’air si la température continue de monter.',
     'temperature.critical':'Vérifie immédiatement le refroidissement, les ventilateurs, les dissipateurs et la charge du nœud.',
     'auth.2fa.email':'Si tu n’es pas à l’origine de cette demande, change ton mot de passe ProxPanel et contrôle les sessions actives.',
@@ -3092,6 +3228,7 @@ function redactDiagnosticText(value='') {
 function defaultMailTechnicalSource(event={}) {
   const type=String(event.type||'');
   if(type.startsWith('docker.'))return 'Docker / Portainer API';
+  if(type.startsWith('wazuh.'))return 'Wazuh Server / Indexer API';
   if(type.startsWith('pve.update.'))return 'APT / Proxmox API';
   if(type.startsWith('backup.')||type==='task.failed'||type==='task.warning'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
   if(type==='system.update.available')return 'ProxPanel OTA';
@@ -3141,7 +3278,7 @@ async function dockerIncidentLogExcerpt(row={}) {
 function professionalMailSubject(subject,event={}) {
   const clean=String(subject||'Notification').replace(/^ProxPanel\s*[·-]\s*/,'');
   const sev=severityLabel(event.severity||'info');
-  return `[ProxPanel] ${sev} · ${clean}`;
+  return String(event.type||'').startsWith('wazuh.') ? `[ProxPanel][Wazuh] ${sev} · ${clean}` : `[ProxPanel] ${sev} · ${clean}`;
 }
 function mailBrandLogoAttachment() {
   try {
@@ -3152,7 +3289,7 @@ function mailBrandLogoAttachment() {
 }
 function mailStatusTheme(event={}) {
   const type=String(event.type||'system.test'),severity=String(event.severity||'info');
-  if(type==='backup.success'||type==='node.recovered'||type==='docker.recovered')return {accent:'#16d49a',soft:'#eafbf5',text:'#08745a',icon:'✓'};
+  if(type==='backup.success'||type==='node.recovered'||type==='docker.recovered'||type==='wazuh.integration.recovered'||type==='wazuh.agent.recovered'||type==='wazuh.vulnerability.solved')return {accent:'#16d49a',soft:'#eafbf5',text:'#08745a',icon:'✓'};
   if(severity==='critical'||type==='pve.update.security'||type==='temperature.critical')return {accent:'#ef4444',soft:'#fff0f0',text:'#b42318',icon:'!'};
   if(severity==='warning'||type==='temperature.warning')return {accent:'#f0a429',soft:'#fff7e7',text:'#9a6700',icon:'!'};
   return {accent:'#ff7a00',soft:'#fff4e8',text:'#a84700',icon:'i'};
@@ -3218,6 +3355,15 @@ const MAIL_TEST_TEMPLATES = [
   {type:'pve.update.available',group:'Mises à jour',label:'Mises à jour Proxmox',severity:'info',description:'Des mises à jour de paquets PVE sont disponibles.'},
   {type:'pve.update.security',group:'Mises à jour',label:'Correctifs de sécurité PVE',severity:'critical',description:'Des mises à jour de sécurité Proxmox sont disponibles.'},
   {type:'pve.update.manual-report',group:'Mises à jour',label:'Rapport PVE manuel',severity:'info',description:'Rapport manuel de l’état des mises à jour PVE.'},
+  {type:'wazuh.integration.unreachable',group:'Wazuh',label:'Wazuh indisponible',severity:'critical',description:'Le Server API ou l’Indexer Wazuh ne répond plus après confirmation.'},
+  {type:'wazuh.integration.recovered',group:'Wazuh',label:'Wazuh rétabli',severity:'info',description:'Le Manager et l’Indexer répondent de nouveau.'},
+  {type:'wazuh.agent.disconnected',group:'Wazuh',label:'Agent Wazuh déconnecté',severity:'warning',description:'Un agent Wazuh ne communique plus après deux contrôles.'},
+  {type:'wazuh.agent.recovered',group:'Wazuh',label:'Agent Wazuh reconnecté',severity:'info',description:'Un agent Wazuh communique de nouveau.'},
+  {type:'wazuh.vulnerability.critical',group:'Wazuh',label:'Nouvelle CVE critique',severity:'critical',description:'Nouvelle vulnérabilité critique active détectée par Wazuh.'},
+  {type:'wazuh.vulnerability.high',group:'Wazuh',label:'Nouvelle CVE élevée',severity:'warning',description:'Nouvelle vulnérabilité High active détectée par Wazuh.'},
+  {type:'wazuh.vulnerability.solved',group:'Wazuh',label:'CVE résolue',severity:'info',description:'Une vulnérabilité critique n’est plus active.'},
+  {type:'wazuh.alert.important',group:'Wazuh',label:'Alerte Wazuh importante',severity:'warning',description:'Règle Wazuh prioritaire avec contexte endpoint et MITRE.'},
+  {type:'wazuh.fim.sensitive',group:'Wazuh',label:'Modification FIM sensible',severity:'warning',description:'Modification d’un chemin sensible surveillé par Wazuh FIM.'},
   {type:'auth.2fa.email',group:'Sécurité',label:'Code de secours 2FA',severity:'warning',description:'E-mail de secours envoyé lors d’une connexion 2FA.'}
 ];
 function publicMailTemplateCatalog(){return MAIL_TEST_TEMPLATES.map(x=>({...x}));}
@@ -3258,6 +3404,15 @@ function mailTestScenario(type,username='admin'){
     'pve.update.available':{subject:'Mises à jour Proxmox disponibles',text:'Des paquets peuvent être mis à jour sur le nœud PVE-PROD01.',event:{...base,target:'PVE-PROD01',details:['Paquets : 14','Sécurité : 0','Redémarrage : non détecté']}},
     'pve.update.security':{subject:'Correctifs de sécurité Proxmox disponibles',text:'Des mises à jour de sécurité sont disponibles sur le nœud PVE-PROD01.',event:{...base,target:'PVE-PROD01',details:['Paquets : 6','Correctifs sécurité : 3','Maintenance recommandée : oui']}},
     'pve.update.manual-report':{subject:'Rapport des mises à jour Proxmox',text:'Le contrôle manuel des mises à jour Proxmox est terminé.',event:{...base,target:'Infrastructure',details:['Nœuds contrôlés : 9','Nœuds à jour : 7','Nœuds avec mises à jour : 2']}},
+    'wazuh.integration.unreachable':{subject:'Wazuh indisponible',text:'ProxPanel ne parvient plus à collecter complètement les données Wazuh après deux contrôles consécutifs.',event:{...base,serverName:'Wazuh',target:'Wazuh PROD',source:'Wazuh Server / Indexer API',details:['Server API : inaccessible','Indexer : inaccessible','Contrôles consécutifs : 2'],technicalDetails:[{label:'Server API',value:'https://wazuh-manager.example:55000'},{label:'Indexer',value:'https://wazuh-indexer.example:9200'}]}},
+    'wazuh.integration.recovered':{subject:'Wazuh de nouveau opérationnel',text:'Le Wazuh Manager et l’Indexer répondent de nouveau correctement.',event:{...base,severity:'info',serverName:'Wazuh',target:'Wazuh PROD',source:'Wazuh Server / Indexer API',details:['Server API : OK','Indexer : green']}},
+    'wazuh.agent.disconnected':{subject:'Agent Wazuh déconnecté',text:'ITL-AD01 ne communique plus avec Wazuh après deux contrôles consécutifs.',event:{...base,severity:'warning',serverName:'Wazuh',target:'ITL-AD01',source:'Wazuh Server API',details:['Agent ID : 004','IP : 10.10.0.11','Dernier contact : il y a 1 h 42','VMID Proxmox : 100','Nœud : PVE-PROD01'],technicalDetails:[{label:'Agent Wazuh',value:'004'},{label:'État',value:'disconnected'}]}},
+    'wazuh.agent.recovered':{subject:'Agent Wazuh reconnecté',text:'ITL-AD01 communique de nouveau avec Wazuh.',event:{...base,severity:'info',serverName:'Wazuh',target:'ITL-AD01',source:'Wazuh Server API',details:['Agent ID : 004','État : active','VMID Proxmox : 100']}},
+    'wazuh.vulnerability.critical':{subject:'Nouvelle vulnérabilité critique · CVE-2026-DEMO-0001',text:'ITL-DCK-PROD01 est concerné par une vulnérabilité critique détectée par Wazuh.',event:{...base,severity:'critical',serverName:'Wazuh',target:'ITL-DCK-PROD01',source:'Wazuh Vulnerability Detection / Indexer',details:['CVE : CVE-2026-DEMO-0001','CVSS : 9.8','Machine : ITL-DCK-PROD01','Agent Wazuh : 002','OS : Debian GNU/Linux 13','Paquet / logiciel : libssl3','Version installée : 3.0.11-1','Version corrigée : 3.0.14-1','VMID Proxmox : 140','Nœud Proxmox : PVE-PROD01'],technicalDetails:[{label:'CVE',value:'CVE-2026-DEMO-0001'},{label:'CVSS',value:'9.8'},{label:'Paquet',value:'libssl3'},{label:'Version installée',value:'3.0.11-1'},{label:'Version corrigée',value:'3.0.14-1'}]}},
+    'wazuh.vulnerability.high':{subject:'Nouvelle vulnérabilité élevée · CVE-2026-DEMO-0002',text:'ITL-DCK-PROD01 est concerné par une vulnérabilité High détectée par Wazuh.',event:{...base,severity:'warning',serverName:'Wazuh',target:'ITL-DCK-PROD01',source:'Wazuh Vulnerability Detection / Indexer',details:['CVE : CVE-2026-DEMO-0002','CVSS : 8.1','Paquet / logiciel : openssh-server','Version installée : 9.2p1','Version corrigée : non fournie par Wazuh'],technicalDetails:[{label:'CVE',value:'CVE-2026-DEMO-0002'},{label:'Agent Wazuh',value:'002'}]}},
+    'wazuh.vulnerability.solved':{subject:'Vulnérabilité critique résolue',text:'CVE-2026-DEMO-0001 n’est plus active sur ITL-DCK-PROD01 dans la dernière collecte Wazuh.',event:{...base,severity:'info',serverName:'Wazuh',target:'ITL-DCK-PROD01',source:'Wazuh Vulnerability Detection / Indexer',details:['CVE : CVE-2026-DEMO-0001','Paquet : libssl3','État : résolu']}},
+    'wazuh.alert.important':{subject:'Alerte Wazuh niveau 14',text:'Multiple authentication failures détectées sur ITL-DCK-PROD01.',event:{...base,severity:'warning',serverName:'Wazuh',target:'ITL-DCK-PROD01',source:'Wazuh Alerts / Indexer',details:['Règle : 5712','Niveau : 14','Agent : 002','MITRE tactique : Credential Access','MITRE technique : Brute Force','VMID Proxmox : 140'],technicalDetails:[{label:'Rule ID',value:'5712'},{label:'Rule level',value:'14'},{label:'MITRE',value:'T1110'}]}},
+    'wazuh.fim.sensitive':{subject:'Modification FIM sensible',text:'Un fichier sensible surveillé par Wazuh a été modifié sur ITL-DCK-PROD01.',event:{...base,severity:'warning',serverName:'Wazuh',target:'ITL-DCK-PROD01',source:'Wazuh FIM / Indexer',details:['Chemin : /etc/ssh/sshd_config','Action : modified','Règle : 550','Niveau : 10','Agent : 002','VMID Proxmox : 140'],technicalDetails:[{label:'SHA-256 avant',value:'demo-before'},{label:'SHA-256 après',value:'demo-after'}]}},
     'auth.2fa.email':{subject:'Code de secours ProxPanel',text:'Code de connexion : 482193\n\nCeci est un e-mail de test : le code affiché est volontairement fictif.',event:{...base,serverName:'ProxPanel',target:'Compte administrateur',details:['Validité réelle : 10 minutes','Usage unique','Ce message de test ne crée aucun code actif']}}
   };
   return samples[row.type];
@@ -4976,31 +5131,106 @@ async function handleApi(req, res, url) {
   if(url.pathname==='/api/integrations'&&req.method==='GET')return sendJson(res,200,jsonRead(INTEGRATIONS_FILE,[]).map(redactIntegration));
   if(url.pathname==='/api/integrations'&&req.method==='POST'){
     const body=await readBody(req),type=String(body.type||'').toLowerCase();
-    if(!['pbs','uptimekuma','portainer','npm','grafana'].includes(type))return sendJson(res,400,{error:'Type d’intégration invalide.'});
+    if(!['pbs','uptimekuma','portainer','npm','grafana','wazuh'].includes(type))return sendJson(res,400,{error:'Type d’intégration invalide.'});
     let cleanUrl;try{cleanUrl=validateIntegrationUrl(body.url);}catch(e){return sendJson(res,400,{error:e.message});}
     if(type==='portainer'&&!String(body.apiKey||body.token||'').trim())return sendJson(res,400,{error:'Une API Key Portainer est requise.'});
+    if(type==='pbs'){
+      const mode=String(body.pbsAuthMode||'password');
+      if(!['password','token'].includes(mode))return sendJson(res,400,{error:'Mode d’authentification PBS invalide.'});
+      if(mode==='password'&&(!String(body.username||'').trim()||!String(body.password||'').trim()))return sendJson(res,400,{error:'Utilisateur et mot de passe PBS requis.'});
+      if(mode==='token'&&(!String(body.pbsTokenId||'').trim()||!String(body.pbsTokenSecret||'').trim()))return sendJson(res,400,{error:'Token ID et secret PBS requis.'});
+    }
+    if(type==='wazuh'&&(!String(body.username||'').trim()||!String(body.password||'').trim()))return sendJson(res,400,{error:'Utilisateur et mot de passe Wazuh Server API requis.'});
+    let indexerUrl='';
+    if(type==='wazuh'){
+      try{indexerUrl=validateIntegrationUrl(body.indexerUrl);}catch(e){return sendJson(res,400,{error:`Indexer Wazuh : ${e.message}`});}
+      if(!String(body.indexerUsername||'').trim()||!String(body.indexerPassword||'').trim())return sendJson(res,400,{error:'Utilisateur et mot de passe Wazuh Indexer requis.'});
+    }
     const row={
       id:crypto.randomUUID(),type,name:String(body.name||type).trim()||type,url:cleanUrl,
       username:String(body.username||''),statusPageSlug:String(body.statusPageSlug||''),
       allowSelfSigned:!!body.allowSelfSigned,enabled:body.enabled!==false,createdAt:new Date().toISOString(),
       lastStatus:'pending',lastTestAt:'',lastError:''
     };
+    if(type==='pbs'){
+      row.pbsAuthMode=String(body.pbsAuthMode||'password');row.pbsTokenId=String(body.pbsTokenId||'').trim();
+      if(body.pbsTokenSecret)row.pbsTokenSecretEnc=encryptText(String(body.pbsTokenSecret));
+    }
+    if(type==='wazuh'){
+      row.indexerUrl=indexerUrl;row.indexerUsername=String(body.indexerUsername||'').trim();
+      row.wazuhDashboardUrl=String(body.wazuhDashboardUrl||'').trim().replace(/\/$/,'');
+      row.wazuhAlertLevel=Math.max(1,Math.min(16,Number(body.wazuhAlertLevel||12)));
+      row.wazuhNotifyHigh=body.wazuhNotifyHigh===true;row.wazuhNotifyAgentOffline=body.wazuhNotifyAgentOffline!==false;row.wazuhNotifyFim=body.wazuhNotifyFim===true;
+      row.indexerPasswordEnc=encryptText(String(body.indexerPassword));
+    }
     if(body.password)row.passwordEnc=encryptText(String(body.password));
     if(body.apiKey)row.apiKeyEnc=encryptText(String(body.apiKey));
     if(body.token)row.tokenEnc=encryptText(String(body.token));
     try{
-      if(type==='portainer'){
+      if(type==='portainer'||type==='wazuh'||type==='pbs'){
         const test=await testIntegration(row);
-        row.lastStatus='ok';row.lastTestAt=new Date().toISOString();row.lastError='';
-        row.portainerVersion=String(test.version||'');row.portainerEdition=String(test.edition||'');
-        row.environmentCount=Number(test.environmentCount||0);row.supportedDockerCount=Number(test.supportedDockerCount||0);
+        row.lastStatus=test.degraded?'degraded':'ok';row.lastTestAt=new Date().toISOString();row.lastError=test.degraded?String(test.detail||'Wazuh partiellement joignable'):'';
+        if(type==='portainer'){
+          row.portainerVersion=String(test.version||'');row.portainerEdition=String(test.edition||'');
+          row.environmentCount=Number(test.environmentCount||0);row.supportedDockerCount=Number(test.supportedDockerCount||0);
+        }else if(type==='wazuh'){
+          row.wazuhManagerVersion=String(test.managerVersion||'');row.wazuhIndexerStatus=String(test.indexerStatus||'');row.wazuhAgentCount=Number(test.agents||0);
+        }else{
+          row.pbsVersion=String(test.version||'');row.pbsDatastoreCount=Number(test.datastores||0);
+        }
       }
     }catch(error){
-      return sendJson(res,502,{error:`Connexion Portainer impossible : ${error.message}`});
+      return sendJson(res,502,{error:`Connexion ${type==='wazuh'?'Wazuh':type==='pbs'?'PBS':'Portainer'} impossible : ${error.message}`});
     }
     const all=jsonRead(INTEGRATIONS_FILE,[]);all.push(row);jsonWrite(INTEGRATIONS_FILE,all);
     audit(req,'integration.add',row.name,{type,url:row.url,environmentCount:row.environmentCount||0});
     return sendJson(res,201,redactIntegration(row));
+  }
+  // ----- Proxmox Backup Server -----
+  if(url.pathname==='/api/pbs/overview'&&req.method==='GET'){
+    try{return sendJson(res,200,await pbsOverviewData(url.searchParams.get('force')==='1'))}catch(e){return sendJson(res,502,{error:e.message})}
+  }
+  const pbsAction=url.pathname.match(/^\/api\/pbs\/actions\/(verify|prune|sync|gc)$/);
+  if(pbsAction&&req.method==='POST'){
+    const body=await readBody(req);if(body.confirm!==true)return sendJson(res,400,{error:'Confirmation explicite requise.'});
+    const item=findPbsIntegration(String(body.integrationId||''));if(!item&&!DEMO_MODE)return sendJson(res,404,{error:'Intégration PBS introuvable.'});
+    if(DEMO_MODE)return sendJson(res,200,{ok:true,kind:pbsAction[1],id:String(body.id||''),store:String(body.store||''),upid:'UPID:demo:pbs-action'});
+    try{const result=await runPbsAction(pbsRuntimeItem(item),{kind:pbsAction[1],id:String(body.id||''),store:String(body.store||'')});PBS_OVERVIEW_CACHE.clear();audit(req,`pbs.${pbsAction[1]}`,String(body.id||body.store||'PBS'),{integrationId:item.id,upid:result.upid,path:result.path});return sendJson(res,200,result)}catch(e){audit(req,`pbs.${pbsAction[1]}`,String(body.id||body.store||'PBS'),{error:e.message},'error');return sendJson(res,502,{error:e.message})}
+  }
+  // ----- Wazuh Security Essentials -----
+  if(url.pathname==='/api/wazuh/overview'&&req.method==='GET'){
+    try{return sendJson(res,200,await wazuhOverviewData({period:url.searchParams.get('period')||'24h',force:url.searchParams.get('force')==='1'}));}
+    catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  if(url.pathname==='/api/wazuh/panel-notifications'&&req.method==='GET'){
+    return sendJson(res,200,{notifications:wazuhPanelNotifications(Number(url.searchParams.get('limit')||200))});
+  }
+  if(url.pathname==='/api/wazuh/panel-notifications/read'&&req.method==='POST'){
+    const body=await readBody(req),ids=new Set((Array.isArray(body.ids)?body.ids:[]).map(String));
+    const rows=jsonRead(WAZUH_PANEL_FILE,[]).map(x=>ids.size&&!ids.has(String(x.id))?x:{...x,read:true});jsonWrite(WAZUH_PANEL_FILE,rows);
+    return sendJson(res,200,{ok:true});
+  }
+  if(url.pathname==='/api/wazuh/topology-mappings'&&req.method==='GET'){
+    return sendJson(res,200,{mappings:wazuhTopologyMappings()});
+  }
+  if(url.pathname==='/api/wazuh/topology-mappings'&&req.method==='PUT'){
+    const body=await readBody(req),agentId=String(body.agentId||'').trim();if(!agentId)return sendJson(res,400,{error:'Agent Wazuh requis.'});
+    const mappings=wazuhTopologyMappings();
+    if(body.clear===true||body.mapping===null)delete mappings[agentId];
+    else{
+      const m=body.mapping||{},type=String(m.type||'');if(!['qemu','lxc'].includes(type)||!Number.isInteger(Number(m.vmid)))return sendJson(res,400,{error:'Mapping VM/LXC invalide.'});
+      mappings[agentId]={serverId:String(m.serverId||''),type,vmid:Number(m.vmid),node:String(m.node||''),name:String(m.name||''),source:'manual',updatedAt:new Date().toISOString()};
+    }
+    jsonWrite(WAZUH_TOPOLOGY_FILE,mappings);WAZUH_OVERVIEW_CACHE.clear();audit(req,'wazuh.topology.map',agentId,{mapping:mappings[agentId]||null});
+    return sendJson(res,200,{mappings});
+  }
+  if(url.pathname==='/api/wazuh/test-notification'&&req.method==='POST'){
+    try{
+      const overview=await wazuhOverviewData({period:'24h',force:true}),v=overview.vulnerabilities?.find(x=>x.severity==='critical')||overview.vulnerabilities?.[0];
+      const event=v?{type:'wazuh.vulnerability.critical',severity:'critical',title:`Test Wazuh · ${v.id||'CVE critique'}`,message:`Notification de sécurité Wazuh de test pour ${v.agentName||'endpoint de démonstration'}.`,target:v.agentName||v.agentId||'Wazuh',source:'Wazuh Vulnerability Detection / Indexer',details:[v.id?`CVE: ${v.id}`:'',v.score!=null?`CVSS: ${v.score}`:'',v.packageName?`Paquet / logiciel: ${v.packageName}`:'',v.packageVersion?`Version installée: ${v.packageVersion}`:'',v.fixedVersion?`Version corrigée: ${v.fixedVersion}`:''].filter(Boolean),technicalDetails:[{label:'Mode',value:'Test manuel depuis ProxPanel'},{label:'Agent Wazuh',value:String(v.agentId||'—')}],recommendation:'Ceci est un test. Aucune action de remédiation n’est requise.'}:{type:'wazuh.alert.important',severity:'warning',title:'Test Wazuh',message:'Notification Wazuh de test envoyée depuis ProxPanel.',target:'Wazuh',source:'ProxPanel Wazuh Security',details:['Aucune vulnérabilité critique disponible : modèle générique utilisé.'],recommendation:'Ceci est un test. Aucune action requise.'};
+      const panel=recordWazuhPanelEvent(event);await sendAlertChannels(getSettings(),event.title,event.message,{...event,at:panel.at});audit(req,'wazuh.notification.test',event.target,{type:event.type,panelNotificationId:panel.id});
+      return sendJson(res,200,{ok:true,event,panelNotificationId:panel.id});
+    }catch(e){return sendJson(res,502,{error:e.message});}
   }
   if(url.pathname==='/api/docker/dashboard'&&req.method==='GET'){
     try{return sendJson(res,200,await dockerDashboardData(url.searchParams.get('force')==='1'));}
@@ -5209,7 +5439,7 @@ async function handleApi(req, res, url) {
   if(integrationMatch&&req.method==='DELETE'&&!integrationMatch[2]){
     const all=jsonRead(INTEGRATIONS_FILE,[]),row=all.find(x=>x.id===integrationMatch[1]);
     if(!row)return sendJson(res,404,{error:'Intégration introuvable.'});
-    jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));PORTAINER_OVERVIEW_CACHE.delete(String(row.id));
+    jsonWrite(INTEGRATIONS_FILE,all.filter(x=>x.id!==row.id));PORTAINER_OVERVIEW_CACHE.delete(String(row.id));WAZUH_OVERVIEW_CACHE.clear();PBS_OVERVIEW_CACHE.clear();
     audit(req,'integration.delete',row.name,{type:row.type});return sendJson(res,200,{ok:true});
   }
   if(integrationMatch&&req.method==='POST'&&integrationMatch[2]==='test'){
@@ -5221,6 +5451,14 @@ async function handleApi(req, res, url) {
       if(row.type==='portainer'){
         row.portainerVersion=String(result.version||'');row.portainerEdition=String(result.edition||'');
         row.environmentCount=Number(result.environmentCount||0);row.supportedDockerCount=Number(result.supportedDockerCount||0);
+      }
+      if(row.type==='pbs'){
+        row.lastStatus='ok';row.lastError='';row.pbsVersion=String(result.version||'');row.pbsDatastoreCount=Number(result.datastores||0);PBS_OVERVIEW_CACHE.clear();
+      }
+      if(row.type==='wazuh'){
+        row.lastStatus=result.degraded?'degraded':'ok';row.lastError=result.degraded?String(result.detail||'Wazuh partiellement joignable'):'';
+        row.wazuhManagerVersion=String(result.managerVersion||'');row.wazuhIndexerStatus=String(result.indexerStatus||'');row.wazuhAgentCount=Number(result.agents||0);
+        WAZUH_OVERVIEW_CACHE.clear();
       }
       jsonWrite(INTEGRATIONS_FILE,all);audit(req,'integration.test',row.name,{...result,containers:undefined});
       return sendJson(res,200,result);
@@ -5269,6 +5507,7 @@ async function runBackgroundAlerts() {
   if(settings.alerts?.enabled===false)return;
   const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
   try{await runDockerBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.docker.poll','Docker',{error:e.message},'error');}
+  try{await runWazuhBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.wazuh.poll','Wazuh',{error:e.message},'error');}
   const alertState=jsonRead(ALERT_STATE_FILE,{}); let changed=false;
   for(const server of jsonRead(SERVERS_FILE,[])) {
     if(!(server.passwordEnc||server.apiTokenSecretEnc))continue;

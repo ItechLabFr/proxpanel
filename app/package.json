@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.2-beta.5.1",
+  "version": "1.7.2-beta.6",
   "private": true,
-  "description": "ProxPanel 1.7.2-beta.5.1 - 2FA Strong Re-authentication Security Hotfix.",
+  "description": "ProxPanel 1.7.2-beta.6 - PBS + Wazuh Security Essentials.",
   "scripts": {
     "start": "node server.js"
   },
