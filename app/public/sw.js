@@ -1,4 +1,4 @@
-const CACHE='proxpanel-v1.7.2-beta.5.1';
+const CACHE='proxpanel-v1.7.2-beta.6-wazuh';
 const CORE=[
   '/',
   '/index.html',
@@ -6,6 +6,8 @@ const CORE=[
   '/auth-v15.css?v=1.7.2-beta.5.1',
   '/auth-v15.js?v=1.7.2-beta.5.1',
   '/app.js?v=1.7.2-beta.5.1',
+  '/wazuh-ui.js?v=1.7.2-beta.6',
+  '/wazuh.css?v=1.7.2-beta.6',
   '/manifest.webmanifest',
   '/proxpanel-logo-192.png',
   '/proxpanel-logo-256.png',
@@ -70,7 +72,7 @@ self.addEventListener('fetch',event=>{
     return;
   }
 
-  const criticalAsset=['/styles.css','/auth-v15.css','/auth-v15.js','/app.js','/sw.js','/manifest.webmanifest'].includes(url.pathname);
+  const criticalAsset=['/styles.css','/auth-v15.css','/auth-v15.js','/app.js','/wazuh-ui.js','/wazuh.css','/sw.js','/manifest.webmanifest'].includes(url.pathname);
   if(criticalAsset){
     event.respondWith((async()=>{
       const response=await networkFirst(request,request);
