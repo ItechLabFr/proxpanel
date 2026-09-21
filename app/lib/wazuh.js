@@ -103,17 +103,43 @@ function normalizeSecurityAlertHit(hit={}) {
     destination:String(firstValue(src,['data.dstip','destination.ip'],'')||'')
   };
 }
+function normalizeFimHit(hit={}) {
+  const src=hit._source||hit,rule=src.rule||{},agent=src.agent||{},syscheck=src.syscheck||{},host=src.host||{};
+  return {
+    key:String(hit._id||`${src.timestamp||src['@timestamp']||''}:${agent.id||agent.name||''}:${syscheck.path||''}`),
+    timestamp:String(src.timestamp||src['@timestamp']||''),
+    agentId:String(agent.id||''),agentName:String(agent.name||host.hostname||''),agentIp:String(agent.ip||host.ip||''),
+    path:String(syscheck.path||src.path||''),event:String(syscheck.event||syscheck.event_type||src.event?.action||'modified'),
+    ruleId:String(rule.id||''),level:Number(rule.level||0),description:String(rule.description||''),
+    user:String(syscheck.uname_after||syscheck.user_name||''),group:String(syscheck.gname_after||''),
+    sha256Before:String(syscheck.sha256_before||''),sha256After:String(syscheck.sha256_after||'')
+  };
+}
+function securityCategorySummary(alerts=[],fim=[]) {
+  const out={bruteForce:0,authentication:0,malware:0,privilegeEscalation:0,integrity:0};
+  for(const a of alerts||[]){
+    const text=[a.description,...(a.groups||[]),...(a.mitreTactics||[]),...(a.mitreTechniques||[])].join(' ').toLowerCase();
+    if(/brute.?force|t1110/.test(text))out.bruteForce++;
+    if(/auth|login|logon|credential/.test(text))out.authentication++;
+    if(/malware|virus|trojan|rootkit|ransom/.test(text))out.malware++;
+    if(/privilege escalation|elevation|t1068/.test(text))out.privilegeEscalation++;
+    if(/syscheck|integrity|file change|fim/.test(text))out.integrity++;
+  }
+  out.integrity+=Array.isArray(fim)?fim.length:0;
+  return out;
+}
 function vulnerabilityKey(v={}) {
   return `${v.agentId||v.agentName||'agent'}|${v.id||'cve'}|${v.packageName||'package'}|${v.packageVersion||''}`;
 }
 function endpointKey(name,id='') {
   return String(id||name||'unknown');
 }
-function buildWazuhOverview({manager={},indexerHealth={},agents=[],vulnerabilities=[],alerts=[],errors=[],period='24h',generatedAt=new Date().toISOString()}={}) {
+function buildWazuhOverview({manager={},indexerHealth={},agents=[],vulnerabilities=[],alerts=[],fim=[],errors=[],period='24h',generatedAt=new Date().toISOString()}={}) {
   const normalizedAgents=(agents||[]).map(normalizeAgent);
   const normalizedVulnerabilities=(vulnerabilities||[]).map(normalizeVulnerabilityHit);
   const activeVulnerabilities=normalizedVulnerabilities.filter(v=>v.active);
   const normalizedAlerts=(alerts||[]).map(normalizeSecurityAlertHit).sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
+  const normalizedFim=(fim||[]).map(normalizeFimHit).sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
   const critical=activeVulnerabilities.filter(v=>v.severity==='critical');
   const high=activeVulnerabilities.filter(v=>v.severity==='high');
   const agentStatus={total:normalizedAgents.length,active:0,disconnected:0,neverConnected:0,other:0};
@@ -177,6 +203,8 @@ function buildWazuhOverview({manager={},indexerHealth={},agents=[],vulnerabiliti
       return rank(a.severity)-rank(b.severity)||(Number(b.score||0)-Number(a.score||0))||String(a.id).localeCompare(String(b.id));
     }),
     alerts:normalizedAlerts,
+    fim:normalizedFim,
+    categories:securityCategorySummary(normalizedAlerts,normalizedFim),
     byEndpoint,
     bySoftware
   };
@@ -200,13 +228,19 @@ function demoWazuhOverview(period='24h') {
     {_id:'demo-a1',_source:{timestamp:iso(18*60*1000),agent:{id:'002',name:'ITL-DCK-PROD01'},rule:{id:'5712',level:14,description:'Multiple authentication failures',groups:['authentication_failed'],mitre:{id:['T1110'],tactic:['Credential Access'],technique:['Brute Force']}}}},
     {_id:'demo-a2',_source:{timestamp:iso(44*60*1000),agent:{id:'001',name:'DC01'},rule:{id:'60122',level:12,description:'Suspicious privilege-related activity',groups:['windows','security'],mitre:{id:['T1068'],tactic:['Privilege Escalation'],technique:['Exploitation for Privilege Escalation']}}}}
   ];
-  return buildWazuhOverview({manager:{version:'4.14.7',name:'wazuh-manager-demo'},indexerHealth:{status:'green'},agents,vulnerabilities,alerts,period});
+  const fim=[
+    {_id:'demo-f1',_source:{timestamp:iso(32*60*1000),agent:{id:'002',name:'ITL-DCK-PROD01'},rule:{id:'550',level:10,description:'Integrity checksum changed',groups:['syscheck']},syscheck:{path:'/etc/ssh/sshd_config',event:'modified',sha256_before:'demo-before',sha256_after:'demo-after'}}},
+    {_id:'demo-f2',_source:{timestamp:iso(95*60*1000),agent:{id:'003',name:'PVE-DEMO-01'},rule:{id:'554',level:9,description:'File added to monitored directory',groups:['syscheck']},syscheck:{path:'/etc/sudoers.d/demo-admin',event:'added'}}}
+  ];
+  return buildWazuhOverview({manager:{version:'4.14.7',name:'wazuh-manager-demo'},indexerHealth:{status:'green'},agents,vulnerabilities,alerts,fim,period});
 }
 
 module.exports={
   normalizeAgent,
   normalizeVulnerabilityHit,
   normalizeSecurityAlertHit,
+  normalizeFimHit,
+  securityCategorySummary,
   vulnerabilityKey,
   buildWazuhOverview,
   demoWazuhOverview
