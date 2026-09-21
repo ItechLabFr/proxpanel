@@ -2,7 +2,7 @@
 
 const state = {
   status:null,user:null,me:null,users:[],settings:null,servers:[],selectedServer:null,dashboard:null,dashboardError:null,latencyMs:null,loading:false,
-  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],wazuhOverview:null,wazuhPeriod:localStorage.getItem('proxpanel.wazuhPeriod')||'24h',wazuhSeverity:'all',wazuhQuery:'',wazuhPanelNotifications:[],wazuhError:null,dockerOverview:null,dockerDashboard:null,dockerHistory:null,dockerHistoryRange:localStorage.getItem('proxpanel.dockerHistoryRange')||'day',dockerHistoryScope:localStorage.getItem('proxpanel.dockerHistoryScope')||'all',dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerImages:null,dockerUpdateHistory:[],dockerUpdateStatus:null,dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
+  currentPage:'overview',editDashboard:false,updates:null,remoteUpdate:null,otaLatest:null,pveUpdates:null,integrations:[],pbsOverview:null,pbsError:null,wazuhOverview:null,wazuhPeriod:localStorage.getItem('proxpanel.wazuhPeriod')||'24h',wazuhSeverity:'all',wazuhQuery:'',wazuhPanelNotifications:[],wazuhError:null,dockerOverview:null,dockerDashboard:null,dockerHistory:null,dockerHistoryRange:localStorage.getItem('proxpanel.dockerHistoryRange')||'day',dockerHistoryScope:localStorage.getItem('proxpanel.dockerHistoryScope')||'all',dockerTopology:{},dockerAlerts:[],dockerAlertsCheckedAt:'',dockerError:null,dockerEnvironment:null,dockerContainers:[],dockerStacks:[],dockerImages:null,dockerUpdateHistory:[],dockerUpdateStatus:null,dockerTab:'containers',dockerLoading:false,changes:[],audit:[],automations:[],automationRuns:[],restoreTests:[],groups:[],dashboardGroups:[],dashboardGroupCandidates:[],dashboardView:localStorage.getItem('proxpanel.dashboardView')||'',dependencies:null,pveSession:null,
   tasks:[],rrd:null,monitor:{scope:'node',timeframe:'day',cf:'AVERAGE',node:'',type:'qemu',vmid:'',storage:''},
   dashboardTimeframe:'day',dashboardLiveSeconds:10,liveUpdatedAt:null,dashboardLiveTimer:null,
   firewallRules:[],firewall:{scope:'cluster',node:'',type:'qemu',vmid:''},appliances:[],applianceNode:'',maintenancePlan:null,maintenanceUpdates:null,
@@ -40,8 +40,8 @@ function tempUnavailableMarkup(n,{compact=false}={}){
 }
 
 const I18N={
-  fr:{overview:'Vue d’ensemble',machines:'Machines',nodes:'Nœuds',monitoring:'Monitoring',storage:'Stockage',docker:'Docker',wazuh:'Wazuh',backups:'Sauvegardes',tasks:'Tâches',create:'Créer',templates:'Templates',firewall:'Pare-feu',problems:'Problèmes',dependencies:'Dépendances',changes:'Changements',maintenance:'Maintenance',pveupdates:'Mises à jour PVE',automations:'Automatisations',energy:'Énergie',integrations:'Intégrations',audit:'Audit',notifications:'Notifications',users:'Utilisateurs',admin:'Administration',connected:'Connecté',refresh:'Actualiser'},
-  en:{overview:'Overview',machines:'Machines',nodes:'Nodes',monitoring:'Monitoring',storage:'Storage',docker:'Docker',wazuh:'Wazuh',backups:'Backups',tasks:'Tasks',create:'Create',templates:'Templates',firewall:'Firewall',problems:'Problems',dependencies:'Dependencies',changes:'Changes',maintenance:'Maintenance',pveupdates:'PVE updates',automations:'Automations',energy:'Energy',integrations:'Integrations',audit:'Audit log',notifications:'Notifications',users:'Users',admin:'Administration',connected:'Connected',refresh:'Refresh'}
+  fr:{overview:'Vue d’ensemble',machines:'Machines',nodes:'Nœuds',monitoring:'Monitoring',storage:'Stockage',docker:'Docker',pbs:'PBS',wazuh:'Wazuh',backups:'Sauvegardes',tasks:'Tâches',create:'Créer',templates:'Templates',firewall:'Pare-feu',problems:'Problèmes',dependencies:'Dépendances',changes:'Changements',maintenance:'Maintenance',pveupdates:'Mises à jour PVE',automations:'Automatisations',energy:'Énergie',integrations:'Intégrations',audit:'Audit',notifications:'Notifications',users:'Utilisateurs',admin:'Administration',connected:'Connecté',refresh:'Actualiser'},
+  en:{overview:'Overview',machines:'Machines',nodes:'Nodes',monitoring:'Monitoring',storage:'Storage',docker:'Docker',pbs:'PBS',wazuh:'Wazuh',backups:'Backups',tasks:'Tasks',create:'Create',templates:'Templates',firewall:'Firewall',problems:'Problems',dependencies:'Dependencies',changes:'Changes',maintenance:'Maintenance',pveupdates:'PVE updates',automations:'Automations',energy:'Energy',integrations:'Integrations',audit:'Audit log',notifications:'Notifications',users:'Users',admin:'Administration',connected:'Connected',refresh:'Refresh'}
 };
 function tr(k){const l=currentLanguage();return I18N[l]?.[k]||I18N.fr[k]||k}
 const EN_UI={
@@ -308,6 +308,7 @@ function selectedServer(){return state.servers.find(s=>s.id===state.selectedServ
 function d(){return state.dashboard||{metrics:{},history:{cpu:[],memory:[],storage:[],network:[]},health:{},nodes:[],machines:[],storages:[],tasks:[],backup:{jobs:[],unprotected:[],machines:[],inventory:[]},problems:[],capacity:{},energy:{nodes:[]}}}
 function moduleEnabled(k){return state.settings?.modules?.[k]!==false}
 function hasPortainerIntegration(){return (state.integrations||[]).some(i=>i.type==='portainer'&&i.enabled!==false)}
+function hasPbsIntegration(){return !!state.status?.demoMode||(state.integrations||[]).some(i=>i.type==='pbs'&&i.enabled!==false)}
 function hasWazuhIntegration(){return !!state.status?.demoMode||(state.integrations||[]).some(i=>i.type==='wazuh'&&i.enabled!==false)}
 function can(perm){const p=state.me?.permissions||[];return p.includes('*')||p.includes(perm)}
 function diskDisplay(m){
@@ -398,6 +399,7 @@ function shell(content){
   const global=[['overview','◉',tr('overview')],['monitoring','⌁',tr('monitoring')],['problems','△',tr('problems'),x.problems?.length||'']];if(can('audit.view'))global.push(['audit','☷',tr('audit')]);
   const infrastructure=[['machines','⬡',tr('machines'),x.machines.length||''],['nodes','▤',tr('nodes'),x.nodes.length||''],['storage','▱',tr('storage'),x.storages.length||'']];
   if(hasPortainerIntegration()&&moduleEnabled('docker'))infrastructure.push(['docker','◆',tr('docker'),state.dockerOverview?.summary?.running||'']);
+  if(hasPbsIntegration())infrastructure.push(['pbs','▣',tr('pbs'),state.pbsOverview?.summary?.failedTasks||'']);
   if(hasWazuhIntegration())infrastructure.push(['wazuh','◈',tr('wazuh'),state.wazuhOverview?.summary?.critical||'']);
   infrastructure.push(['backups','▣',tr('backups'),x.backup?.unprotectedCount||''],['dependencies','⌘',tr('dependencies')]);
   const operations=[['tasks','☷',tr('tasks'),x.health?.activeTasks||''],['templates','▧',tr('templates')]];if(can('machines.control'))operations.push(['changes','⇄',tr('changes'),state.changes.filter(c=>c.status==='pending').length||''],['maintenance','↻',tr('maintenance')],['automations','▶',tr('automations')]);if(can('pve.updates'))operations.push(['pveupdates','⬆',tr('pveupdates'),state.pveUpdates?.totalUpdates||'']);
@@ -1129,7 +1131,7 @@ function adminMonitoringPage(){
   return`${adminBack('Supervision','Définis les seuils utilisés par les alertes et la santé du cluster.')}<section class="panel admin8-card"><div class="admin8-card-head"><div><span class="admin8-title-icon">⌁</span><div><h3>Seuils de supervision</h3><p>Les alertes sont déclenchées lorsqu’une ressource dépasse la valeur configurée.</p></div></div><span class="admin8-hint">Valeurs en temps réel</span></div><div class="admin8-settings-grid">${setting('◌','Alerte CPU','Charge CPU globale à partir de laquelle une alerte est créée.','setCpuWarn',t.cpuWarning||85,'%')}${setting('▤','Alerte mémoire','Utilisation RAM globale déclenchant une alerte.','setMemWarn',t.memoryWarning||85,'%')}${setting('◍','Alerte stockage','Occupation du stockage déclenchant un avertissement.','setStoreWarn',t.storageWarning||85,'%')}${setting('!','Stockage critique','Occupation du stockage considérée comme critique.','setStoreCrit',t.storageCritical||95,'%')}${setting('♨','Alerte température','Température CPU à surveiller.','setTempWarn',t.temperatureWarning||75,'°C',30,120)}${setting('!','Température critique','Température CPU nécessitant une intervention.','setTempCrit',t.temperatureCritical||85,'°C',30,120)}</div><div class="admin8-tip"><strong>Bonnes pratiques</strong><span>Conserve un écart entre warning et critique pour éviter les alertes trop agressives.</span></div><div class="admin-savebar">${button('Enregistrer les seuils','save-thresholds','primary')}</div></section>`;
 }
 function adminIntegrationsPage(){
-  const portainers=(state.integrations||[]).filter(i=>i.type==='portainer'),wazuhs=(state.integrations||[]).filter(i=>i.type==='wazuh'),overview=state.dockerOverview;
+  const portainers=(state.integrations||[]).filter(i=>i.type==='portainer'),wazuhs=(state.integrations||[]).filter(i=>i.type==='wazuh'),pbsRows=(state.integrations||[]).filter(i=>i.type==='pbs'),overview=state.dockerOverview;
   return`${adminBack('Intégrations','Connecteurs externes facultatifs. Docker passe exclusivement par Portainer dans la série 1.7.2.')}
   <section class="panel admin-section-card integration-hero"><div class="panel-head"><div><h3>◆ Portainer</h3><p>Première intégration officiellement supportée. Community Edition est testée en priorité ; Business Edition reste compatible quand les API utilisées sont identiques.</p></div>${button('+ Ajouter Portainer','add-portainer','primary')}</div>
   <div class="integration-security-note"><strong>Connexion indirecte à Docker</strong><span>ProxPanel n’accède jamais à <code>/var/run/docker.sock</code>. L’API Key est chiffrée localement et Portainer sert de passerelle vers les Docker Engine.</span></div>
@@ -1137,7 +1139,9 @@ function adminIntegrationsPage(){
   <section class="panel admin-section-card wazuh-admin-card"><div class="panel-head"><div><h3>◈ Wazuh Security Essentials</h3><p>Intégration beta.6 en lecture seule : agents, alertes importantes, CVE, paquets/logiciels et corrélation Proxmox/Docker.</p></div>${button('+ Ajouter Wazuh','add-wazuh','primary')}</div>
   <div class="integration-security-note"><strong>Secrets protégés</strong><span>Les mots de passe Server API / Indexer sont chiffrés localement. Le JWT Wazuh reste uniquement en mémoire et n’est jamais renvoyé au navigateur.</span></div>
   <div class="portainer-admin-list">${wazuhs.map(i=>{const status=i.lastStatus==='ok'?'OK':i.lastStatus==='degraded'?'Dégradé':i.lastStatus==='error'?'Erreur':'À tester',tone=i.lastStatus==='ok'?'ok':i.lastStatus==='degraded'?'warning':i.lastStatus==='error'?'danger':'neutral';return`<article class="portainer-admin-row"><div class="portainer-admin-main"><span class="portainer-logo">◈</span><div><strong>${esc(i.name||'Wazuh')}</strong><small>${esc(i.url)} · Indexer ${esc(i.indexerUrl||'non configuré')}</small></div></div><div class="portainer-admin-meta"><span>${Number(i.wazuhAgentCount||0)} agent(s)</span><span>Niveau ≥ ${Number(i.wazuhAlertLevel||12)}</span>${badge(status,tone)}</div><div class="row-actions">${button('Tester',`wazuh-test:${i.id}`,'tiny primary')}${button('Supprimer',`wazuh-delete:${i.id}`,'tiny danger')}</div>${i.lastError?`<div class="portainer-last-error">${esc(i.lastError)}</div>`:''}</article>`}).join('')||'<div class="empty-inline">Aucun Wazuh configuré.</div>'}</div></section>
-  <section class="panel admin-section-card integration-coming"><div class="panel-head"><div><h3>▣ Proxmox Backup Server</h3><p>Intégration optionnelle prévue en 1.7.2-beta.6 : datastores, restore points, Verify, Prune, GC et tâches PBS.</p></div>${badge('Prévu beta.6','neutral')}</div><p class="muted">Aucun menu PBS permanent ne sera affiché tant qu’un serveur PBS n’est pas configuré.</p></section>`;
+  <section class="panel admin-section-card pbs-admin-card"><div class="panel-head"><div><h3>▣ Proxmox Backup Server</h3><p>Datastores, restore points, Verify, Prune, GC, Sync et tâches PBS. Le menu n’apparaît que lorsqu’un PBS est configuré.</p></div>${button('+ Ajouter PBS','add-pbs','primary')}</div>
+  <div class="integration-security-note"><strong>Authentification sécurisée</strong><span>Mot de passe ou token API PBS. Les secrets sont chiffrés localement et ne sont jamais renvoyés au navigateur.</span></div>
+  <div class="portainer-admin-list">${pbsRows.map(i=>{const online=i.lastStatus==='ok';return`<article class="portainer-admin-row"><div class="portainer-admin-main"><span class="portainer-logo">▣</span><div><strong>${esc(i.name||'PBS')}</strong><small>${esc(i.url)}${i.pbsVersion?` · v${esc(i.pbsVersion)}`:''} · ${esc(i.pbsAuthMode==='token'?'Token API':'Utilisateur / mot de passe')}</small></div></div><div class="portainer-admin-meta"><span>${Number(i.pbsDatastoreCount||0)} datastore(s)</span>${badge(online?'OK':i.lastStatus==='error'?'Erreur':'À tester',online?'ok':i.lastStatus==='error'?'danger':'neutral')}</div><div class="row-actions">${button('Tester',`pbs-test:${i.id}`,'tiny primary')}${button('Supprimer',`pbs-delete:${i.id}`,'tiny danger')}</div>${i.lastError?`<div class="portainer-last-error">${esc(i.lastError)}</div>`:''}</article>`}).join('')||'<div class="empty-inline">Aucun PBS configuré.</div>'}</div></section>`;
 }
 function adminUpdatesPage(){return`${adminBack('Mises à jour ProxPanel','OTA, canal de publication et installation manuelle.')}<section class="panel admin-section-card update-admin-section">${updatePanel()}</section>`}
 function adminApplicationPage(){
@@ -1165,7 +1169,7 @@ function adminPage(){
   return adminFrame(content);
 }
 
-function renderPage(){if(state.tvMode){app.innerHTML=tvModePage();applyRuntimeLanguage(app);return}const pages={overview:overviewPage,machines:machinesPage,nodes:nodesPage,monitoring:monitoringPage,storage:storagePage,docker:dockerPage,wazuh:wazuhPage,backups:backupsPage,tasks:tasksPage,templates:templatesPage,problems:problemsPage,dependencies:dependenciesPage,changes:changesPage,maintenance:maintenancePage,pveupdates:pveUpdatesPage,automations:automationsPage,audit:auditPage,notifications:notificationsPage,users:usersPage,admin:adminPage};app.innerHTML=shell((pages[state.currentPage]||overviewPage)());bindDrag();applyRuntimeLanguage(app);}
+function renderPage(){if(state.tvMode){app.innerHTML=tvModePage();applyRuntimeLanguage(app);return}const pages={overview:overviewPage,machines:machinesPage,nodes:nodesPage,monitoring:monitoringPage,storage:storagePage,docker:dockerPage,pbs:pbsPage,wazuh:wazuhPage,backups:backupsPage,tasks:tasksPage,templates:templatesPage,problems:problemsPage,dependencies:dependenciesPage,changes:changesPage,maintenance:maintenancePage,pveupdates:pveUpdatesPage,automations:automationsPage,audit:auditPage,notifications:notificationsPage,users:usersPage,admin:adminPage};app.innerHTML=shell((pages[state.currentPage]||overviewPage)());bindDrag();applyRuntimeLanguage(app);}
 
 function openProblemDetail(id){
   const p=[...(d().problems||[]),...(state.dockerAlerts||[])].find(x=>x.id===id);if(!p)return toast('Alerte introuvable.','error');
@@ -1218,6 +1222,16 @@ function openGroup(){const selected=qsa('.machine-check:checked').map(x=>Number(
 function openAutomation(){modal('Nouveau scénario',`${field('Nom','autoName','','text','placeholder="Ex. Démarrage services"')}${field('Description','autoDesc','')}<label class="field"><span>Étapes — une par ligne</span><textarea id="autoSteps" rows="7" placeholder="100:start\nwait:20\n101:start"></textarea><small>VMID:start|stop|shutdown|reboot|suspend|resume ou wait:secondes</small></label><div class="two-col">${field('Planification HH:MM','autoTime','','time')}${selectField('Serveur autonome','autoServer',[{value:'',label:'Manuel uniquement'},...state.servers.map(s=>({value:s.id,label:s.name}))])}</div>`,`<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="save-automation">Enregistrer</button>`)}
 function openBookmark(){modal('Ajouter un raccourci',`${field('Nom','bookmarkName','','text','placeholder="Ex. Supervision"')}${field('URL','bookmarkUrl','https://')}`,`<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="save-bookmark">Ajouter</button>`)}
 function openPortainerIntegration(){modal('Ajouter Portainer',`<div class="portainer-modal-intro"><strong>Portainer → Docker</strong><p>Community Edition est notre cible de test principale. Business Edition est supportée lorsque les endpoints API utilisés restent compatibles.</p></div>${field('Nom','portainerName','Portainer')}${field('URL','portainerUrl','https://','url','placeholder="https://portainer.example:9443"')}${field('API Key / Access Token','portainerKey','','password','autocomplete="off" placeholder="ptr_…"')}<label class="check"><input id="portainerSelfSigned" type="checkbox"> Autoriser un certificat TLS auto-signé</label><div class="info-box"><strong>Aucun accès direct à Docker</strong><p>ProxPanel utilise uniquement l’API HTTP de Portainer. Aucun socket Docker n’est monté dans ProxPanel.</p></div>`,`<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="save-portainer">Tester et ajouter</button>`,'portainer-modal')}
+function openPbsIntegration(){
+  modal('Ajouter Proxmox Backup Server',`<div class="portainer-modal-intro"><strong>PBS → ProxPanel</strong><p>Lecture des datastores, restore points, jobs et tâches. Verify / Prune / Sync / GC restent manuels et nécessitent une confirmation.</p></div>
+  ${field('Nom','pbsName','PBS')}${field('URL PBS','pbsUrl','https://','url','placeholder="https://pbs.example:8007"')}
+  ${selectField('Authentification','pbsAuthMode',[{value:'password',label:'Utilisateur + mot de passe'},{value:'token',label:'Token API'}],'password')}
+  <div class="two-col">${field('Utilisateur PBS','pbsUser','root@pam','text','autocomplete="off"')}${field('Mot de passe PBS','pbsPassword','','password','autocomplete="new-password"')}</div>
+  <div class="two-col">${field('Token ID','pbsTokenId','','text','placeholder="user@realm!token"')}${field('Token secret','pbsTokenSecret','','password','autocomplete="new-password"')}</div>
+  <label class="check"><input id="pbsSelfSigned" type="checkbox"> Autoriser un certificat TLS auto-signé</label>
+  <div class="info-box"><strong>Conseil</strong><p>Privilégie un token API dédié et en lecture seule si tu ne veux que la supervision. Les actions manuelles nécessitent les permissions PBS correspondantes.</p></div>`,
+  `<button class="btn secondary" data-action="close-modal">Annuler</button><button class="btn primary" data-action="save-pbs">Tester et ajouter</button>`,'portainer-modal');
+}
 function openWazuhIntegration(){
   modal('Ajouter Wazuh',`<div class="portainer-modal-intro"><strong>Wazuh → ProxPanel</strong><p>Connexion en lecture seule au Server API pour les agents et à l’Indexer pour les CVE / alertes. Aucun Active Response n’est exécuté par ProxPanel.</p></div>
   ${field('Nom','wazuhName','Wazuh')}
@@ -1361,6 +1375,7 @@ function openFirewallRule(pos=null){const r=pos==null?{}:state.firewallRules.fin
 
 async function loadDeferredBaseData(){
   const loaders=[['remoteUpdate',()=>api('/api/update/remote-status')],['pveUpdates',()=>api('/api/pve-updates/status')]];
+  if(hasPbsIntegration())loaders.push(['pbsOverview',()=>api('/api/pbs/overview')]);
   if(hasWazuhIntegration()){
     loaders.push(['wazuhOverview',()=>api(`/api/wazuh/overview?period=${encodeURIComponent(state.wazuhPeriod)}`)]);
     loaders.push(['wazuhPanelNotifications',()=>api('/api/wazuh/panel-notifications?limit=100').then(r=>r.notifications||[])]);
@@ -1511,6 +1526,7 @@ async function reloadSection(){
   const page=state.currentPage;
   try{
     if(page==='dependencies')await loadDependencies();
+    if(page==='pbs'){try{state.pbsOverview=await api('/api/pbs/overview');state.pbsError=null}catch(e){state.pbsError=e.message}}
     if(page==='wazuh'){
       try{const [overview,panel]=await Promise.all([api(`/api/wazuh/overview?period=${encodeURIComponent(state.wazuhPeriod)}`),api('/api/wazuh/panel-notifications?limit=100')]);state.wazuhOverview=overview;state.wazuhPanelNotifications=panel.notifications||[];state.wazuhError=null}catch(e){state.wazuhError=e.message}
     }
@@ -1637,6 +1653,22 @@ async function handleAction(action,el){try{
     await api(`/api/integrations/${id}`,{method:'DELETE'});
     state.integrations=await api('/api/integrations');state.dockerOverview=hasPortainerIntegration()?await api('/api/docker/overview?force=1'):null;state.dockerError=null;
     if(!hasPortainerIntegration()&&state.currentPage==='docker'){state.currentPage='overview'}renderPage();return
+  }
+  if(action==='add-pbs'){openPbsIntegration();return}
+  if(action==='save-pbs'){
+    const payload={type:'pbs',name:qs('#pbsName')?.value||'PBS',url:qs('#pbsUrl')?.value||'',pbsAuthMode:qs('#pbsAuthMode')?.value||'password',username:qs('#pbsUser')?.value||'',password:qs('#pbsPassword')?.value||'',pbsTokenId:qs('#pbsTokenId')?.value||'',pbsTokenSecret:qs('#pbsTokenSecret')?.value||'',allowSelfSigned:!!qs('#pbsSelfSigned')?.checked};
+    if(payload.pbsAuthMode==='password'&&(!payload.username||!payload.password))throw new Error('Utilisateur et mot de passe PBS requis.');
+    if(payload.pbsAuthMode==='token'&&(!payload.pbsTokenId||!payload.pbsTokenSecret))throw new Error('Token ID et secret PBS requis.');
+    const row=await api('/api/integrations',{method:'POST',body:JSON.stringify(payload)});state.integrations=await api('/api/integrations');state.pbsOverview=await api('/api/pbs/overview?force=1');state.pbsError=null;closeModal();toast(`PBS ajouté · ${row.pbsDatastoreCount||0} datastore(s).`);renderPage();return
+  }
+  if(action.startsWith('pbs-test:')){const id=action.split(':')[1],result=await api(`/api/integrations/${id}/test`,{method:'POST',body:'{}'});state.integrations=await api('/api/integrations');state.pbsOverview=await api('/api/pbs/overview?force=1');state.pbsError=null;toast(`PBS OK · ${result.datastores||0} datastore(s).`);renderPage();return}
+  if(action.startsWith('pbs-delete:')){const id=action.split(':')[1];if(!confirmUi('Supprimer cette intégration PBS ?'))return;await api(`/api/integrations/${id}`,{method:'DELETE'});state.integrations=await api('/api/integrations');state.pbsOverview=null;state.pbsError=null;if(!hasPbsIntegration()&&state.currentPage==='pbs')state.currentPage='overview';renderPage();return}
+  if(action==='pbs-refresh'){try{state.pbsOverview=await api('/api/pbs/overview?force=1');state.pbsError=null;toast('PBS actualisé.')}catch(e){state.pbsError=e.message;toast(e.message,'error')}renderPage();return}
+  if(action.startsWith('pbs-run:')){
+    const parts=action.split(':'),kind=parts[1],value=decodeURIComponent(parts.slice(2).join(':'));
+    const label=kind==='gc'?`Garbage Collection sur ${value}`:`Job ${kind.toUpperCase()} ${value}`;
+    if(!confirmUi(`Confirmer l’exécution PBS : ${label} ?`))return;
+    const payload=kind==='gc'?{confirm:true,store:value}:{confirm:true,id:value};const result=await api(`/api/pbs/actions/${kind}`,{method:'POST',body:JSON.stringify(payload)});toast(`Action PBS lancée${result.upid?` · ${result.upid}`:''}.`);state.pbsOverview=await api('/api/pbs/overview?force=1').catch(()=>state.pbsOverview);renderPage();return
   }
   if(action==='add-wazuh'){openWazuhIntegration();return}
   if(action==='save-wazuh'){
