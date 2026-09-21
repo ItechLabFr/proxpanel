@@ -44,7 +44,7 @@ function wazuhVulnerabilityRow(v={}) {
   const mapping=v.mapping||wazuhMachineMapping(v.agentId),score=v.score==null?'CVSS N/D':`CVSS ${v.score}`;
   const search=[v.id,v.agentName,v.agentId,v.agentIp,v.packageName,v.packageVersion,v.fixedVersion,v.os].join(' ').toLowerCase();
   return `<article class="wazuh-vuln-row" data-wazuh-row data-severity="${esc(v.severity)}" data-search="${esc(search)}">
-    <div class="wazuh-vuln-main"><div class="wazuh-vuln-title"><strong>${esc(v.id||'CVE non renseignée')}</strong>${badge(v.severity==='critical'?'Critique':v.severity==='high'?'Élevée':v.severity,wazuhTone(v.severity))}${badge(score,'neutral')}${wazuhHasFix(v)?badge('Correctif identifié','ok'):''}</div>
+    <div class="wazuh-vuln-main"><div class="wazuh-vuln-title"><strong>${esc(v.id||'CVE non renseignée')}</strong>${v.isNew?badge('Nouvelle','danger'):''}${badge(v.severity==='critical'?'Critique':v.severity==='high'?'Élevée':v.severity,wazuhTone(v.severity))}${badge(score,'neutral')}${wazuhHasFix(v)?badge('Correctif identifié','ok'):''}</div>
     <p>${esc(v.description||v.packageName||'Vulnérabilité active détectée par Wazuh')}</p></div>
     <div class="wazuh-vuln-grid">
       <div><span>Machine</span><strong>${esc(v.agentName||v.agentId||'—')}</strong><small>${esc(v.agentIp||v.os||'')}</small></div>
@@ -63,7 +63,7 @@ function wazuhPage() {
   if(state.wazuhError&&!state.wazuhOverview)return `<div class="page-head"><div><h1>Wazuh Security</h1><p>Security Essentials · CVE, agents et alertes prioritaires.</p></div>${button('Réessayer','wazuh-refresh','primary')}</div><section class="panel wazuh-error"><strong>Collecte Wazuh indisponible</strong><p>${esc(state.wazuhError)}</p></section>`;
   const o=state.wazuhOverview;
   if(!o)return `<div class="page-head"><div><h1>Wazuh Security</h1><p>Chargement des données de sécurité…</p></div></div><section class="panel loading">Collecte Wazuh…</section>`;
-  const s=o.summary||{},vulns=wazuhFilteredVulnerabilities(),alerts=o.alerts||[],endpoints=(o.byEndpoint||[]).slice(0,8),software=(o.bySoftware||[]).slice(0,8);
+  const s=o.summary||{},vulns=wazuhFilteredVulnerabilities(),alerts=o.alerts||[],fim=o.fim||[],categories=o.categories||{},endpoints=(o.byEndpoint||[]).slice(0,8),software=(o.bySoftware||[]).slice(0,8);
   const delta7=wazuhTrendDelta(o.history,'critical',7),delta30=wazuhTrendDelta(o.history,'critical',30);
   const statusTone=o.status==='online'?'ok':o.status==='degraded'?'warning':'danger',statusLabel=o.status==='online'?'Opérationnel':o.status==='degraded'?'Dégradé':'Indisponible';
   return `<div class="page-head wazuh-page-head"><div><div class="wazuh-title-line"><h1>Wazuh Security</h1>${badge(statusLabel,statusTone)}</div><p>Les informations essentielles pour prioriser les incidents et les remédiations, sans dupliquer le dashboard Wazuh complet.</p></div><div class="actions wrap">${button('Tester les notifications','wazuh-test-notification','secondary')}${button('Actualiser','wazuh-refresh','primary')}</div></div>
@@ -71,7 +71,7 @@ function wazuhPage() {
   <div class="wazuh-metrics">
     <section class="panel wazuh-metric"><span>État Wazuh</span><strong>${esc(statusLabel)}</strong><small>Manager ${o.manager?.ok?'OK':'KO'} · Indexer ${o.indexer?.ok?'OK':'KO'}</small></section>
     <section class="panel wazuh-metric"><span>Agents</span><strong>${Number(s.agentsActive||0)} / ${Number(s.agentsTotal||0)}</strong><small>${Number(s.agentsDisconnected||0)} déconnecté(s) · ${Number(s.agentsNeverConnected||0)} jamais connecté(s)</small></section>
-    <section class="panel wazuh-metric critical"><span>CVE critiques</span><strong>${Number(s.critical||0)}</strong><small>${Number(s.affectedEndpoints||0)} endpoint(s) concernés</small></section>
+    <section class="panel wazuh-metric critical"><span>CVE critiques</span><strong>${Number(s.critical||0)}</strong><small>${Number(s.newCritical||0)?`+${Number(s.newCritical)} nouvelle(s) · `:''}${Number(s.affectedEndpoints||0)} endpoint(s) concernés</small></section>
     <section class="panel wazuh-metric warning"><span>CVE élevées</span><strong>${Number(s.high||0)}</strong><small>${Number(s.vulnerablePackages||0)} paquet(s) / logiciel(s)</small></section>
     <section class="panel wazuh-metric"><span>Alertes importantes</span><strong>${Number(s.importantAlerts||0)}</strong><small>Niveau ≥ ${Number(o.integration?.alertThreshold||12)} · ${esc(state.wazuhPeriod)}</small></section>
   </div>
@@ -85,6 +85,16 @@ function wazuhPage() {
     </div>
   </div>
   <section class="panel wazuh-important-alerts"><div class="panel-head"><div><h3>Alertes importantes récentes</h3><p>Uniquement les niveaux configurés comme prioritaires.</p></div>${badge(`${alerts.length} événement(s)`,'neutral')}</div><div class="wazuh-alert-list">${alerts.slice(0,20).map(wazuhAlertRow).join('')||'<div class="empty-inline">Aucune alerte prioritaire sur cette période.</div>'}</div></section>
+  <div class="wazuh-secondary-grid">
+    <section class="panel"><div class="panel-head"><div><h3>Catégories sécurité</h3><p>Résumé des événements prioritaires.</p></div></div><div class="wazuh-category-grid">
+      <div><span>Brute-force</span><strong>${Number(categories.bruteForce||0)}</strong></div>
+      <div><span>Authentification</span><strong>${Number(categories.authentication||0)}</strong></div>
+      <div><span>Malware</span><strong>${Number(categories.malware||0)}</strong></div>
+      <div><span>Privilèges</span><strong>${Number(categories.privilegeEscalation||0)}</strong></div>
+      <div><span>Intégrité / FIM</span><strong>${Number(categories.integrity||0)}</strong></div>
+    </div></section>
+    <section class="panel"><div class="panel-head"><div><h3>FIM essentiel</h3><p>Changements récents remontés par Wazuh.</p></div>${badge(`${fim.length} événement(s)`,'neutral')}</div><div class="wazuh-fim-list">${fim.slice(0,12).map(f=>`<div class="wazuh-fim-row"><div><strong>${esc(f.path||'Chemin non renseigné')}</strong><small>${esc(f.agentName||f.agentId||'Endpoint')} · ${esc(f.event||'modified')} · règle ${esc(f.ruleId||'—')}</small></div><span>${esc(fmtDate(f.timestamp))}</span></div>`).join('')||'<div class="empty-inline">Aucun changement FIM sur cette période.</div>'}</div></section>
+  </div>
   <section class="panel wazuh-notification-history"><div class="panel-head"><div><h3>Notifications sécurité ProxPanel</h3><p>Historique Panel des alertes Wazuh envoyées ou récupérées.</p></div>${(state.wazuhPanelNotifications||[]).some(n=>!n.read)?button('Marquer comme lues','wazuh-mark-read','tiny'):''}</div><div class="wazuh-panel-events">${(state.wazuhPanelNotifications||[]).slice(0,15).map(n=>`<div class="wazuh-panel-event ${n.read?'':'unread'}"><div><strong>${esc(n.title)}</strong><small>${esc(n.message)}</small></div><span>${esc(fmtDate(n.at))}</span></div>`).join('')||'<div class="empty-inline">Aucune notification Wazuh enregistrée.</div>'}</div></section>`;
 }
 
