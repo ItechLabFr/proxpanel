@@ -50,7 +50,29 @@ Development is **AI-assisted** for parts of design, code generation, refactoring
 
 ## Screenshots
 
-Current screenshots can be added under [`docs/screenshots`](docs/screenshots/README.md). Before publishing a screenshot, make sure it does not expose private hostnames, IP addresses, e-mail addresses or other infrastructure details.
+The gallery below reflects the current public demo interface. All infrastructure names, machines, metrics, CVEs and other displayed data are fictitious demonstration data.
+
+<table>
+  <tr>
+    <td width="50%"><a href="https://proxpanel.fr/assets/screenshots/dashboard.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/dashboard.png?v=1.7.2-beta.6" alt="ProxPanel dashboard"></a><br><b>Dashboard</b></td>
+    <td width="50%"><a href="https://proxpanel.fr/assets/screenshots/machines.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/machines.png?v=1.7.2-beta.6" alt="ProxPanel machines"></a><br><b>Machines</b></td>
+  </tr>
+  <tr>
+    <td><a href="https://proxpanel.fr/assets/screenshots/docker.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/docker.png?v=1.7.2-beta.6" alt="ProxPanel Docker and Portainer"></a><br><b>Docker / Portainer</b></td>
+    <td><a href="https://proxpanel.fr/assets/screenshots/pbs.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/pbs.png?v=1.7.2-beta.6" alt="ProxPanel Proxmox Backup Server"></a><br><b>Proxmox Backup Server</b></td>
+  </tr>
+  <tr>
+    <td><a href="https://proxpanel.fr/assets/screenshots/wazuh.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/wazuh.png?v=1.7.2-beta.6" alt="ProxPanel Wazuh Security"></a><br><b>Wazuh Security</b></td>
+    <td><a href="https://proxpanel.fr/assets/screenshots/admin-2fa.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/admin-2fa.png?v=1.7.2-beta.6" alt="ProxPanel administration and two-factor authentication"></a><br><b>Administration & 2FA</b></td>
+  </tr>
+</table>
+
+<p align="center">
+  <a href="https://proxpanel.fr/assets/screenshots/mobile.png?v=1.7.2-beta.6"><img src="https://proxpanel.fr/assets/screenshots/mobile.png?v=1.7.2-beta.6" width="900" alt="ProxPanel responsive mobile interface"></a><br>
+  <b>Responsive mobile interface</b>
+</p>
+
+See the [screenshot gallery](docs/screenshots/README.md) or try the live demo at **https://demo.proxpanel.fr**.
 
 ## Quick start with Docker
 
