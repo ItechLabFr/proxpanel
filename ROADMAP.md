@@ -238,18 +238,22 @@ Status: **implemented for publication**.
 
 ---
 
-## 1.7.2-beta.6 — Proxmox Backup Server Integration
+## 1.7.2-beta.6 — PBS + Wazuh Security Essentials
+
+Beta.6 keeps the **existing Proxmox Backup Server integration roadmap unchanged** and adds a focused **Wazuh Security Essentials** integration. The goal is not to reproduce the complete Wazuh dashboard inside ProxPanel, but to surface the security information that requires immediate operational attention and correlate it with the Proxmox/Docker topology already known by ProxPanel.
+
+### Proxmox Backup Server Integration
 
 PBS remains optional and hidden until configured.
 
-### Connection
+#### Connection
 
 - PBS URL.
 - User/API token authentication where supported by the implementation.
 - TLS validation / self-signed handling.
 - Connection diagnostic.
 
-### Read-only first
+#### Read-only first
 
 - PBS version/health.
 - Datastores.
@@ -263,11 +267,297 @@ PBS remains optional and hidden until configured.
 - Sync jobs/status.
 - Recent tasks/errors.
 
-### Later in the beta if validation is good
+#### Later in the beta if validation is good
 
 - Trigger safe operational jobs such as Verify/Prune/GC only with explicit confirmation and permission checks.
 
 Full restore orchestration is **not required** for beta.6.
+
+### Wazuh Security Essentials
+
+Wazuh is also optional and must remain completely hidden until configured.
+
+#### Connection model
+
+Use two explicit, independent read-only connections when both are available:
+
+- **Wazuh Server API** for manager health, agents and operational data.
+  - Server API URL, normally HTTPS on port 55000.
+  - Username/password authentication used only to obtain a short-lived JWT.
+  - JWT kept in memory and renewed when required; never exposed to the browser.
+- **Wazuh Indexer API** for vulnerability and security-event searches.
+  - Indexer URL, normally HTTPS on port 9200.
+  - Dedicated read-only credentials.
+  - Query vulnerability state from `wazuh-states-vulnerabilities*`.
+  - Query only the minimum event data required by the ProxPanel dashboard.
+- TLS certificate validation by default.
+- Explicit self-signed certificate option per endpoint.
+- Separate connection test and diagnostic for Server API and Indexer.
+- Secrets encrypted with the existing ProxPanel master-key mechanism and always redacted from UI, audit, e-mail and Discord output.
+- A partial outage must be represented as **degraded**, never interpreted as “no vulnerabilities” or “all agents healthy”.
+
+#### Wazuh overview
+
+Add a compact Wazuh Security page/dashboard with only essential indicators:
+
+- Manager status.
+- Indexer status.
+- Server API status.
+- Last successful collection.
+- Total agents.
+- Active agents.
+- Disconnected agents.
+- Never-connected agents when reported by Wazuh.
+- Number of important alerts in the selected period.
+- Critical and High active vulnerabilities.
+- Number of affected endpoints.
+- Number of vulnerable packages/software items.
+- 24 h / 7 d / 30 d time ranges where the source data supports them.
+
+#### Priority security alerts
+
+Do not mirror the full Wazuh event stream.
+
+- Surface only important alerts by default.
+- Default high-priority rule-level range: **12–16**, with an administrator-configurable threshold.
+- Display:
+  - Wazuh rule ID;
+  - rule level;
+  - description;
+  - agent ID/name;
+  - endpoint hostname/IP when available;
+  - timestamp;
+  - source/category;
+  - MITRE tactic/technique when present;
+  - concise technical context.
+- Filters by severity, agent, rule/category and period.
+- Search by agent name, rule ID or event text.
+- “Open in Wazuh” deep link when a reliable target URL can be generated.
+- Full investigation/log search remains in Wazuh.
+
+#### CVE / vulnerability dashboard
+
+Provide a first-class vulnerability view focused on remediation.
+
+For each vulnerability, show when Wazuh exposes the data:
+
+- CVE identifier.
+- Severity.
+- CVSS score/vector.
+- Active / solved status.
+- Detection time / last update.
+- Wazuh/CTI reference.
+- Affected agent / machine.
+- Package or software name.
+- Installed package/software version.
+- Architecture/vendor when available.
+- Fixed/remediated version when Wazuh exposes one.
+- Whether a correction appears available.
+- Number of affected machines.
+
+Views and grouping:
+
+- **By CVE** → affected machines → package/software.
+- **By machine** → critical/high CVEs → package/software.
+- **By package/software** → CVEs → affected machines.
+- Search by CVE, hostname, package or software.
+- Critical / High filters.
+- “New since last successful collection” indicator.
+- “Fix available” filter when source data is reliable.
+- Never invent a fixed version if Wazuh does not provide one.
+
+#### Machine security priority
+
+Add a transparent **security priority** indicator to Wazuh-managed endpoints.
+
+The indicator must be explainable and must never replace CVSS/Wazuh severity. Its details show the exact contributors, for example:
+
+- active Critical CVEs;
+- active High CVEs;
+- recent high-priority Wazuh alerts;
+- agent disconnected state;
+- sensitive integrity events.
+
+Use simple labels such as **OK / Attention / Critique** instead of pretending to provide a universal security-risk score.
+
+#### Proxmox / Docker correlation
+
+Correlate Wazuh endpoints with ProxPanel infrastructure where confidence is sufficient:
+
+```text
+CVE / Wazuh alert
+  → package / software
+  → Wazuh agent
+  → VM / LXC
+  → Proxmox node
+  → storage
+```
+
+When Docker topology is known:
+
+```text
+CVE / security alert
+  → endpoint / package
+  → Docker environment / container when reliably identifiable
+  → VM / LXC
+  → Proxmox node
+```
+
+Correlation rules:
+
+- Assisted matching by hostname/IP only when confidence is high.
+- Manual mapping must always be available.
+- Ambiguous resources are never linked automatically.
+- Manual mapping overrides assisted matching.
+- Wazuh security summary appears directly in the corresponding VM/LXC detail page:
+  - agent state;
+  - Critical/High vulnerability counts;
+  - latest important alert;
+  - vulnerable packages/software;
+  - link to Wazuh Security details.
+
+#### Trends and remediation visibility
+
+- Critical/High vulnerability evolution over 7 and 30 days when enough local history exists.
+- New vs solved vulnerabilities.
+- Endpoints with the most active Critical/High vulnerabilities.
+- Packages/software affecting the most endpoints.
+- Endpoints with the highest remediation priority.
+- Keep a small local aggregate history only; do not duplicate the Wazuh event store.
+
+#### File Integrity Monitoring essentials
+
+Do not reproduce the complete FIM interface.
+
+Surface only high-value changes when Wazuh reports them, for example:
+
+- SSH configuration.
+- `sudoers` / privilege configuration.
+- sensitive system configuration.
+- executable/service configuration.
+- other administrator-selected critical paths.
+
+Show the affected endpoint, path, change type and time, then provide a link back to Wazuh for investigation.
+
+#### Security category summary
+
+Provide a compact recent-event summary for useful categories when the underlying Wazuh rule metadata supports them, such as:
+
+- brute-force/authentication attacks;
+- malware detections;
+- privilege escalation;
+- authentication failures;
+- integrity changes.
+
+This is an operational summary, not a replacement for Wazuh MITRE/rule dashboards.
+
+### Professional Panel / E-mail / Discord alerts
+
+Wazuh events must reuse ProxPanel's existing notification channels while providing **security-specific, detailed and professional payloads**.
+
+#### Notification events
+
+Support at minimum:
+
+- Wazuh integration unavailable / recovered.
+- Wazuh agent disconnected / recovered after confirmation.
+- New Critical vulnerability.
+- New High vulnerability when enabled by policy.
+- Critical vulnerability solved.
+- Important Wazuh alert above configured rule-level threshold.
+- Sensitive FIM event when enabled.
+- Sudden increase in Critical vulnerabilities.
+- Collection/indexer error without falsely clearing existing incidents.
+
+#### Detailed security notification content
+
+For every security notification, include as many verified fields as available:
+
+- severity + event type;
+- Wazuh source;
+- Wazuh rule ID and rule level for security alerts;
+- alert description;
+- CVE ID and CVSS for vulnerability notifications;
+- vulnerability status;
+- endpoint/agent name and agent ID;
+- endpoint IP/OS when available;
+- correlated Proxmox VMID/LXC ID and machine name when mapped;
+- correlated Proxmox node;
+- correlated Docker environment/container only when reliable;
+- package/software name;
+- installed version;
+- fixed version **only when supplied by Wazuh/source data**;
+- first detected / last observed timestamps;
+- MITRE tactic/technique when present;
+- concise recommended next action;
+- direct ProxPanel route;
+- Wazuh deep link when safe and available.
+
+Never include API passwords, JWTs, Indexer credentials, raw authorization headers or unredacted secrets.
+
+#### E-mail presentation
+
+Security e-mails must be immediately understandable without opening ProxPanel:
+
+- clear subject prefix such as `[ProxPanel][Wazuh][CRITIQUE]`;
+- readable HTML layout consistent with existing ProxPanel e-mails;
+- prominent severity and affected machine;
+- structured sections: **Résumé**, **Machine**, **CVE/Alerte**, **Paquet/logiciel**, **Contexte Proxmox/Docker**, **Action recommandée**;
+- technical identifiers retained for troubleshooting;
+- links to ProxPanel and Wazuh when available;
+- recovery/solved e-mails clearly state what returned to normal.
+
+#### Discord presentation
+
+Use concise but information-rich Discord notifications:
+
+- dedicated Wazuh/Security event type compatible with ProxPanel multi-channel Discord configuration;
+- severity, machine and CVE/rule visible immediately;
+- package/software + installed/fixed version where available;
+- Proxmox/Docker correlation;
+- concise recommendation;
+- timestamps and technical identifiers;
+- link to ProxPanel/Wazuh.
+- Allow a dedicated Discord security channel/webhook without forcing all Wazuh events into the general channel.
+
+#### Anti-noise controls
+
+Security notifications must not flood the user.
+
+- Deduplicate identical CVE/agent/rule incidents.
+- Cooldown per incident.
+- Require confirmation across consecutive checks before declaring a transient agent/API outage.
+- Send a distinct recovery/solved notification.
+- Critical events may notify immediately.
+- High events can be immediate or grouped according to administrator policy.
+- Optional grouped digest for repeated High findings.
+- Manual “send test security notification” from administration.
+- Preserve notification/audit history with the reason an event was sent or suppressed.
+
+### Demo and UX
+
+- Add deterministic fictitious Wazuh data to the public demo.
+- Never expose real Wazuh infrastructure in demo fixtures.
+- Full phone/tablet/PWA responsive pass.
+- French and English labels.
+- Wazuh navigation appears only when a Wazuh integration is configured.
+- Loading or failure of Wazuh must never block the normal Proxmox/Docker dashboard.
+
+### Beta.6 acceptance criteria
+
+- Existing **PBS beta.6 scope remains intact**.
+- Wazuh Server API and Indexer credentials are encrypted and never returned to the browser.
+- Server API JWT is short-lived/in-memory and never persisted in clear text.
+- Wazuh works as a **read-only security integration** in beta.6; no Active Response or destructive Wazuh action is required.
+- Indexer/API failure produces an explicit degraded state, never a false “0 vulnerability” state.
+- Agent disconnect alerts require confirmation to avoid transient false positives.
+- Critical/High CVEs expose machine + package/software + versions whenever the source provides them.
+- ProxPanel never invents CVSS, fixed versions, vulnerability state or remediation information.
+- Proxmox/Docker correlation is explainable and manually correctable.
+- Panel/e-mail/Discord security notifications are detailed, redacted, deduplicated and recoverable.
+- Public demo includes realistic fictitious Wazuh/CVE/agent data.
+- Mobile/PWA remains fully usable.
+- Wazuh failure does not break Proxmox, Docker or PBS views.
 
 ---
 
