@@ -162,12 +162,12 @@ function defaultSettings() {
   return {
     branding: { name: 'ProxPanel', subtitle: 'PROXMOX CONSOLE', accent: '#ff7a00', logoText: '◇' },
     thresholds: { cpuWarning: 85, memoryWarning: 85, storageWarning: 85, storageCritical: 95, temperatureWarning: 75, temperatureCritical: 85, backupMaxAgeHours: 36 },
-    modules: { overview: true, machines: true, nodes: true, monitoring: true, storage: true, docker: true, backups: true, tasks: true, create: false, templates: true, firewall: false, problems: true, dependencies: true, changes: true, maintenance: true, pveupdates: true, automations: true, energy: false, audit: true, integrations: false, notifications: true, users: true, admin: true },
+    modules: { overview: true, machines: true, nodes: true, monitoring: true, storage: true, docker: true, pbs: true, wazuh: true, backups: true, tasks: true, create: false, templates: true, firewall: false, problems: true, dependencies: true, changes: true, maintenance: true, pveupdates: true, automations: true, energy: false, audit: true, integrations: false, notifications: true, users: true, admin: true },
     dashboardWidgets: ['cpu','memory','storage','temperature','network','machines','health','problems','capacity','backups'],
     homePage: 'overview',
     language: 'fr',
     timezone: 'UTC',
-    menuOrder: ['overview','machines','nodes','monitoring','storage','docker','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'],
+    menuOrder: ['overview','machines','nodes','monitoring','storage','docker','pbs','wazuh','backups','tasks','templates','problems','dependencies','changes','maintenance','pveupdates','automations','audit','notifications','users','admin'],
     electricity: { pricePerKwh: 0.25, currency: 'EUR', nodes: {} },
     alerts: {
       enabled: true, pollMinutes: 5, discordWebhook: '', discordChannels: [], genericWebhook: '', telegramBotToken: '', telegramChatId: '',
@@ -2891,6 +2891,7 @@ function wazuhTopologyMappings() {
 function applyWazuhTopology(overview) {
   const mappings=wazuhTopologyMappings();
   const get=(id,name)=>{const m=mappings[String(id||name||'').trim()]||null;return m?{...m,dockerEnvironments:wazuhDockerContexts(m)}:null;};
+  overview.agents=(overview.agents||[]).map(x=>({...x,mapping:get(x.id,x.name)}));
   overview.byEndpoint=(overview.byEndpoint||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
   overview.vulnerabilities=(overview.vulnerabilities||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
   overview.alerts=(overview.alerts||[]).map(x=>({...x,mapping:get(x.agentId,x.agentName)}));
