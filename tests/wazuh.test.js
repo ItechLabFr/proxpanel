@@ -78,3 +78,19 @@ test('Resolved critical vulnerability emits a solved event',()=>{
 test('Demo Wazuh overview is deterministic enough for public UI fixtures',()=>{
   const o=demoWazuhOverview('24h');assert.equal(o.configured,true);assert.ok(o.summary.critical>0);assert.ok(o.vulnerabilities.some(v=>v.packageName));assert.ok(o.alerts.some(a=>a.level>=12));
 });
+
+test('Demo includes essential FIM and security category data',()=>{
+  const o=demoWazuhOverview('24h');assert.ok(o.fim.length>=1);assert.ok(o.categories.integrity>=1);assert.ok(o.categories.authentication>=1);
+});
+
+test('Sensitive FIM notification is opt-in and deduplicated',()=>{
+  const base=buildWazuhOverview({agents:[{id:'001',name:'srv01',status:'active'}],vulnerabilities:[],alerts:[],fim:[]});
+  const baseline=evaluateWazuhTransitions({},base,{notifyFim:true});
+  const withFim={...base,fim:[{key:'fim-1',timestamp:new Date().toISOString(),agentId:'001',agentName:'srv01',path:'/etc/ssh/sshd_config',event:'modified',ruleId:'550',level:10}]};
+  const disabled=evaluateWazuhTransitions(baseline.state,withFim,{notifyFim:false});
+  assert.equal(disabled.events.filter(e=>e.type==='wazuh.fim.sensitive').length,0);
+  const enabled=evaluateWazuhTransitions(baseline.state,withFim,{notifyFim:true});
+  assert.equal(enabled.events.filter(e=>e.type==='wazuh.fim.sensitive').length,1);
+  const again=evaluateWazuhTransitions(enabled.state,withFim,{notifyFim:true});
+  assert.equal(again.events.filter(e=>e.type==='wazuh.fim.sensitive').length,0);
+});
