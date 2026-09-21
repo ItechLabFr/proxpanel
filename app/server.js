@@ -3007,6 +3007,8 @@ const DISCORD_EVENT_TYPES = [
   'resources.cpu','resources.memory','temperature.warning','temperature.critical',
   'docker.portainer.unreachable','docker.engine.unreachable','docker.container.stopped','docker.container.unhealthy','docker.container.restarts',
   'docker.resources.cpu','docker.resources.memory','docker.storage.pressure','docker.stack.degraded','docker.image.update','docker.image.update.failed','docker.image.redeploy.success','docker.recovered',
+  'wazuh.integration.unreachable','wazuh.integration.recovered','wazuh.agent.disconnected','wazuh.agent.recovered',
+  'wazuh.vulnerability.critical','wazuh.vulnerability.high','wazuh.vulnerability.solved','wazuh.vulnerability.spike','wazuh.alert.important','wazuh.fim.sensitive',
   'system.update.available','pve.update.available','pve.update.security','pve.update.manual-report','system.test'
 ];
 function normalizeDiscordEvents(list) {
@@ -3051,13 +3053,14 @@ function discordEventLabel(type) {
     'resources.cpu':'CPU élevée','resources.memory':'RAM élevée','temperature.warning':'Température élevée','temperature.critical':'Température critique',
     'docker.portainer.unreachable':'Portainer inaccessible','docker.engine.unreachable':'Docker Engine inaccessible','docker.container.stopped':'Conteneur Docker arrêté','docker.container.unhealthy':'Conteneur Docker unhealthy','docker.container.restarts':'Redémarrages Docker répétés',
     'docker.resources.cpu':'CPU Docker élevée','docker.resources.memory':'RAM Docker élevée','docker.storage.pressure':'Stockage Docker sous pression','docker.stack.degraded':'Stack Docker dégradée','docker.image.update':'Mise à jour image Docker','docker.image.update.failed':'Échec mise à jour Docker','docker.image.redeploy.success':'Redeploy Docker réussi','docker.recovered':'Docker rétabli',
+    'wazuh.integration.unreachable':'Wazuh indisponible','wazuh.integration.recovered':'Wazuh rétabli','wazuh.agent.disconnected':'Agent Wazuh déconnecté','wazuh.agent.recovered':'Agent Wazuh reconnecté','wazuh.vulnerability.critical':'Nouvelle CVE critique','wazuh.vulnerability.high':'Nouvelle CVE élevée','wazuh.vulnerability.solved':'CVE résolue','wazuh.vulnerability.spike':'Hausse des CVE critiques','wazuh.alert.important':'Alerte Wazuh importante','wazuh.fim.sensitive':'Modification sensible détectée',
     'system.update.available':'Mise à jour ProxPanel disponible','pve.update.available':'Mises à jour Proxmox disponibles','pve.update.security':'Mise à jour de sécurité Proxmox','pve.update.manual-report':'Rapport manuel des mises à jour Proxmox','auth.2fa.email':'Code de secours 2FA','auth.2fa.disabled':'Double authentification désactivée','system.test':'Test système'
   };
   return labels[type] || type;
 }
 function severityLabel(severity='info') { return severity==='critical'?'CRITIQUE':severity==='warning'?'AVERTISSEMENT':'INFORMATION'; }
 function eventIcon(event={}) {
-  if(event.type==='backup.success'||event.type==='node.recovered'||event.type==='docker.recovered')return '✅';
+  if(event.type==='backup.success'||event.type==='node.recovered'||event.type==='docker.recovered'||event.type==='wazuh.integration.recovered'||event.type==='wazuh.agent.recovered'||event.type==='wazuh.vulnerability.solved')return '✅';
   if(event.type==='pve.update.security')return '🚨';
   if(event.type==='pve.update.available'||event.type==='pve.update.manual-report'||event.type==='system.update.available')return '⬆️';
   if(event.severity==='critical')return '🚨';
@@ -3091,6 +3094,16 @@ function defaultRecommendation(event={}) {
     'docker.image.update.failed':'Vérifie le registre, les logs Docker/Portainer et l’état de la stack ou du conteneur avant une nouvelle tentative.',
     'docker.image.redeploy.success':'Aucune action requise si la vérification de santé reste correcte.',
     'docker.recovered':'Aucune action requise si la ressource reste stable après récupération.',
+    'wazuh.integration.unreachable':'Vérifie le Wazuh Manager, l’Indexer, les certificats TLS, les identifiants et la connectivité depuis ProxPanel.',
+    'wazuh.integration.recovered':'Aucune action requise si les prochaines collectes Wazuh restent stables.',
+    'wazuh.agent.disconnected':'Vérifie le service Wazuh Agent, le réseau et la connectivité vers le Manager.',
+    'wazuh.agent.recovered':'Aucune action requise si l’agent reste stable.',
+    'wazuh.vulnerability.critical':'Priorise la machine concernée, vérifie la version corrigée quand elle est fournie et planifie la remédiation après validation.',
+    'wazuh.vulnerability.high':'Évalue la CVE, la machine et le paquet concernés puis planifie la remédiation selon l’exposition réelle.',
+    'wazuh.vulnerability.solved':'Confirme la stabilité lors des prochaines collectes et conserve la trace du correctif appliqué.',
+    'wazuh.vulnerability.spike':'Analyse les nouvelles CVE critiques et vérifie si une mise à jour de l’inventaire ou des flux explique la hausse.',
+    'wazuh.alert.important':'Ouvre Wazuh pour l’investigation détaillée et vérifie la machine concernée avant toute action.',
+    'wazuh.fim.sensitive':'Vérifie si la modification était attendue et ouvre Wazuh pour consulter les détails FIM complets.',
     'temperature.warning':'Surveille la charge et le refroidissement du nœud. Vérifie les ventilateurs et le flux d’air si la température continue de monter.',
     'temperature.critical':'Vérifie immédiatement le refroidissement, les ventilateurs, les dissipateurs et la charge du nœud.',
     'auth.2fa.email':'Si tu n’es pas à l’origine de cette demande, change ton mot de passe ProxPanel et contrôle les sessions actives.',
@@ -3184,6 +3197,7 @@ function redactDiagnosticText(value='') {
 function defaultMailTechnicalSource(event={}) {
   const type=String(event.type||'');
   if(type.startsWith('docker.'))return 'Docker / Portainer API';
+  if(type.startsWith('wazuh.'))return 'Wazuh Server / Indexer API';
   if(type.startsWith('pve.update.'))return 'APT / Proxmox API';
   if(type.startsWith('backup.')||type==='task.failed'||type==='task.warning'||type.startsWith('node.')||type.startsWith('storage.')||type.startsWith('resources.')||type.startsWith('temperature.'))return 'Proxmox API';
   if(type==='system.update.available')return 'ProxPanel OTA';
@@ -3233,7 +3247,7 @@ async function dockerIncidentLogExcerpt(row={}) {
 function professionalMailSubject(subject,event={}) {
   const clean=String(subject||'Notification').replace(/^ProxPanel\s*[·-]\s*/,'');
   const sev=severityLabel(event.severity||'info');
-  return `[ProxPanel] ${sev} · ${clean}`;
+  return String(event.type||'').startsWith('wazuh.') ? `[ProxPanel][Wazuh] ${sev} · ${clean}` : `[ProxPanel] ${sev} · ${clean}`;
 }
 function mailBrandLogoAttachment() {
   try {
@@ -3244,7 +3258,7 @@ function mailBrandLogoAttachment() {
 }
 function mailStatusTheme(event={}) {
   const type=String(event.type||'system.test'),severity=String(event.severity||'info');
-  if(type==='backup.success'||type==='node.recovered'||type==='docker.recovered')return {accent:'#16d49a',soft:'#eafbf5',text:'#08745a',icon:'✓'};
+  if(type==='backup.success'||type==='node.recovered'||type==='docker.recovered'||type==='wazuh.integration.recovered'||type==='wazuh.agent.recovered'||type==='wazuh.vulnerability.solved')return {accent:'#16d49a',soft:'#eafbf5',text:'#08745a',icon:'✓'};
   if(severity==='critical'||type==='pve.update.security'||type==='temperature.critical')return {accent:'#ef4444',soft:'#fff0f0',text:'#b42318',icon:'!'};
   if(severity==='warning'||type==='temperature.warning')return {accent:'#f0a429',soft:'#fff7e7',text:'#9a6700',icon:'!'};
   return {accent:'#ff7a00',soft:'#fff4e8',text:'#a84700',icon:'i'};
