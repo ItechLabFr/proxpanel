@@ -179,6 +179,7 @@ La prochaine série **1.7.2-beta.x** est centrée sur l'exploitation HomeLab mul
 - topologie Proxmox ↔ Docker ;
 - gestion guidée des mises à jour d'images ;
 - **PBS optionnel**, visible uniquement s'il est configuré ;
+- **Wazuh Security Essentials** en beta.6 : agents, alertes importantes, CVE/paquets à corriger, corrélation Proxmox/Docker et notifications sécurité Panel/e-mail/Discord détaillées ;
 - Automations 2.0 ;
 - RBAC et Audit 2.0 ;
 - Health Center 2.0.
