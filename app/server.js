@@ -383,7 +383,7 @@ function healthRuleMatches(rule,row){
 function healthNormalizeIncident(row={}){
   const state=HEALTH_STATES.has(String(row.state))?String(row.state):'active';
   return {
-    id:String(row.id||''),serverId:String(row.serverId||''),serverName:String(row.serverName||''),
+    id:String(row.id||''),serverId:String(row.serverId||''),serverName:String(row.serverName||''),sourceType:String(row.sourceType||(/^docker:/.test(String(row.serverId||''))?'docker':/^wazuh:/.test(String(row.serverId||''))?'wazuh':/^pbs:/.test(String(row.serverId||''))?'pbs':'proxmox')),sourceName:String(row.sourceName||row.serverName||''),
     code:String(row.code||''),title:String(row.title||''),detail:String(row.detail||''),target:String(row.target||''),
     severity:['critical','warning','info'].includes(String(row.severity))?String(row.severity):'warning',
     route:String(row.route||''),recommendation:String(row.recommendation||''),
@@ -429,7 +429,7 @@ function syncHealthIncidents(server, rawProblems=[]){
       healthHistoryAdd({incidentId:id,serverId,action:'detected',from:null,to:row.state,actor:'system',note:rule?'Risque accepté correspondant appliqué automatiquement.':''});
     }else{
       healthExpireState(row,nowMs);
-      row.serverName=serverName;row.code=String(problem.code||row.code);row.title=String(problem.title||row.title);
+      row.serverName=serverName;row.sourceType=String(problem.sourceType||row.sourceType||'proxmox');row.sourceName=String(problem.sourceName||row.sourceName||serverName);row.code=String(problem.code||row.code);row.title=String(problem.title||row.title);
       row.detail=String(problem.detail||row.detail);row.target=String(problem.target||row.target);row.severity=String(problem.severity||row.severity);
       row.route=String(problem.route||row.route);row.recommendation=String(problem.recommendation||row.recommendation);
       row.facts=Array.isArray(problem.facts)?problem.facts:row.facts;row.items=Array.isArray(problem.items)?problem.items:row.items;
@@ -462,11 +462,12 @@ function syncHealthIncidents(server, rawProblems=[]){
 function healthCenterSnapshot(){
   const now=Date.now(),rows=healthReadIncidents().map(r=>healthExpireState(healthNormalizeIncident(r),now));
   healthSaveIncidents(rows);
-  const summary={total:rows.length,active:0,acknowledged:0,snoozed:0,resolved:0,dismissed:0,ignored:0,critical:0,warning:0};
+  const summary={total:rows.length,active:0,acknowledged:0,snoozed:0,resolved:0,dismissed:0,ignored:0,critical:0,warning:0,sources:{proxmox:0,docker:0,wazuh:0,pbs:0}};
   for(const row of rows){
     summary[row.state]=(summary[row.state]||0)+1;
     if(row.sourcePresent&&(row.state==='active'||row.state==='acknowledged')){
       if(row.severity==='critical')summary.critical++;else if(row.severity==='warning')summary.warning++;
+      const source=String(row.sourceType||'proxmox');summary.sources[source]=(summary.sources[source]||0)+1;
     }
   }
   return {summary,incidents:rows.sort((a,b)=>String(b.lastSeenAt).localeCompare(String(a.lastSeenAt))),history:healthReadHistory().slice(0,1000),acceptedRisks:healthReadIgnoreRules()};
@@ -2224,7 +2225,7 @@ async function buildDashboardPart(server,auth,{timeframe='day',nodesFilter=[],hi
   dash.machines=(dash.machines||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.storages=(dash.storages||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.tasks=(dash.tasks||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
-  dash.problems=(dash.problems||[]).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name}));
+  dash.problems=(dash.problems||[]).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name,sourceType:'proxmox',sourceName:server.name}));
   dash.problems=syncHealthIncidents(server,dash.problems);
   return dash;
 }
@@ -3047,8 +3048,8 @@ function dockerIncidentPublic(row={}) {
   return {
     id:String(row.id||''),code:String(row.type||'docker.unknown'),title:String(row.title||'Incident Docker'),
     detail:String(row.detail||''),target:String(row.target||''),severity:String(row.severity||'warning'),
-    route:'docker',facts:Array.isArray(row.facts)?row.facts:[],firstSeen:row.firstSeen||'',lastSeen:row.lastSeen||'',
-    portainerId:row.portainerId||'',endpointId:row.endpointId||null,containerId:row.containerId||'',stackName:row.stackName||''
+    route:'docker',facts:Array.isArray(row.facts)?row.facts:[],recommendation:String(row.recommendation||''),firstSeen:row.firstSeen||'',lastSeen:row.lastSeen||'',
+    sourceType:'docker',sourceName:String(row.portainerName||'Docker / Portainer'),portainerId:row.portainerId||'',endpointId:row.endpointId||null,containerId:row.containerId||'',stackName:row.stackName||''
   };
 }
 function activeDockerAlerts() {
@@ -3290,6 +3291,7 @@ async function runDockerBackgroundAlerts(settings,now=Date.now()) {
   );
   recordDockerHistoryScopes(historyScopes,now);
   state.checkedAt=new Date(now).toISOString();saveDockerMonitorState(state);
+  syncDockerHealthCenter();
 }
 
 async function runDockerScheduledUpdateQueue(settings=getSettings(),now=Date.now()) {
@@ -3350,7 +3352,7 @@ async function pbsOverviewData(force=false){
   const key=String(item.id),cached=PBS_OVERVIEW_CACHE.get(key);
   if(!force&&cached?.value&&cached.expiresAt>Date.now())return cached.value;
   if(!force&&cached?.promise)return cached.promise;
-  const promise=(async()=>{const overview=await collectPbs(pbsRuntimeItem(item));overview.integration={id:item.id,name:item.name||'PBS',url:item.url,authMode:item.pbsAuthMode||'password'};return overview})();
+  const promise=(async()=>{const overview=await collectPbs(pbsRuntimeItem(item));overview.integration={id:item.id,name:item.name||'PBS',url:item.url,authMode:item.pbsAuthMode||'password'};syncPbsHealthCenter(item,overview,getSettings());return overview})();
   PBS_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+PBS_OVERVIEW_CACHE_MS});
   try{const value=await promise;PBS_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+PBS_OVERVIEW_CACHE_MS});return value}catch(e){PBS_OVERVIEW_CACHE.delete(key);throw e}
 }
@@ -3417,7 +3419,7 @@ async function wazuhOverviewData({period='24h',force=false}={}) {
     overview.vulnerabilities=(overview.vulnerabilities||[]).map(v=>({...v,isNew:newKeys.has(vulnerabilityKey(v))}));
     overview.summary={...(overview.summary||{}),newCritical:overview.vulnerabilities.filter(v=>v.isNew&&v.severity==='critical').length,newHigh:overview.vulnerabilities.filter(v=>v.isNew&&v.severity==='high').length};
     overview.integration={id:item.id,name:item.name||'Wazuh',url:item.url,indexerUrl:item.indexerUrl||'',dashboardUrl:item.wazuhDashboardUrl||'',alertThreshold:wazuhAlertThreshold(wazuhRuntimeItem(item))};
-    recordWazuhHistory(overview);overview.history=wazuhHistory();return overview;
+    recordWazuhHistory(overview);overview.history=wazuhHistory();syncWazuhHealthCenter(item,overview);return overview;
   })();
   WAZUH_OVERVIEW_CACHE.set(key,{promise,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});
   try{const value=await promise;WAZUH_OVERVIEW_CACHE.set(key,{value,expiresAt:Date.now()+WAZUH_OVERVIEW_CACHE_MS});return value;}catch(error){WAZUH_OVERVIEW_CACHE.delete(key);throw error;}
@@ -3432,7 +3434,7 @@ function recordWazuhPanelEvent(event={}) {
 }
 async function runWazuhBackgroundAlerts(settings=getSettings(),now=Date.now()) {
   if(DEMO_MODE)return;
-  const integrations=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='wazuh'&&x.enabled!==false);if(!integrations.length)return;
+  const integrations=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='wazuh'&&x.enabled!==false);if(!integrations.length){healthResolveMissingIntegrationSources('wazuh',[]);return;}
   const allState=jsonRead(WAZUH_STATE_FILE,{}),interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
   for(const item of integrations){
     const previous=allState[item.id]||{};if(now-Number(previous.lastPollAt||0)<interval)continue;
@@ -3440,6 +3442,7 @@ async function runWazuhBackgroundAlerts(settings=getSettings(),now=Date.now()) {
     try{overview=await collectWazuh(wazuhRuntimeItem(item),{period:'24h'});overview=applyWazuhTopology(overview);}catch(error){overview={status:'offline',errors:[{component:'collector',message:String(error.message||error)}],agents:[],vulnerabilities:[],alerts:[],summary:{critical:0,high:0,affectedEndpoints:0}};}
     const evaluated=evaluateWazuhTransitions(previous,overview,{name:item.name||'Wazuh',notifyHigh:item.wazuhNotifyHigh===true,notifyAgentOffline:item.wazuhNotifyAgentOffline!==false,notifyFim:item.wazuhNotifyFim===true});
     allState[item.id]={...evaluated.state,lastPollAt:now};
+    syncWazuhHealthCenter(item,overview);
     for(const event of evaluated.events){
       const panel=recordWazuhPanelEvent(event);
       await sendAlertChannels(settings,event.title,event.message,{...event,at:panel.at});
@@ -3448,7 +3451,121 @@ async function runWazuhBackgroundAlerts(settings=getSettings(),now=Date.now()) {
     recordWazuhHistory(overview);
   }
   jsonWrite(WAZUH_STATE_FILE,allState);
+  healthResolveMissingIntegrationSources('wazuh',integrations.map(x=>`wazuh:${x.id}`));
 }
+
+function healthResolveMissingIntegrationSources(sourceType,activeSourceIds=[]){
+  const allowed=new Set((activeSourceIds||[]).map(String)),rows=healthReadIncidents().map(healthNormalizeIncident),now=healthNow();
+  let changed=false;
+  for(const row of rows){
+    if(row.sourceType!==sourceType||allowed.has(String(row.serverId||''))||row.sourcePresent===false)continue;
+    row.sourcePresent=false;
+    if(['active','acknowledged','snoozed'].includes(row.state)){
+      const from=row.state;row.state='resolved';row.resolvedAutomatically=true;row.snoozeUntil=null;row.stateChangedAt=now;row.stateChangedBy='system';
+      healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action:'source.removed',from,to:'resolved',actor:'system',note:`${sourceType} integration no longer active.`});
+    }
+    changed=true;
+  }
+  if(changed)healthSaveIncidents(rows);
+}
+function syncDockerHealthCenter(){
+  const integrations=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='portainer'&&x.enabled!==false);
+  const alerts=activeDockerAlerts(),activeIds=[];
+  for(const item of integrations){
+    const sourceId=`docker:${item.id}`;activeIds.push(sourceId);
+    const problems=alerts.filter(x=>String(x.portainerId||'')===String(item.id)).map(x=>({...x,sourceType:'docker',sourceName:item.name||'Docker / Portainer'}));
+    syncHealthIncidents({id:sourceId,name:item.name||'Docker / Portainer'},problems);
+  }
+  healthResolveMissingIntegrationSources('docker',activeIds);
+}
+function wazuhHealthProblems(item,overview={}){
+  const out=[],sourceType='wazuh',sourceName=item.name||'Wazuh';
+  const add=(id,severity,code,title,detail,target='',extra={})=>out.push({id,severity,code,title,detail,target,route:'wazuh',sourceType,sourceName,recommendation:extra.recommendation||'',facts:extra.facts||[],items:extra.items||[]});
+  if(overview.status==='offline'){
+    add('integration-offline','critical','wazuh.integration.unreachable','Wazuh indisponible',`${sourceName} ne répond plus à ProxPanel.`,sourceName,{recommendation:'Vérifie le Manager, l’Indexer, les URL/certificats et la connectivité depuis ProxPanel.',facts:(overview.errors||[]).slice(0,8).map(e=>({label:e.component||'Erreur',value:e.message||String(e)}))});
+    return out;
+  }
+  if(overview.status==='degraded'){
+    add('integration-degraded','warning','wazuh.integration.degraded','Wazuh partiellement disponible',`${sourceName} répond mais certains composants sont dégradés.`,sourceName,{recommendation:'Contrôle le Manager et l’Indexer Wazuh avant de considérer la supervision complète.',facts:(overview.errors||[]).slice(0,8).map(e=>({label:e.component||'Erreur',value:e.message||String(e)}))});
+  }
+  for(const agent of (overview.agents||[]).filter(a=>String(a.status||'').toLowerCase()!=='active').slice(0,250)){
+    const target=agent.name||agent.id||'Agent Wazuh';
+    add(`agent:${agent.id||target}`,'warning','wazuh.agent.disconnected','Agent Wazuh déconnecté',`${target} n’est pas actif dans Wazuh.`,target,{recommendation:'Vérifie le service wazuh-agent, le réseau et la dernière remontée de cet endpoint.',facts:[{label:'Agent',value:String(agent.id||'—')},{label:'IP',value:String(agent.ip||'—')},{label:'État',value:String(agent.status||'inconnu')},{label:'Dernier keepalive',value:String(agent.lastKeepAlive||'—')}]});
+  }
+  const groups=new Map();
+  for(const v of (overview.vulnerabilities||[]).filter(v=>v.active!==false&&['critical','high'].includes(String(v.severity||'').toLowerCase()))){
+    const key=`${v.id||'CVE'}|${v.packageName||'package'}`;
+    if(!groups.has(key))groups.set(key,{severity:String(v.severity||'high').toLowerCase(),id:v.id||'CVE',packageName:v.packageName||'Logiciel non renseigné',score:v.score,fixedVersion:v.fixedVersion||'',rows:[]});
+    const g=groups.get(key);if(v.severity==='critical')g.severity='critical';if(Number(v.score||0)>Number(g.score||0))g.score=v.score;if(v.fixedVersion)g.fixedVersion=v.fixedVersion;g.rows.push(v);
+  }
+  const grouped=[...groups.values()].sort((a,b)=>(a.severity==='critical'?0:1)-(b.severity==='critical'?0:1)||Number(b.score||0)-Number(a.score||0));
+  for(const g of grouped.slice(0,250)){
+    const machines=[...new Set(g.rows.map(v=>v.agentName||v.agentId||'Endpoint'))];
+    add(`cve:${g.id}:${g.packageName}`,g.severity,g.severity==='critical'?'wazuh.vulnerability.critical':'wazuh.vulnerability.high',`${g.id} · ${g.packageName}`,`${machines.length} machine(s) concernée(s) par une vulnérabilité ${g.severity==='critical'?'critique':'élevée'}.`,`${g.id} · ${g.packageName}`,{
+      recommendation:g.fixedVersion?`Met à jour ${g.packageName} vers ${g.fixedVersion} ou une version corrigée, puis vérifie la disparition de la CVE dans Wazuh.`:'Consulte Wazuh et le bulletin CVE pour identifier la version corrigée avant remédiation.',
+      facts:[{label:'CVE',value:g.id},{label:'Paquet / logiciel',value:g.packageName},{label:'CVSS',value:g.score==null?'N/D':String(g.score)},{label:'Version corrigée',value:g.fixedVersion||'N/D'},{label:'Machines',value:machines.slice(0,20).join(', ')+(machines.length>20?` +${machines.length-20}`:'')}],
+      items:g.rows.slice(0,50).map(v=>({label:v.agentName||v.agentId||'Endpoint',meta:[v.packageVersion?`installé ${v.packageVersion}`:'',v.os||'',v.agentIp||''].filter(Boolean).join(' · ')}))
+    });
+  }
+  if(grouped.length>250)add('cve-overflow','warning','wazuh.vulnerability.volume','Volume important de vulnérabilités',`${grouped.length} groupes CVE/logiciel actifs ; les 250 plus prioritaires sont détaillés dans le Health Center.`,sourceName,{recommendation:'Utilise la page Wazuh pour traiter l’inventaire complet des vulnérabilités.'});
+  const threshold=Math.max(1,Number(item.wazuhAlertLevel||12));
+  for(const alert of (overview.alerts||[]).filter(a=>Number(a.level||0)>=threshold).slice(0,100)){
+    const target=alert.agentName||alert.agentId||sourceName,severity=Number(alert.level||0)>=15?'critical':'warning';
+    add(`alert:${alert.key}`,severity,'wazuh.alert.important',alert.description||'Alerte Wazuh importante',`${target} · règle ${alert.ruleId||'Wazuh'} · niveau ${Number(alert.level||0)}.`,target,{recommendation:'Ouvre Wazuh pour l’investigation détaillée et vérifie la machine concernée avant toute action.',facts:[{label:'Rule ID',value:String(alert.ruleId||'—')},{label:'Niveau',value:String(alert.level||0)},{label:'MITRE',value:(alert.mitreIds||[]).join(', ')||'—'},{label:'Date',value:String(alert.timestamp||'—')}]});
+  }
+  if(item.wazuhNotifyFim===true){
+    const sensitive=/^(?:\/etc\/(?:ssh|sudoers(?:\.d)?|pam\.d|systemd|security|passwd|shadow|group)|[A-Za-z]:\\Windows\\System32\\|[A-Za-z]:\\ProgramData\\)/i;
+    for(const fim of (overview.fim||[]).filter(f=>sensitive.test(String(f.path||''))).slice(0,100)){
+      const target=fim.agentName||fim.agentId||sourceName;
+      add(`fim:${fim.key}`,Number(fim.level||0)>=12?'critical':'warning','wazuh.fim.sensitive','Modification sensible détectée par Wazuh',`${target} · ${fim.event||'modification'} · ${fim.path||'chemin non renseigné'}.`,target,{recommendation:'Vérifie si cette modification était attendue puis ouvre Wazuh pour consulter le détail FIM complet.',facts:[{label:'Chemin',value:fim.path||'—'},{label:'Action',value:fim.event||'—'},{label:'Règle',value:fim.ruleId||'—'},{label:'Niveau',value:String(fim.level||0)}]});
+    }
+  }
+  return out;
+}
+function syncWazuhHealthCenter(item,overview){
+  const sourceId=`wazuh:${item.id}`;
+  return syncHealthIncidents({id:sourceId,name:item.name||'Wazuh'},wazuhHealthProblems(item,overview));
+}
+function pbsHealthProblems(item,overview={},settings=getSettings()){
+  const out=[],sourceType='pbs',sourceName=item.name||'Proxmox Backup Server',t=settings.thresholds||{};
+  const add=(id,severity,code,title,detail,target='',extra={})=>out.push({id,severity,code,title,detail,target,route:'pbs',sourceType,sourceName,recommendation:extra.recommendation||'',facts:extra.facts||[],items:extra.items||[]});
+  if(overview.status==='offline'){
+    add('integration-offline','critical','pbs.integration.unreachable','PBS inaccessible',`${sourceName} ne répond plus à ProxPanel.`,sourceName,{recommendation:'Vérifie PBS, le réseau, le certificat TLS et les identifiants de l’intégration.',facts:(overview.errors||[]).slice(0,8).map(e=>({label:e.component||'Erreur',value:e.message||String(e)}))});
+    return out;
+  }
+  if(overview.status==='degraded')add('integration-degraded','warning','pbs.integration.degraded','PBS partiellement disponible',`${sourceName} répond mais certaines données PBS sont incomplètes.`,sourceName,{recommendation:'Vérifie les erreurs remontées par l’API PBS.',facts:(overview.errors||[]).slice(0,8).map(e=>({label:e.component||'Erreur',value:e.message||String(e)}))});
+  for(const ds of overview.datastores||[]){
+    const pct=Number(ds.usagePct||0);
+    if(pct>=Number(t.storageCritical||95))add(`storage:${ds.store}`,'critical','pbs.storage.critical','Datastore PBS critique',`${ds.store} utilise ${pct.toFixed(1)} % de sa capacité.`,ds.store,{recommendation:'Libère de l’espace, applique la rétention/prune ou augmente la capacité du datastore PBS.',facts:[{label:'Utilisation',value:`${pct.toFixed(1)} %`},{label:'Total',value:String(ds.total||0)},{label:'Disponible',value:String(ds.avail||0)}]});
+    else if(pct>=Number(t.storageWarning||85))add(`storage:${ds.store}`,'warning','pbs.storage.warning','Datastore PBS presque plein',`${ds.store} utilise ${pct.toFixed(1)} % de sa capacité.`,ds.store,{recommendation:'Contrôle la croissance, la rétention et les tâches prune/GC avant le seuil critique.',facts:[{label:'Utilisation',value:`${pct.toFixed(1)} %`},{label:'Total',value:String(ds.total||0)},{label:'Disponible',value:String(ds.avail||0)}]});
+  }
+  const cutoff=Math.floor(Date.now()/1000)-24*60*60;
+  for(const task of (overview.tasks||[]).filter(x=>/ERROR|FAILED/i.test(String(x.status||''))&&Number(x.endTime||x.startTime||0)>=cutoff).slice(0,100)){
+    const id=String(task.upid||`${task.workerType||'task'}:${task.workerId||task.startTime||''}`);
+    add(`task:${id}`,'critical','pbs.task.failed','Tâche PBS échouée',`${task.workerType||'Tâche PBS'} ${task.workerId||''} s’est terminée en erreur.`,task.workerId||sourceName,{recommendation:'Ouvre PBS et consulte le log de la tâche avant de relancer l’opération.',facts:[{label:'Type',value:String(task.workerType||'—')},{label:'Cible',value:String(task.workerId||'—')},{label:'Statut',value:String(task.status||'ERROR')},{label:'Utilisateur',value:String(task.user||'—')}]});
+  }
+  for(const snap of (overview.latestByGuest||[]).filter(x=>/fail|error|bad/i.test(String(x.verification||''))).slice(0,100)){
+    add(`verify:${snap.guest||snap.snapshot}`,'critical','pbs.verification.failed','Vérification PBS en échec',`${snap.guest||snap.snapshot||'Une sauvegarde'} a un état de vérification en erreur.`,snap.guest||snap.store||sourceName,{recommendation:'Relance une vérification PBS et contrôle le stockage sous-jacent si l’échec persiste.',facts:[{label:'Datastore',value:String(snap.store||'—')},{label:'Snapshot',value:String(snap.snapshot||'—')},{label:'Vérification',value:String(snap.verification||'error')}]});
+  }
+  return out;
+}
+function syncPbsHealthCenter(item,overview,settings=getSettings()){
+  const sourceId=`pbs:${item.id}`;
+  return syncHealthIncidents({id:sourceId,name:item.name||'Proxmox Backup Server'},pbsHealthProblems(item,overview,settings));
+}
+async function runPbsHealthCenter(settings=getSettings()){
+  if(DEMO_MODE)return;
+  const integrations=jsonRead(INTEGRATIONS_FILE,[]).filter(x=>x.type==='pbs'&&x.enabled!==false),activeIds=[];
+  for(const item of integrations){
+    const sourceId=`pbs:${item.id}`;activeIds.push(sourceId);
+    let overview;
+    try{overview=await collectPbs(pbsRuntimeItem(item));overview.integration={id:item.id,name:item.name||'PBS',url:item.url};}
+    catch(error){overview={configured:true,status:'offline',errors:[{component:'collector',message:String(error.message||error)}],datastores:[],tasks:[],latestByGuest:[],summary:{}};}
+    syncPbsHealthCenter(item,overview,settings);
+  }
+  healthResolveMissingIntegrationSources('pbs',activeIds);
+}
+
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
@@ -5249,7 +5366,7 @@ async function handleApi(req, res, url) {
       return sendJson(res,200,{ok:true,current:row.nonce===session.nonce});
     }catch(e){return sendJson(res,404,{error:e.message});}
   }
-  if (url.pathname === '/api/health-center' && req.method === 'GET') return sendJson(res,200,healthCenterSnapshot());
+  if (url.pathname === '/api/health-center' && req.method === 'GET') { try{syncDockerHealthCenter();}catch{} return sendJson(res,200,healthCenterSnapshot()); }
   if (url.pathname === '/api/health-center/bulk' && req.method === 'POST') {
     try{
       const body=await readBody(req),rows=healthApplyAction(body.ids, String(body.action||''), {actor:currentPanelUser?.username||'system',note:body.note,until:body.until,minutes:body.minutes,scope:body.scope});
@@ -5582,7 +5699,7 @@ async function handleApi(req, res, url) {
       await enrichNodeTemperatures(server,auth,dashboard);
       await enrichNodeHardware(server,auth,dashboard);
       const settings = getSettings();
-      dashboard.problems = computeProblems(dashboard, settings).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name}));
+      dashboard.problems = computeProblems(dashboard, settings).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name,sourceType:'proxmox',sourceName:server.name}));
       dashboard.problems = syncHealthIncidents(server,dashboard.problems);
       dashboard.capacity = getCapacityForecast(server.id);
       recordMetrics(server.id, dashboard);
@@ -6254,13 +6371,14 @@ async function runBackgroundAlerts() {
   const interval=Math.max(1,Number(settings.alerts?.pollMinutes||5))*60000;
   try{await runDockerBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.docker.poll','Docker',{error:e.message},'error');}
   try{await runWazuhBackgroundAlerts(settings,now);}catch(e){addAuditSystem('alerts.wazuh.poll','Wazuh',{error:e.message},'error');}
+  try{await runPbsHealthCenter(settings);}catch(e){addAuditSystem('alerts.pbs.poll','PBS',{error:e.message},'error');}
   const alertState=jsonRead(ALERT_STATE_FILE,{}); let changed=false;
   for(const server of jsonRead(SERVERS_FILE,[])) {
     if(!(server.passwordEnc||server.apiTokenSecretEnc))continue;
     if(now-Number(BACKGROUND_POLL_STATE.get(server.id)||0)<interval)continue;
     BACKGROUND_POLL_STATE.set(server.id,now);
     try {
-      const auth=await proxmoxLogin(server); const dashboard=await buildBackgroundDashboard(server,auth); const computedProblems=listAlertsForDashboard(dashboard,settings).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name})); const rawProblems=syncHealthIncidents(server,computedProblems);
+      const auth=await proxmoxLogin(server); const dashboard=await buildBackgroundDashboard(server,auth); const computedProblems=listAlertsForDashboard(dashboard,settings).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name,sourceType:'proxmox',sourceName:server.name})); const rawProblems=syncHealthIncidents(server,computedProblems);
       const previousState=alertState[server.id]||{};
       const previousProblems=Array.isArray(previousState.problems)?previousState.problems:[];
       const missingConfirmations={...(previousState.backupMissingConfirmations||{})};
