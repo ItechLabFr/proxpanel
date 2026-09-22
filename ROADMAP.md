@@ -4,7 +4,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.7**
+- Latest published development release: **1.7.2-beta.8.3**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
 - Official Docker image architectures: **`linux/amd64` + `linux/arm64`** (Raspberry Pi 64-bit supported).
@@ -725,23 +725,130 @@ Current roles/permissions become scope-aware.
 
 ---
 
-## 1.7.2-beta.9 — Health Center 2.0 & Polish
+## 1.7.2-beta.9 — Health Center 2.0, Warning Lifecycle & Polish
 
-Replace the simple problem list with a real incident workflow.
+Status: **planned**.
 
-- Incident start time.
-- Last check.
-- Detection source/evidence.
-- Current state.
-- Acknowledge.
-- Snooze for a defined period.
+Replace the simple problem list with a real incident workflow and make warnings actionable instead of leaving a permanently growing list.
+
+### Incident lifecycle
+
+Every problem/warning receives an explicit state:
+
+- **New** — newly detected and not reviewed.
+- **Acknowledged** — an administrator has seen and accepted ownership of the incident.
+- **Snoozed** — hidden from active attention until a chosen date/time.
+- **Resolved** — manually or automatically marked as resolved.
+- **Dismissed** — removed from the active view while keeping an audit/history entry.
+- **Ignored / accepted risk** — intentionally excluded from active warnings until the rule is re-enabled.
+
+For each state, keep:
+
+- incident start time;
+- last check;
+- detection source/evidence;
+- current state;
+- actor who changed the state;
+- date/time of the action;
+- optional comment/reason;
+- automatic recovery state and recovery notification;
+- full incident history.
+
+### Warning actions
+
+From the warning list and incident details, add:
+
+- **Validate / acknowledge**;
+- **Mark as resolved**;
+- **Clear from active view**;
+- **Snooze** for a duration or until a date/time;
+- **Ignore / accept risk** for persistent expected conditions;
+- **Reopen** a resolved/dismissed incident;
+- **Restore ignored warning**;
+- bulk selection and bulk actions.
+
+Important behavior:
+
+- ProxPanel must never delete the original Proxmox/Portainer/PBS/Wazuh source event.
+- “Clear” only removes the incident from the active Health Center view; it remains in history/audit.
+- If the underlying condition is still present after a clear/resolve, ProxPanel may reopen the incident according to its rule/cooldown.
+- Acknowledging a warning must never change infrastructure state by itself.
+- Every manual action is audited.
+
+### Expected-condition exclusions
+
+Some warnings are legitimate by design, especially **Machine non protégée**.
+
+Allow scoped exclusions:
+
+- specific VM/LXC;
+- Proxmox tag/group;
+- specific warning rule;
+- server/node scope when relevant;
+- optional expiry date;
+- required reason/comment.
+
+Example:
+
+```text
+LAB-WAZHU (100)
+Machine non protégée
+
+[Valider] [Résoudre] [Snooze] [Ignorer ce VM] [Détails]
+```
+
+An ignored VM must not disappear silently: show it in a dedicated **Ignored / accepted risks** view.
+
+### Health Center workflow
+
+- Active incidents grouped by severity and source.
+- Separate views:
+  - Active;
+  - Acknowledged;
+  - Snoozed;
+  - Resolved;
+  - Ignored / accepted risks;
+  - History.
+- Incident counters by severity and state.
+- Search and filters by:
+  - source;
+  - server;
+  - node;
+  - VM/LXC/container;
+  - warning type;
+  - severity;
+  - state;
+  - date.
+- “Select all” and bulk acknowledge/resolve/snooze/dismiss.
 - Maintenance suppression.
-- Cooldown.
-- Recovery state and recovery notification.
-- Incident history.
-- Correlate related Proxmox, backup and Docker events.
+- Cooldown and duplicate suppression.
+- Correlate related Proxmox, backup, Docker, PBS and Wazuh events.
 - Improve cluster health explanations.
-- Final responsive and Light/Dark pass for 1.7.2 features.
+- Recovery notifications only when the incident was previously active.
+- Do not recreate duplicate incidents at every refresh.
+
+### UX / polish
+
+- Replace the current flat “Problèmes à corriger” list with a real Health Center.
+- Quick actions available without opening every detail page.
+- Clear distinction between:
+  - real active problem;
+  - acknowledged problem;
+  - accepted risk;
+  - historical/resolved problem.
+- Keep destructive infrastructure actions separate from warning-management actions.
+- Responsive desktop/tablet/mobile/PWA.
+- Final Light/Dark theme pass for 1.7.2 features.
+
+### Acceptance criteria
+
+- A user can acknowledge, snooze, resolve, dismiss or ignore a warning without deleting the source event.
+- A persistent unresolved condition can re-open after being manually cleared.
+- Accepted-risk exclusions survive application restarts.
+- Every warning state change is present in audit/history.
+- Bulk actions work on several incidents.
+- “Machine non protégée” can be intentionally excluded per VM/LXC without disabling backup monitoring globally.
+- Health Center remains usable on mobile and with dozens/hundreds of incidents.
 
 ---
 
