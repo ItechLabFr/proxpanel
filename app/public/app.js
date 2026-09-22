@@ -614,7 +614,6 @@ function healthWidget(x,h){
 function overviewPage(){return requireData(()=>{
   const x=d(),m=x.metrics||{},h=x.health||{},layout=dashboardLayout(),hidden=new Set(layout.hidden||[]),allWidgets=state.settings?.dashboardWidgets||Object.keys(DASHBOARD_WIDGET_META),widgets=allWidgets.filter(k=>!hidden.has(k));
   const unifiedProblems=(state.healthCenter?.incidents||[]).filter(p=>p.sourcePresent!==false&&['active','acknowledged'].includes(p.state));const dashboardProblems=state.healthCenter?unifiedProblems:(x.problems||[]);
-  const unifiedProblems=(state.healthCenter?.incidents||[]).filter(p=>p.sourcePresent!==false&&['active','acknowledged'].includes(p.state));const dashboardProblems=state.healthCenter?unifiedProblems:(x.problems||[]);
   const cpuTone=Number(m.cpu||0)>=Number(state.settings?.thresholds?.cpuWarning||85)?'warning':'',memTone=Number(m.memoryPct||0)>=Number(state.settings?.thresholds?.memoryWarning||85)?'warning':'',storeTone=Number(m.storagePct||0)>=Number(state.settings?.thresholds?.storageCritical||95)?'danger':Number(m.storagePct||0)>=Number(state.settings?.thresholds?.storageWarning||85)?'warning':'';
   const map={
     cpu:()=>metricWidget('cpu','▦ Processeur',fmtPct(m.cpu),`${m.cores||0} cœurs physiques · ${m.allocatedCores||0} vCPU alloués`,'var(--orange)',x.history.cpu,m.cpu,'pct',cpuTone),
