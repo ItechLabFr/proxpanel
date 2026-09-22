@@ -734,7 +734,7 @@ function healthIncidentRow(row){
 }
 function healthHistoryView(rows){
   if(!rows?.length)return '<div class="empty-inline">Aucun événement dans l’historique.</div>';
-  return `<div class="health-history-list">${rows.slice(0,500).map(h=>`<div class="health-history-row"><time>${fmtDate(h.at)}</time><div><strong>${esc(h.action||'action')}</strong><small>${esc(h.incidentId||'')}${h.actor?` · ${esc(h.actor)}`:''}${h.note?` · ${esc(h.note)}`:''}</small></div>${h.to?badge(healthStateLabel(h.to),healthStateTone(h.to)):''}</div>`).join('')}</div>`;
+  return `<div class="health-history-list">${rows.slice(0,500).map(h=>`<div class="health-history-row"><time>${fmtDate(h.at)}</time><div><div class="health-history-title"><strong>${esc(h.action||'action')}</strong>${badge(healthSourceLabel(h.sourceType||'proxmox'),healthSourceTone(h.sourceType||'proxmox'))}</div><small>${esc(h.sourceName||'')}${h.sourceName?' · ':''}${esc(h.incidentId||'')}${h.actor?` · ${esc(h.actor)}`:''}${h.note?` · ${esc(h.note)}`:''}</small></div>${h.to?badge(healthStateLabel(h.to),healthStateTone(h.to)):''}</div>`).join('')}</div>`;
 }
 function problemsPage(){
   return requireData(()=>{
