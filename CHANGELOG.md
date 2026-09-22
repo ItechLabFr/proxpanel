@@ -1,3 +1,19 @@
+# ProxPanel 1.7.2-beta.8.1
+
+## Français
+- Correctif critique OTA pour les installations LXC Debian 13.
+- Suppression de la dépendance obligatoire à `busybox unzip`.
+- Utilisation de `unzip` natif avec fallback BusyBox.
+- Correction de la lecture de `release.json`, de l’extraction OTA et des packages complets.
+- Messages d’erreur ZIP plus explicites.
+
+## English
+- Critical OTA fix for native Debian 13 LXC installations.
+- Removed the hard dependency on `busybox unzip`.
+- Uses native `unzip` with BusyBox fallback.
+- Fixed release.json reading, OTA extraction and full-package extraction.
+- More explicit ZIP extraction errors.
+
 # ProxPanel 1.7.2-beta.8
 
 ## Français
