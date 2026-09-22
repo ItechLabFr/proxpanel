@@ -98,6 +98,7 @@ const INTEGRATIONS_FILE = path.join(DATA_DIR, 'integrations.json');
 const DEPENDENCIES_FILE = path.join(DATA_DIR, 'dependencies.json');
 const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const PANEL_SESSIONS_FILE = path.join(DATA_DIR, 'panel-sessions.json');
 const DASHBOARD_GROUPS_FILE = path.join(DATA_DIR, 'dashboard-groups.json');
 const RESTORE_TESTS_FILE = path.join(DATA_DIR, 'restore-tests.json');
 const METRICS_FILE = path.join(DATA_DIR, 'metrics-history.json');
@@ -316,6 +317,40 @@ function addAuditSystem(action, target = '', details = {}, result = 'ok') {
   const rows = jsonRead(AUDIT_FILE, []);
   rows.unshift({ id: crypto.randomUUID(), at: new Date().toISOString(), user: 'system', ip: '', action, target, result, details });
   jsonWrite(AUDIT_FILE, rows.slice(0, 2000));
+}
+
+function auditFilteredRows(url){
+  const q=String(url?.searchParams?.get('q')||'').trim().toLowerCase();
+  const user=String(url?.searchParams?.get('user')||'').trim().toLowerCase();
+  const action=String(url?.searchParams?.get('action')||'').trim().toLowerCase();
+  const result=String(url?.searchParams?.get('result')||'').trim().toLowerCase();
+  const fromRaw=String(url?.searchParams?.get('from')||'').trim(),toRaw=String(url?.searchParams?.get('to')||'').trim();
+  const from=fromRaw?new Date(fromRaw).getTime():NaN,to=toRaw?new Date(toRaw).getTime():NaN;
+  const limit=Math.max(1,Math.min(5000,Number(url?.searchParams?.get('limit')||1000)));
+  return (jsonRead(AUDIT_FILE,[])||[]).filter(row=>{
+    const at=new Date(row.at||0).getTime();
+    if(Number.isFinite(from)&&at<from)return false;
+    if(Number.isFinite(to)&&at>to)return false;
+    if(user&&String(row.user||'').toLowerCase()!==user)return false;
+    if(result&&String(row.result||'').toLowerCase()!==result)return false;
+    if(action&&!String(row.action||'').toLowerCase().includes(action))return false;
+    if(q){
+      let details='';try{details=JSON.stringify(row.details||{})}catch{}
+      const hay=[row.user,row.ip,row.action,row.target,row.result,details].map(x=>String(x||'').toLowerCase()).join(' ');
+      if(!hay.includes(q))return false;
+    }
+    return true;
+  }).slice(0,limit);
+}
+function csvCell(value){
+  const raw=typeof value==='string'?value:JSON.stringify(value??'');
+  return '"'+String(raw).replace(/"/g,'""')+'"';
+}
+function auditCsv(rows){
+  const head=['date','user','ip','action','target','result','details'];
+  return [head.map(csvCell).join(','),...(rows||[]).map(row=>[
+    row.at,row.user,row.ip,row.action,row.target,row.result,row.details||{}
+  ].map(csvCell).join(','))].join('\n');
 }
 
 const HEALTH_STATES = new Set(['active','acknowledged','snoozed','resolved','dismissed','ignored']);
@@ -919,6 +954,52 @@ function parseCookies(req) {
 }
 function base64url(input) { return Buffer.from(input).toString('base64url'); }
 function signSessionPayload(payload) { return crypto.createHmac('sha256', MASTER_KEY).update(payload).digest('base64url'); }
+function panelSessionRows(){
+  const now=Date.now(),rows=jsonRead(PANEL_SESSIONS_FILE,[]);
+  const clean=(Array.isArray(rows)?rows:[]).filter(x=>Number(x.expires||0)>now||x.revokedAt);
+  if(clean.length!==(Array.isArray(rows)?rows.length:0))jsonWrite(PANEL_SESSIONS_FILE,clean.slice(0,2000));
+  return clean;
+}
+function savePanelSessionRows(rows){jsonWrite(PANEL_SESSIONS_FILE,(rows||[]).slice(0,2000));}
+function publicPanelSession(row,currentNonce=''){
+  return {
+    nonce:String(row.nonce||''),userId:String(row.userId||''),username:String(row.username||''),
+    issued:Number(row.issued||0),expires:Number(row.expires||0),lastSeen:Number(row.lastSeen||row.issued||0),
+    ip:String(row.ip||''),userAgent:String(row.userAgent||''),revokedAt:row.revokedAt||null,
+    revokedBy:String(row.revokedBy||''),current:String(row.nonce||'')===String(currentNonce||'')
+  };
+}
+function registerPanelSession(data,req){
+  const rows=panelSessionRows(),idx=rows.findIndex(x=>x.nonce===data.nonce),now=Date.now();
+  const next={
+    nonce:data.nonce,userId:data.userId||'',username:data.username||'',issued:Number(data.issued||now),
+    expires:Number(data.expires||now+SESSION_TTL_MS),lastSeen:now,ip:clientIp(req),
+    userAgent:String(req?.headers?.['user-agent']||'').slice(0,300),revokedAt:null,revokedBy:''
+  };
+  if(idx>=0){
+    if(rows[idx].revokedAt)return rows[idx];
+    rows[idx]={...rows[idx],...next};
+  }else rows.unshift(next);
+  savePanelSessionRows(rows);return idx>=0?rows[idx]:next;
+}
+function touchPanelSession(data,req){
+  const rows=panelSessionRows(),idx=rows.findIndex(x=>x.nonce===data.nonce),now=Date.now();
+  if(idx<0)return registerPanelSession(data,req);
+  const row=rows[idx];
+  if(row.revokedAt)return row;
+  if(now-Number(row.lastSeen||0)>60000){
+    row.lastSeen=now;row.ip=clientIp(req)||row.ip;row.userAgent=String(req?.headers?.['user-agent']||row.userAgent||'').slice(0,300);
+    rows[idx]=row;savePanelSessionRows(rows);
+  }
+  return row;
+}
+function revokePanelSession(nonce,actor='system'){
+  const rows=panelSessionRows(),idx=rows.findIndex(x=>x.nonce===nonce);
+  if(idx<0)throw new Error('Session introuvable.');
+  rows[idx].revokedAt=new Date().toISOString();rows[idx].revokedBy=actor;savePanelSessionRows(rows);
+  for(const key of [...PVE_USER_SESSIONS.keys()])if(key.startsWith(`${nonce}:`))PVE_USER_SESSIONS.delete(key);
+  return rows[idx];
+}
 function getSession(req) {
   const token = parseCookies(req).proxpanel_session;
   if (!token || !token.includes('.')) return null;
@@ -931,6 +1012,8 @@ function getSession(req) {
     if (!data?.username || Number(data.expires || 0) < Date.now()) return null;
     const user=panelUsers().find(u=>u.id===data.userId||u.username===data.username);
     if(!user||user.active===false)return null;
+    const registry=touchPanelSession({...data,userId:user.id},req);
+    if(registry?.revokedAt)return null;
     return {...data,userId:user.id,role:user.role||'viewer',permissions:Array.isArray(user.permissions)?user.permissions:defaultPermissionsForRole(user.role)};
   } catch { return null; }
 }
@@ -939,8 +1022,10 @@ function setSession(req,res,user) {
   const userId=typeof user==='object'?user.id:'';
   const role=typeof user==='object'?(user.role||'viewer'):'viewer';
   const permissions=typeof user==='object'?(user.permissions||defaultPermissionsForRole(role)):defaultPermissionsForRole(role);
-  const payload = base64url(JSON.stringify({ username,userId,role,permissions,issued:Date.now(),expires: Date.now() + SESSION_TTL_MS, nonce: crypto.randomBytes(12).toString('hex') }));
+  const sessionData={ username,userId,role,permissions,issued:Date.now(),expires:Date.now()+SESSION_TTL_MS,nonce:crypto.randomBytes(12).toString('hex') };
+  const payload = base64url(JSON.stringify(sessionData));
   const token = `${payload}.${signSessionPayload(payload)}`;
+  registerPanelSession(sessionData,req);
   const secure=String(req.headers['x-forwarded-proto']||'').split(',')[0].trim()==='https'||!!req.socket?.encrypted;
   res.setHeader('Set-Cookie', `proxpanel_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS/1000)}${secure?'; Secure':''}`);
 }
@@ -5134,7 +5219,31 @@ async function handleApi(req, res, url) {
     if(req.method==='PUT'&&!discordChannelMatch[2]){const body=await readBody(req);if(body.name!==undefined)row.name=String(body.name||'').trim()||row.name;if(body.enabled!==undefined)row.enabled=!!body.enabled;if(body.events!==undefined)row.events=normalizeDiscordEvents(body.events);if(body.webhook&&body.webhook!=='••••••••'){const hook=String(body.webhook).trim();if(!/^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\//i.test(hook))return sendJson(res,400,{error:'Webhook Discord invalide.'});row.webhookEnc=encryptText(hook);delete row.webhook;}saveSettings(settings);audit(req,'discord-channel.update',row.name,{events:row.events,enabled:row.enabled});return sendJson(res,200,redactDiscordChannel(row));}
     if(req.method==='POST'&&discordChannelMatch[2]==='test'){try{const hook=row.webhookEnc?decryptText(row.webhookEnc):String(row.webhook||'');if(!hook)throw new Error('Webhook absent.');await postWebhook(hook,{username:'ProxPanel BETA',allowed_mentions:{parse:[]},embeds:[{author:{name:'ProxPanel BETA · Supervision Proxmox'},title:'✅ Test de notification réussi',description:`> Le salon **${row.name}** est correctement configuré et peut recevoir les alertes ProxPanel.`,color:0x16d49a,fields:[{name:'📌 Statut',value:'**OPÉRATIONNEL**',inline:true},{name:'🔔 Canal',value:String(row.name||'Discord'),inline:true},{name:'🧪 Type',value:'Test manuel',inline:true}],timestamp:new Date().toISOString(),footer:{text:'ProxPanel BETA • Test Discord • Aucun incident'}}]});audit(req,'discord-channel.test',row.name);return sendJson(res,200,{ok:true});}catch(e){return sendJson(res,502,{error:e.message});}}
   }
-  if (url.pathname === '/api/audit' && req.method === 'GET') return sendJson(res, 200, jsonRead(AUDIT_FILE, []).slice(0, 1000));
+  if (url.pathname === '/api/audit' && req.method === 'GET') return sendJson(res,200,auditFilteredRows(url));
+  if (url.pathname === '/api/audit/export' && req.method === 'GET') {
+    const rows=auditFilteredRows(url),format=String(url.searchParams.get('format')||'csv').toLowerCase();
+    if(format==='json'){
+      const payload=JSON.stringify(rows,null,2);
+      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':'attachment; filename="proxpanel-audit.json"','Cache-Control':'no-store'});
+      return res.end(payload);
+    }
+    const payload=auditCsv(rows);
+    res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="proxpanel-audit.csv"','Cache-Control':'no-store'});
+    return res.end(payload);
+  }
+  if (url.pathname === '/api/sessions' && req.method === 'GET') {
+    if(!userHasPermission(currentPanelUser,'*')&&!userHasPermission(currentPanelUser,'admin.users'))return sendJson(res,403,{error:'Permission utilisateurs requise.'});
+    return sendJson(res,200,panelSessionRows().filter(x=>!x.revokedAt&&Number(x.expires||0)>Date.now()).map(x=>publicPanelSession(x,session.nonce)));
+  }
+  const panelSessionMatch=url.pathname.match(/^\/api\/sessions\/([A-Za-z0-9]+)$/);
+  if(panelSessionMatch&&req.method==='DELETE'){
+    if(!userHasPermission(currentPanelUser,'*')&&!userHasPermission(currentPanelUser,'admin.users'))return sendJson(res,403,{error:'Permission utilisateurs requise.'});
+    try{
+      const row=revokePanelSession(panelSessionMatch[1],currentPanelUser?.username||'system');
+      audit(req,'session.revoke',row.username,{nonce:row.nonce,current:row.nonce===session.nonce});
+      return sendJson(res,200,{ok:true,current:row.nonce===session.nonce});
+    }catch(e){return sendJson(res,404,{error:e.message});}
+  }
   if (url.pathname === '/api/health-center' && req.method === 'GET') return sendJson(res,200,healthCenterSnapshot());
   if (url.pathname === '/api/health-center/bulk' && req.method === 'POST') {
     try{
