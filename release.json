@@ -1,45 +1,41 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.8.2",
-  "title": "ProxPanel 1.7.2-beta.8.2 — CPU Model + Update UI Hotfix",
-  "title_en": "ProxPanel 1.7.2-beta.8.2 — CPU Model + Update UI Hotfix",
-  "summary": "Correctif de la détection du modèle CPU des nœuds Proxmox et refonte des sélecteurs ZIP de secours dans Administration → Mises à jour.",
-  "summary_en": "Hotfix for Proxmox node CPU model discovery and redesigned manual ZIP selectors in Administration → Updates.",
+  "version": "1.7.2-beta.8.3",
+  "title": "ProxPanel 1.7.2-beta.8.3 — Single-node CPU Hardware Fix",
+  "title_en": "ProxPanel 1.7.2-beta.8.3 — Single-node CPU Hardware Fix",
+  "summary": "Corrige la remontée du modèle CPU en mode serveur unique : les routes dashboard/live historiques n’exécutaient pas l’enrichissement matériel des nœuds.",
+  "summary_en": "Fixes CPU model retrieval in single-server mode: legacy dashboard/live routes were not running node hardware enrichment.",
   "improvements": [
-    "Détection du modèle CPU via plusieurs sources : ressources cluster, /nodes/{node}/status, /nodes/{node}/report puis SSH/lscpu.",
-    "Affichage de la source ayant fourni le modèle CPU.",
-    "Diagnostic plus précis lorsque les informations matérielles ne sont pas accessibles à la connexion Proxmox.",
-    "Nouveaux sélecteurs de fichier propres pour les packages OTA et complets.",
-    "Affichage du nom du fichier sélectionné sans débordement de la carte."
+    "Le mode serveur unique exécute maintenant le même enrichissement matériel que les vues groupées.",
+    "Les informations CPU enrichies sont conservées aussi pendant les rafraîchissements live.",
+    "Le comportement de la page Nœuds est désormais cohérent entre serveur unique et multi-nœuds."
   ],
   "improvements_en": [
-    "CPU model discovery now tries cluster resources, /nodes/{node}/status, /nodes/{node}/report, then SSH/lscpu.",
-    "Displays the source used for the CPU model.",
-    "More precise diagnostics when hardware information is not accessible through the Proxmox connection.",
-    "Clean file pickers for OTA and full packages.",
-    "Selected filename is shown without overflowing the update cards."
+    "Single-server mode now runs the same node hardware enrichment as grouped views.",
+    "Enriched CPU data is preserved during live refreshes.",
+    "Nodes page behavior is now consistent across single-server and multi-node views."
   ],
   "fixes": [
-    "Correction du cas « Modèle indisponible » lorsque le modèle peut être obtenu via une autre source Proxmox.",
-    "Le cache négatif du modèle CPU est limité à 10 secondes.",
-    "Correction du débordement du champ de fichier dans Installation manuelle par ZIP.",
-    "Correction des superpositions entre le nom de fichier et les boutons de mise à jour."
+    "Correction du cas « Modèle indisponible » alors que Proxmox 8006 affiche correctement le processeur.",
+    "Ajout de enrichNodeHardware() à /api/servers/{id}/dashboard.",
+    "Ajout de enrichNodeHardware() à /api/servers/{id}/live.",
+    "Les champs cpuModel, sockets, cœurs, threads, fréquence, source et diagnostics atteignent désormais la carte Nœud."
   ],
   "fixes_en": [
-    "Fixed “Model unavailable” when the CPU model can be recovered from another Proxmox source.",
-    "Negative CPU model cache is limited to 10 seconds.",
-    "Fixed file input overflow in Manual ZIP installation.",
-    "Fixed filename/action button overlap."
+    "Fixed “Model unavailable” while Proxmox 8006 correctly shows the processor.",
+    "Added enrichNodeHardware() to /api/servers/{id}/dashboard.",
+    "Added enrichNodeHardware() to /api/servers/{id}/live.",
+    "cpuModel, sockets, cores, threads, frequency, source and diagnostics now reach the Node card."
   ],
   "notes": [
-    "Docker Hub reste publié manuellement et n’est pas déclenché par le workflow de release.",
-    "Les packages OTA, Full et LXC sont générés automatiquement pour cette version.",
-    "Si le modèle CPU reste inaccessible après les quatre méthodes, ProxPanel affiche maintenant la cause technique au lieu d’un message générique."
+    "Ce correctif vise directement le scénario mono-serveur montré avec PVE-PROD.",
+    "Docker Hub reste publié manuellement.",
+    "Les packages OTA, Full et LXC sont générés automatiquement."
   ],
   "notes_en": [
-    "Docker Hub remains manually published and is not triggered by the release workflow.",
-    "OTA, Full and LXC packages are generated automatically for this version.",
-    "If the CPU model remains unavailable after all four methods, ProxPanel now displays the technical reason instead of a generic message."
+    "This hotfix directly targets the single-server PVE-PROD scenario.",
+    "Docker Hub remains manually published.",
+    "OTA, Full and LXC packages are generated automatically."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
