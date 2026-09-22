@@ -105,6 +105,7 @@ jobs:
           node --check app/lib/wazuh-client.js
           node --check app/lib/wazuh-alerts.js
           node --check app/lib/pbs-client.js
+          node --check app/lib/automation-v2.js
           node --check app/public/wazuh-ui.js
           node --check app/public/pbs-ui.js
           node --check app/public/app.js

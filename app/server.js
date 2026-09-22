@@ -35,6 +35,7 @@ const {
 const { demoWazuhOverview, vulnerabilityKey } = require('./lib/wazuh');
 const { evaluateWazuhTransitions } = require('./lib/wazuh-alerts');
 const { collectPbs,testPbsConnection,runPbsAction,demoPbsOverview } = require('./lib/pbs-client');
+const { normalizeAutomationScenario,validateAutomationSteps,summarizeAutomationStep,automationTemplates } = require('./lib/automation-v2');
 const {
   DEMO_MODE, DEMO_USERNAME, DEMO_PASSWORD, DEMO_EMAIL,
   demoProxmoxApi, demoTemperatureForNode,
@@ -92,6 +93,7 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
 const CHANGES_FILE = path.join(DATA_DIR, 'changes.json');
 const AUTOMATIONS_FILE = path.join(DATA_DIR, 'automations.json');
+const AUTOMATION_RUNS_FILE = path.join(DATA_DIR, 'automation-runs.json');
 const INTEGRATIONS_FILE = path.join(DATA_DIR, 'integrations.json');
 const DEPENDENCIES_FILE = path.join(DATA_DIR, 'dependencies.json');
 const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
@@ -136,6 +138,8 @@ const PORTAINER_OVERVIEW_CACHE = new Map();
 const PORTAINER_OVERVIEW_CACHE_MS = 20 * 1000;
 const NODE_TEMPERATURE_CACHE = new Map();
 const NODE_TEMPERATURE_CACHE_MS = 30 * 1000;
+const NODE_HARDWARE_CACHE = new Map();
+const NODE_HARDWARE_CACHE_MS = 10 * 60 * 1000;
 const NODE_ADDRESS_CACHE = new Map();
 const NODE_ADDRESS_CACHE_MS = 5 * 60 * 1000;
 const WAZUH_OVERVIEW_CACHE = new Map();
@@ -493,6 +497,42 @@ async function enrichNodeTemperatures(server,auth,dashboard) {
   dashboard.metrics.temperatureMaxC=temps.length?Number(Math.max(...temps).toFixed(1)):null;
   dashboard.metrics.temperatureAvgC=temps.length?Number((temps.reduce((a,b)=>a+b,0)/temps.length).toFixed(1)):null;
   dashboard.metrics.temperatureAvailableNodes=temps.length;
+  return dashboard;
+}
+
+async function nodeHardwareInfo(server,auth,node){
+  const key=`${server?.id||server?.url||'server'}:${node}`,cached=NODE_HARDWARE_CACHE.get(key);
+  if(cached?.expiresAt>Date.now())return cached.value;
+  let value={cpuModel:'',cpuSockets:0,cpuCores:0,cpuThreads:0,cpuMhz:0,kernelVersion:'',pveVersion:'',hardwareStatus:'unavailable',hardwareError:''};
+  try{
+    const status=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/status`,{auth});
+    const info=status?.cpuinfo||{};
+    value={
+      cpuModel:String(info.model||info.model_name||'').trim(),
+      cpuSockets:Number(info.sockets||status?.cpuinfo?.sockets||0),
+      cpuCores:Number(info.cores||status?.cpuinfo?.cores||0),
+      cpuThreads:Number(info.cpus||status?.cpuinfo?.cpus||status?.maxcpu||0),
+      cpuMhz:Number(info.mhz||info.MHz||0),
+      kernelVersion:String(status?.kversion||'').trim(),
+      pveVersion:String(status?.pveversion||'').trim(),
+      hardwareStatus:'ok',
+      hardwareError:''
+    };
+  }catch(error){
+    value.hardwareError=String(error?.message||error||'Informations matérielles indisponibles.');
+  }
+  NODE_HARDWARE_CACHE.set(key,{value,expiresAt:Date.now()+NODE_HARDWARE_CACHE_MS});
+  return value;
+}
+async function enrichNodeHardware(server,auth,dashboard){
+  const nodes=dashboard?.nodes||[];if(!nodes.length)return dashboard;
+  if(DEMO_MODE&&server?.demo){
+    dashboard.nodes=nodes.map((n,index)=>({...n,cpuModel:index%2?'AMD EPYC 7313P 16-Core Processor':'Intel(R) Xeon(R) Gold 6230R CPU @ 2.10GHz',cpuSockets:1,cpuCores:Number(n.maxcpu||16),cpuThreads:Number(n.maxcpu||32),cpuMhz:index%2?3000:2100,kernelVersion:'6.14.11-2-pve',pveVersion:'9.0.3',hardwareStatus:'ok',hardwareError:''}));
+    return dashboard;
+  }
+  const rows=await Promise.all(nodes.map(async n=>({node:n.node,...await nodeHardwareInfo(server,auth,n.node)})));
+  const by=new Map(rows.map(x=>[String(x.node),x]));
+  dashboard.nodes=nodes.map(n=>({...n,...(by.get(String(n.node))||{})}));
   return dashboard;
 }
 
@@ -1705,6 +1745,7 @@ async function buildLiveDashboardPart(server,auth,{nodesFilter=[]}={}) {
   // without hammering every VM on every dashboard tick.
   await enrichMissingGuestStorage(server,auth,dash);
   await enrichNodeTemperatures(server,auth,dash);
+  await enrichNodeHardware(server,auth,dash);
   dash.nodes=(dash.nodes||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.machines=(dash.machines||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.storages=(dash.storages||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
@@ -1725,6 +1766,7 @@ async function buildDashboardPart(server,auth,{timeframe='day',nodesFilter=[],hi
   let dash=calcDashboard(resources,tasks,Array.isArray(backupJobs)?backupJobs:[],rrd); await enrichMissingGuestStorage(server,auth,dash); dash.history.storage=calcStorageRrdHistory(storageRrd);
   try{dash=enrichBackupState(dash,await fetchBackupInventory(server,auth,dash));}catch{}
   await enrichNodeTemperatures(server,auth,dash);
+  await enrichNodeHardware(server,auth,dash);
   dash.problems=computeProblems(dash,getSettings());
   dash.nodes=(dash.nodes||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.machines=(dash.machines||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
@@ -4151,22 +4193,182 @@ async function executeMachineAction(server, auth, machine, action) {
   }
   return proxmoxApi(server, `/nodes/${encodeURIComponent(machine.node)}/${machine.type}/${machine.vmid}/status/${action}`, { method:'POST', auth });
 }
-async function runAutomation(server, auth, scenario, reqForAudit=null) {
-  const runId=crypto.randomUUID(); const run={id:runId,scenarioId:scenario.id,name:scenario.name,status:'running',startedAt:new Date().toISOString(),steps:[]}; AUTOMATION_RUNS.set(runId,run);
-  (async()=>{
-    try {
-      for(const step of scenario.steps||[]){
-        if(step.type==='wait'){const ms=Math.max(0,Math.min(3600000,Number(step.seconds||0)*1000));run.steps.push({step,status:'waiting',at:new Date().toISOString()});await sleep(ms);run.steps[run.steps.length-1].status='ok';continue;}
-        if(step.type==='machine-action'){
-          const resources=await proxmoxApi(server,'/cluster/resources',{auth}); const m=(resources||[]).find(x=>String(x.vmid)===String(step.vmid)&&(x.type==='qemu'||x.type==='lxc')); if(!m)throw new Error(`VM/LXC ${step.vmid} introuvable`);
-          const task=await executeMachineAction(server,auth,m,step.action); const sr={step,status:'sent',task,at:new Date().toISOString()};run.steps.push(sr); if(task&&String(task).startsWith('UPID:')){const st=await waitForTask(server,auth,task,Number(step.timeoutMinutes||10)*60000);sr.status=String(st.exitstatus||'OK').toUpperCase()==='OK'?'ok':'error';sr.taskStatus=st;if(sr.status==='error')throw new Error(`Étape ${step.action} en erreur`);} else sr.status='ok'; continue;
-        }
+
+function automationRunHistory(){
+  return jsonRead(AUTOMATION_RUNS_FILE,[]);
+}
+function persistAutomationRun(run){
+  const rows=automationRunHistory(),idx=rows.findIndex(x=>x.id===run.id),copy=JSON.parse(JSON.stringify(run));
+  if(idx>=0)rows[idx]=copy;else rows.unshift(copy);
+  jsonWrite(AUTOMATION_RUNS_FILE,rows.sort((a,b)=>String(b.startedAt||'').localeCompare(String(a.startedAt||''))).slice(0,300));
+  AUTOMATION_RUNS.set(run.id,run);
+}
+async function automationTargets(server,auth,target){
+  const resources=await proxmoxApi(server,'/cluster/resources',{auth}),machines=(Array.isArray(resources)?resources:[]).filter(x=>x.type==='qemu'||x.type==='lxc');
+  if(target?.kind==='machine')return machines.filter(x=>Number(x.vmid)===Number(target.vmid));
+  if(target?.kind==='tag'){
+    const wanted=String(target.tag||'').toLowerCase();
+    return machines.filter(x=>String(x.tags||'').split(/[;,]/).map(t=>t.trim().toLowerCase()).includes(wanted));
+  }
+  if(target?.kind==='group'){
+    const groups=jsonRead(GROUPS_FILE,[]),group=groups.find(g=>(target.groupId&&String(g.id)===String(target.groupId))||(target.groupName&&String(g.name).toLowerCase()===String(target.groupName).toLowerCase()));
+    if(!group)return [];
+    if(group.serverId&&String(group.serverId)!==String(server.id))return [];
+    const vmids=new Set((group.vmids||[]).map(Number)),tags=new Set((group.tags||[]).map(x=>String(x).toLowerCase()));
+    return machines.filter(x=>vmids.has(Number(x.vmid))||String(x.tags||'').split(/[;,]/).some(t=>tags.has(t.trim().toLowerCase())));
+  }
+  return [];
+}
+async function automationWithRetry(step,fn){
+  const attempts=Math.max(1,Math.min(5,Number(step.retry?.attempts||1))),delay=Math.max(0,Math.min(300,Number(step.retry?.delaySeconds||5)))*1000;
+  let lastError=null;
+  for(let attempt=1;attempt<=attempts;attempt++){
+    try{return {value:await fn(attempt),attempt};}
+    catch(error){lastError=error;if(attempt<attempts&&delay)await sleep(delay);}
+  }
+  throw lastError||new Error('Étape en échec.');
+}
+function automationTimeout(promise,minutes,label){
+  const ms=Math.max(1000,Math.min(240*60000,Number(minutes||10)*60000));
+  return Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(`Timeout ${label||'étape'} après ${Number(minutes||10)} min`)),ms))]);
+}
+async function automationWaitUntil(server,auth,step){
+  const deadline=Date.now()+Math.max(1000,Number(step.timeoutMinutes||10)*60000),wanted=String(step.state||'stopped').toLowerCase();
+  let last=[];
+  do{
+    last=await automationTargets(server,auth,step.target);
+    if(!last.length)throw new Error(`Aucune cible pour ${summarizeAutomationStep(step)}`);
+    const ok=last.every(x=>String(x.status||'').toLowerCase()===wanted);
+    if(ok)return {targets:last.map(x=>({vmid:x.vmid,name:x.name,status:x.status})),state:wanted};
+    await sleep(Math.max(2,Number(step.pollSeconds||5))*1000);
+  }while(Date.now()<deadline);
+  throw new Error(`État ${wanted} non atteint avant le timeout.`);
+}
+async function automationMachineAction(server,auth,step){
+  const targets=await automationTargets(server,auth,step.target);
+  if(!targets.length)throw new Error(`Aucune cible pour ${summarizeAutomationStep(step)}`);
+  const results=[];
+  for(const machine of targets){
+    const task=await executeMachineAction(server,auth,machine,step.action);
+    const row={vmid:machine.vmid,name:machine.name||'',node:machine.node,task,status:'sent'};
+    if(task&&String(task).startsWith('UPID:')){
+      const st=await waitForTask(server,auth,task,Number(step.timeoutMinutes||10)*60000);
+      row.status=String(st.exitstatus||'OK').toUpperCase()==='OK'?'ok':'error';row.taskStatus=st;
+      if(row.status==='error')throw new Error(`${step.action} en erreur sur ${machine.vmid}`);
+    }else row.status='ok';
+    results.push(row);
+  }
+  return {targets:results};
+}
+async function automationBackup(server,auth,step){
+  const targets=await automationTargets(server,auth,step.target);
+  if(!targets.length)throw new Error(`Aucune cible pour ${summarizeAutomationStep(step)}`);
+  const results=[];
+  for(const machine of targets){
+    const body={vmid:machine.vmid,mode:step.mode||'snapshot',compress:step.compress||'zstd'};
+    if(step.storage)body.storage=step.storage;
+    const task=await proxmoxApi(server,`/nodes/${encodeURIComponent(machine.node)}/vzdump`,{method:'POST',auth,body});
+    const row={vmid:machine.vmid,name:machine.name||'',node:machine.node,task,status:'sent'};
+    if(task&&String(task).startsWith('UPID:')){
+      const st=await waitForTask(server,auth,task,Number(step.timeoutMinutes||30)*60000);
+      row.status=String(st.exitstatus||'OK').toUpperCase()==='OK'?'ok':'error';row.taskStatus=st;
+      if(row.status==='error')throw new Error(`Backup en erreur sur ${machine.vmid}`);
+    }else row.status='ok';
+    results.push(row);
+  }
+  return {targets:results,storage:step.storage||'',mode:step.mode||'snapshot'};
+}
+async function automationDockerAction(step){
+  const item=findPortainerIntegration(step.portainerId);if(!item)throw new Error('Intégration Portainer introuvable.');
+  const endpointId=dockerEndpointId(step.endpointId),targetId=String(step.targetId||'');
+  if(step.scope==='container'){
+    const op=step.action==='resume'?'unpause':step.action;
+    const suffix=op==='stop'?'/stop?t=15':`/${op}`;
+    await portainerDockerJson(item,endpointId,`/containers/${encodeURIComponent(targetId)}${suffix}`,{method:'POST'});
+    return {scope:'container',targetId,action:step.action};
+  }
+  const stackId=Number(targetId);if(!Number.isInteger(stackId)||stackId<=0)throw new Error('ID de stack Portainer invalide.');
+  if(step.action==='redeploy'){
+    const result=await redeployPortainerStack(item,endpointId,stackId,{pullImage:true,verify:true});
+    if(result.health&&!result.health.ok)throw new Error('Redeploy Docker terminé avec un état dégradé.');
+    return {scope:'stack',targetId,action:step.action,health:result.health||null};
+  }
+  await integrationJson(item.url,`/api/stacks/${stackId}/${step.action}?endpointId=${endpointId}`,{method:'POST',headers:portainerHeaders(item),rejectUnauthorized:!item.allowSelfSigned});
+  return {scope:'stack',targetId,action:step.action};
+}
+async function automationCondition(server,auth,condition,ctx){
+  const kind=String(condition?.kind||'always');
+  if(kind==='always')return true;
+  if(kind==='step-status')return String(ctx.stepResults.get(condition.stepId)?.status||'')===String(condition.status||'ok');
+  if(kind==='node-state'){
+    const resources=await proxmoxApi(server,'/cluster/resources',{auth}),node=(resources||[]).find(x=>x.type==='node'&&String(x.node)===String(condition.node));
+    return !!node&&String(node.status||'').toLowerCase()===String(condition.state||'online').toLowerCase();
+  }
+  if(kind==='machine-state'){
+    const targets=await automationTargets(server,auth,condition.target);
+    return !!targets.length&&targets.every(x=>String(x.status||'').toLowerCase()===String(condition.state||'running').toLowerCase());
+  }
+  return false;
+}
+async function executeAutomationStep(server,auth,step,ctx){
+  if(step.type==='wait'){await sleep(Math.max(0,Number(step.seconds||0))*1000);return {seconds:Number(step.seconds||0)};}
+  if(step.type==='machine-action')return automationMachineAction(server,auth,step);
+  if(step.type==='wait-until')return automationWaitUntil(server,auth,step);
+  if(step.type==='backup')return automationBackup(server,auth,step);
+  if(step.type==='docker-action')return automationDockerAction(step);
+  if(step.type==='condition'){
+    const matched=await automationCondition(server,auth,step.condition,ctx),branch=matched?(step.then||[]):(step.else||[]);
+    await runAutomationSteps(server,auth,branch,ctx);
+    return {matched,branch:matched?'then':'else'};
+  }
+  throw new Error(`Type d’étape inconnu : ${step.type}`);
+}
+async function runAutomationSteps(server,auth,steps,ctx){
+  for(const step of steps||[]){
+    const unmet=(step.dependsOn||[]).filter(id=>ctx.stepResults.get(id)?.status!=='ok');
+    if(unmet.length)throw new Error(`Dépendance(s) non satisfaite(s) pour ${step.id} : ${unmet.join(', ')}`);
+    const record={id:step.id,type:step.type,label:step.label||summarizeAutomationStep(step),status:'running',startedAt:new Date().toISOString(),attempts:0,dependsOn:step.dependsOn||[]};
+    ctx.run.steps.push(record);ctx.stepResults.set(step.id,record);persistAutomationRun(ctx.run);
+    try{
+      const execution=automationWithRetry(step,attempt=>automationTimeout(executeAutomationStep(server,auth,step,ctx),step.timeoutMinutes,record.label).then(value=>({value,attempt})));
+      const wrapped=await execution;
+      record.status='ok';record.attempts=wrapped.attempt;record.result=wrapped.value?.value??wrapped.value;record.finishedAt=new Date().toISOString();persistAutomationRun(ctx.run);
+    }catch(error){
+      record.status='error';record.error=String(error?.message||error);record.finishedAt=new Date().toISOString();persistAutomationRun(ctx.run);throw error;
+    }
+  }
+}
+async function previewAutomation(server,auth,scenario){
+  const normalized=normalizeAutomationScenario(scenario),validation=validateAutomationSteps(normalized.steps);
+  if(!validation.ok)throw new Error(validation.error);
+  const preview=[];
+  const walk=async steps=>{
+    for(const step of steps||[]){
+      const row={id:step.id,type:step.type,label:step.label||summarizeAutomationStep(step),dependsOn:step.dependsOn||[],retry:step.retry,timeoutMinutes:step.timeoutMinutes};
+      if(['machine-action','wait-until','backup'].includes(step.type)){
+        const targets=await automationTargets(server,auth,step.target);row.targetCount=targets.length;row.targets=targets.slice(0,30).map(x=>({vmid:x.vmid,name:x.name||'',node:x.node,status:x.status}));
       }
-      run.status='ok';run.finishedAt=new Date().toISOString();addAuditSystem('automation.run',scenario.name,{runId},'ok');
-    }catch(e){run.status='error';run.error=e.message;run.finishedAt=new Date().toISOString();addAuditSystem('automation.run',scenario.name,{runId,error:e.message},'error');}
+      if(step.type==='docker-action')row.docker={scope:step.scope,portainerId:step.portainerId,endpointId:step.endpointId,targetId:step.targetId,action:step.action};
+      preview.push(row);
+      if(step.type==='condition'){await walk(step.then||[]);await walk(step.else||[]);}
+    }
+  };
+  await walk(normalized.steps);
+  return {ok:true,dryRun:true,name:normalized.name,serverId:normalized.serverId,steps:preview};
+}
+async function runAutomation(server, auth, scenario, reqForAudit=null) {
+  const normalized=normalizeAutomationScenario(scenario),validation=validateAutomationSteps(normalized.steps);
+  if(!validation.ok)throw new Error(validation.error);
+  const runId=crypto.randomUUID(),run={id:runId,scenarioId:scenario.id||'',name:normalized.name,status:'running',serverId:server.id,serverName:server.name,startedAt:new Date().toISOString(),finishedAt:'',steps:[]};
+  const ctx={run,stepResults:new Map(),reqForAudit};persistAutomationRun(run);
+  (async()=>{
+    try{await runAutomationSteps(server,auth,normalized.steps,ctx);run.status='ok';run.finishedAt=new Date().toISOString();addAuditSystem('automation.run',normalized.name,{runId,steps:run.steps.length},'ok');}
+    catch(error){run.status='error';run.error=String(error?.message||error);run.finishedAt=new Date().toISOString();addAuditSystem('automation.run',normalized.name,{runId,error:run.error},'error');}
+    finally{persistAutomationRun(run);}
   })();
   return run;
 }
+
 function consoleDiagnosticsSnapshot(token){
   const state=CONSOLE_STATES.get(token);
   return state?.steps ? state.steps.map(step=>({...step})) : [];
@@ -5472,18 +5674,41 @@ async function handleApi(req, res, url) {
   const depDelete=url.pathname.match(/^\/api\/dependencies\/manual\/([^/]+)$/);if(depDelete&&req.method==='DELETE'){const all=jsonRead(DEPENDENCIES_FILE,[]);jsonWrite(DEPENDENCIES_FILE,all.filter(x=>x.id!==depDelete[1]));return sendJson(res,200,{ok:true});}
   const depGraph=url.pathname.match(/^\/api\/servers\/([^/]+)\/dependencies$/);if(depGraph&&req.method==='GET'){const server=findServer(depGraph[1]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});try{const auth=await resolveProxmoxAuth(server,session);const resources=await proxmoxApi(server,'/cluster/resources',{auth});const graph=await buildDependencyGraph(server,auth,calcDashboard(resources,[],[],[]));return sendJson(res,200,graph);}catch(e){return sendJson(res,502,{error:e.message});}}
 
-  // ----- Automations -----
+  // ----- Automations 2.0 -----
+  if(url.pathname==='/api/automation-templates'&&req.method==='GET')return sendJson(res,200,automationTemplates());
   if(url.pathname==='/api/automations'&&req.method==='GET')return sendJson(res,200,jsonRead(AUTOMATIONS_FILE,[]));
-  if(url.pathname==='/api/automations'&&req.method==='POST'){
-    const body=await readBody(req);const name=String(body.name||'').trim();const steps=Array.isArray(body.steps)?body.steps.slice(0,100):[];if(!name||!steps.length)return sendJson(res,400,{error:'Nom et étapes requis.'});
-    for(const s of steps){if(!['wait','machine-action'].includes(s.type))return sendJson(res,400,{error:`Étape ${s.type} non prise en charge.`});}
-    const scheduleTime=/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.scheduleTime||''))?String(body.scheduleTime):'';const scheduleDays=Array.isArray(body.scheduleDays)?body.scheduleDays.map(Number).filter(x=>x>=0&&x<=6):[];
-    const row={id:crypto.randomUUID(),name,description:String(body.description||''),steps,serverId:String(body.serverId||''),scheduleTime,scheduleDays,createdAt:new Date().toISOString(),enabled:body.enabled!==false,lastScheduledRunKey:''};const all=jsonRead(AUTOMATIONS_FILE,[]);all.push(row);jsonWrite(AUTOMATIONS_FILE,all);audit(req,'automation.add',name,{steps:steps.length,scheduleTime});return sendJson(res,201,row);
+  if(url.pathname==='/api/automations/preview'&&req.method==='POST'){
+    const body=await readBody(req),scenario=normalizeAutomationScenario(body),server=findServer(body.serverId||scenario.serverId);
+    if(!server)return sendJson(res,404,{error:'Serveur introuvable pour la prévisualisation.'});
+    try{const auth=await resolveProxmoxAuth(server,session);return sendJson(res,200,await previewAutomation(server,auth,scenario));}
+    catch(error){return sendJson(res,400,{error:error.message});}
   }
-  const autoMatch=url.pathname.match(/^\/api\/automations\/([^/]+)(?:\/(run))?$/);
+  if(url.pathname==='/api/automations'&&req.method==='POST'){
+    const body=await readBody(req),scenario=normalizeAutomationScenario(body);
+    if(!scenario.name||!scenario.steps.length)return sendJson(res,400,{error:'Nom et étapes requis.'});
+    const validation=validateAutomationSteps(scenario.steps);if(!validation.ok)return sendJson(res,400,{error:validation.error,path:validation.path});
+    const row={...scenario,id:crypto.randomUUID(),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),lastScheduledRunKey:''};
+    const all=jsonRead(AUTOMATIONS_FILE,[]);all.push(row);jsonWrite(AUTOMATIONS_FILE,all);audit(req,'automation.add',row.name,{steps:row.steps.length,scheduleTime:row.scheduleTime});return sendJson(res,201,row);
+  }
+  const autoMatch=url.pathname.match(/^\/api\/automations\/([^/]+)(?:\/(run|preview))?$/);
   if(autoMatch&&req.method==='DELETE'&&!autoMatch[2]){const all=jsonRead(AUTOMATIONS_FILE,[]);jsonWrite(AUTOMATIONS_FILE,all.filter(x=>x.id!==autoMatch[1]));return sendJson(res,200,{ok:true});}
-  if(autoMatch&&req.method==='POST'&&autoMatch[2]==='run'){const scenario=jsonRead(AUTOMATIONS_FILE,[]).find(x=>x.id===autoMatch[1]);if(!scenario)return sendJson(res,404,{error:'Scénario introuvable.'});const body=await readBody(req);const server=findServer(body.serverId);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});try{const auth=await resolveProxmoxAuth(server,session);const run=await runAutomation(server,auth,scenario,req);audit(req,'automation.start',scenario.name,{runId:run.id});return sendJson(res,202,run);}catch(e){return sendJson(res,502,{error:e.message});}}
-  if(url.pathname==='/api/automation-runs'&&req.method==='GET')return sendJson(res,200,[...AUTOMATION_RUNS.values()].sort((a,b)=>String(b.startedAt).localeCompare(String(a.startedAt))).slice(0,100));
+  if(autoMatch&&req.method==='PUT'&&!autoMatch[2]){
+    const all=jsonRead(AUTOMATIONS_FILE,[]),idx=all.findIndex(x=>x.id===autoMatch[1]);if(idx<0)return sendJson(res,404,{error:'Scénario introuvable.'});
+    const body=await readBody(req),scenario=normalizeAutomationScenario({...all[idx],...body,id:all[idx].id});const validation=validateAutomationSteps(scenario.steps);if(!validation.ok)return sendJson(res,400,{error:validation.error,path:validation.path});
+    all[idx]={...all[idx],...scenario,id:all[idx].id,updatedAt:new Date().toISOString()};jsonWrite(AUTOMATIONS_FILE,all);audit(req,'automation.update',all[idx].name,{steps:all[idx].steps.length});return sendJson(res,200,all[idx]);
+  }
+  if(autoMatch&&req.method==='POST'&&autoMatch[2]){
+    const scenario=jsonRead(AUTOMATIONS_FILE,[]).find(x=>x.id===autoMatch[1]);if(!scenario)return sendJson(res,404,{error:'Scénario introuvable.'});
+    const body=await readBody(req),server=findServer(body.serverId||scenario.serverId);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
+    try{
+      const auth=await resolveProxmoxAuth(server,session);
+      if(autoMatch[2]==='preview')return sendJson(res,200,await previewAutomation(server,auth,scenario));
+      const run=await runAutomation(server,auth,scenario,req);audit(req,'automation.start',scenario.name,{runId:run.id});return sendJson(res,202,run);
+    }catch(error){return sendJson(res,502,{error:error.message});}
+  }
+  if(url.pathname==='/api/automation-runs'&&req.method==='GET')return sendJson(res,200,automationRunHistory().slice(0,100));
+  const runMatch=url.pathname.match(/^\/api\/automation-runs\/([^/]+)$/);
+  if(runMatch&&req.method==='GET'){const run=automationRunHistory().find(x=>x.id===runMatch[1]);return run?sendJson(res,200,run):sendJson(res,404,{error:'Exécution introuvable.'});}
 
   // ----- Wake-on-LAN -----
   const wolMatch=url.pathname.match(/^\/api\/servers\/([^/]+)\/wol$/);if(wolMatch&&req.method==='POST'){const server=findServer(wolMatch[1]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});const body=await readBody(req);const w=body.mac?body:server.wol;if(!w?.mac)return sendJson(res,400,{error:'Adresse MAC WOL non configurée.'});try{await sendWakeOnLan(w.mac,w.broadcast||'255.255.255.255',w.port||9);audit(req,'wol.send',server.name,{mac:w.mac});return sendJson(res,200,{ok:true});}catch(e){return sendJson(res,502,{error:e.message});}}

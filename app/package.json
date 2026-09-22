@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.2-beta.6",
+  "version": "1.7.2-beta.7",
   "private": true,
-  "description": "ProxPanel 1.7.2-beta.6 - PBS + Wazuh Security Essentials.",
+  "description": "ProxPanel 1.7.2-beta.7 - Automations 2.0, exact node CPU hardware and responsive administration fixes.",
   "scripts": {
     "start": "node server.js"
   },
