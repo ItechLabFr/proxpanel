@@ -59,17 +59,6 @@ Status: **implemented for publication**.
   - running/stopped/unhealthy counts;
   - basic host metadata.
 
-### Audit & session management delivered with beta.9
-
-- Audit 2.0 search and filters by user, action and result.
-- Audit export in CSV and JSON.
-- Technical details remain searchable without exposing credentials.
-- Active ProxPanel sessions are listed in Administration → Users & security.
-- Administrators can revoke an active session.
-- Logout revokes the corresponding server-side session record.
-- Health Center state changes are written to the audit trail.
-- Custom roles gain the dedicated `health.manage` permission.
-
 ### Acceptance criteria
 
 - No Docker socket needs to be mounted in ProxPanel.
@@ -738,7 +727,7 @@ Current roles/permissions become scope-aware.
 
 ## 1.7.2-beta.9 — Health Center 2.0, Warning Lifecycle & Polish
 
-Status: **implementation ready for validation**.
+Status: **implementation complete — final validation pending**.
 
 Replace the simple problem list with a real incident workflow and make warnings actionable instead of leaving a permanently growing list.
 
@@ -850,6 +839,24 @@ An ignored VM must not disappear silently: show it in a dedicated **Ignored / ac
 - Keep destructive infrastructure actions separate from warning-management actions.
 - Responsive desktop/tablet/mobile/PWA.
 - Final Light/Dark theme pass for 1.7.2 features.
+
+### Delivered in beta.9
+
+- Persistent Health Center lifecycle: active, acknowledged, snoozed, resolved, dismissed and accepted risk.
+- Unified incident sources:
+  - Proxmox / backup warnings;
+  - Docker / Portainer incidents;
+  - Wazuh integration health, disconnected agents, critical/high CVEs, important alerts and optional sensitive FIM events;
+  - PBS integration health, datastore pressure, recent failed tasks and failed verification states.
+- Automatic resolution when the underlying source condition clears.
+- Source badges and source filtering in the Health Center.
+- Dashboard Health Center widget uses the unified incident inventory.
+- Accepted-risk rules remain scoped to source + warning code + target.
+- Audit 2.0 search and filters by user, action and result.
+- Audit export in CSV and JSON.
+- Active ProxPanel sessions can be listed and revoked from Administration → Users & security.
+- Logout revokes the corresponding server-side session record.
+- Custom roles gain the dedicated `health.manage` permission.
 
 ### Acceptance criteria
 
