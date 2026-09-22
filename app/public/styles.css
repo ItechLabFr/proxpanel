@@ -2190,3 +2190,32 @@ html[data-theme="light"] .docker-image-toolbar,html[data-theme="light"] .docker-
   .health-incident-side{grid-column:1/-1}
   .health-row-actions .btn{flex:1 1 calc(50% - 6px)}
 }
+
+
+/* 1.7.2-beta.9 — Audit 2.0 + active sessions */
+.beta9-audit-head{align-items:flex-start}
+.audit-filterbar{display:grid;grid-template-columns:minmax(260px,1fr) minmax(150px,220px) minmax(180px,280px) minmax(120px,160px);gap:9px;margin-bottom:12px}
+.audit-search{display:flex;align-items:center;gap:8px;min-width:0;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.audit-search input{width:100%;min-width:0;height:40px;border:0;background:transparent;outline:0}
+.audit-filterbar select{min-width:0;min-height:40px}
+.beta9-audit-row{align-items:start}
+.beta9-audit-row code{display:block;margin-top:5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted2);font-size:9px;background:transparent;padding:0}
+.beta9-sessions-panel{margin-top:12px}
+.beta9-session-list{display:grid}
+.beta9-session-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border-top:1px solid var(--line2)}
+.beta9-session-row:first-child{border-top:0}
+.beta9-session-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--panel3);color:var(--accent);font-size:12px}
+.beta9-session-row strong,.beta9-session-row small{display:block}
+.beta9-session-row small{margin-top:3px;color:var(--muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+@media(max-width:960px){
+  .audit-filterbar{grid-template-columns:1fr 1fr}
+}
+@media(max-width:620px){
+  .beta9-audit-head{display:grid!important;grid-template-columns:1fr!important;gap:10px}
+  .beta9-audit-head>.actions{width:100%}
+  .beta9-audit-head>.actions .btn{flex:1}
+  .audit-filterbar{grid-template-columns:1fr}
+  .beta9-session-row{grid-template-columns:auto minmax(0,1fr)}
+  .beta9-session-row>.row-actions{grid-column:1/-1}
+  .beta9-session-row>.row-actions .btn{width:100%}
+}
