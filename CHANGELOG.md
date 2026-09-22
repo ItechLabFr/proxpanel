@@ -1,3 +1,37 @@
+# ProxPanel 1.7.2-beta.9
+
+## Français
+- Nouveau **Health Center 2.0** avec cycle de vie persistant : actif, validé, snoozé, résolu, effacé et risque accepté.
+- Actions individuelles et groupées : valider, résoudre, snooze, effacer, ignorer/accepter le risque et réouvrir.
+- Risques acceptés persistants par cible et type d’alerte avec raison et historique.
+- Réouverture automatique après cooldown lorsqu’une condition persiste.
+- Résolution automatique lorsqu’une condition source disparaît réellement.
+- Health Center unifié pour **Proxmox / backups, Docker / Portainer, Wazuh et PBS**.
+- Docker : intégration des environnements injoignables, conteneurs arrêtés/unhealthy, redémarrages répétés, CPU/RAM, stockage et stacks dégradées.
+- Wazuh : intégration/agents, CVE critiques ou élevées regroupées par CVE + logiciel, alertes importantes et FIM sensible.
+- PBS : intégration, capacité datastores, tâches en échec et vérifications de sauvegarde.
+- Filtres Health Center par source et sévérité, historique et compteur global.
+- Widget Dashboard Health Center basé sur le même inventaire multi-source.
+- **Audit 2.0** avec recherche, filtres et exports CSV/JSON.
+- **Sessions actives** dans Administration avec IP, appareil, dernière activité, expiration et révocation.
+- Nouvelle permission personnalisée `health.manage`.
+- Responsive et traductions FR/EN des nouveaux écrans.
+
+## English
+- New persistent **Health Center 2.0** incident lifecycle: active, acknowledged, snoozed, resolved, dismissed and accepted risk.
+- Individual and bulk acknowledge/resolve/snooze/dismiss/ignore/reopen actions.
+- Persistent accepted-risk rules by target and warning type with reason/history.
+- Automatic reopen after cooldown when a condition remains present.
+- Automatic resolution when the underlying condition recovers.
+- Unified Health Center for **Proxmox/backups, Docker/Portainer, Wazuh and PBS**.
+- Docker, Wazuh and PBS source-specific incidents are normalized into the same lifecycle.
+- Health Center source/severity filters, history and global counters.
+- Dashboard Health Center widget uses the same unified inventory.
+- **Audit 2.0** search, filters and CSV/JSON exports.
+- **Active sessions** with IP/device/activity/expiry and remote revocation.
+- New custom-role permission `health.manage`.
+- Responsive and FR/EN coverage for new screens.
+
 # ProxPanel 1.7.2-beta.8.3
 
 ## Français
