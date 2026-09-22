@@ -2111,3 +2111,82 @@ html[data-theme="light"] .docker-image-toolbar,html[data-theme="light"] .docker-
   .zip-picker-button{width:100%}
   .zip-picker-name{text-align:center;white-space:normal;overflow-wrap:anywhere}
 }
+
+
+/* 1.7.2-beta.9 — Health Center 2.0 */
+.beta9-health-head{align-items:flex-start}
+.health-top-counters{display:flex;gap:8px;flex-wrap:wrap}
+.health-top-counters span{display:inline-flex;align-items:center;min-height:34px;padding:0 11px;border-radius:999px;border:1px solid var(--line2);font-size:11px;font-weight:850}
+.health-top-counters .danger{color:#ff9b9b;border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.07)}
+.health-top-counters .warning{color:#ffc766;border-color:rgba(245,158,11,.32);background:rgba(245,158,11,.07)}
+.health-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.health-summary-grid>div{padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.health-summary-grid span,.health-summary-grid strong{display:block}
+.health-summary-grid span{color:var(--muted);font-size:11px}
+.health-summary-grid strong{margin-top:4px;font-size:24px}
+.health-tabs{display:flex;gap:6px;overflow-x:auto;padding:3px 0 10px;scrollbar-width:thin}
+.health-tabs button{display:flex;align-items:center;gap:8px;white-space:nowrap;min-height:38px;padding:0 12px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--muted);cursor:pointer}
+.health-tabs button.active{border-color:color-mix(in srgb,var(--accent) 45%,var(--line2));background:color-mix(in srgb,var(--accent) 9%,var(--panel));color:var(--text)}
+.health-tabs button b{display:inline-grid;place-items:center;min-width:21px;height:21px;padding:0 5px;border-radius:999px;background:var(--panel3);font-size:10px}
+.health-toolbar{display:grid;grid-template-columns:minmax(240px,1fr) auto auto;gap:9px;align-items:center;margin-bottom:10px}
+.health-search{display:flex;align-items:center;gap:8px;min-width:0;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.health-search input{min-width:0;width:100%;height:40px;border:0;background:transparent;outline:0}
+.health-toolbar select{min-height:40px}
+.health-bulkbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:11px;background:color-mix(in srgb,var(--accent) 6%,var(--panel))}
+.health-center-panel{overflow:hidden}
+.health-incident-list{display:grid}
+.health-incident-row{display:grid;grid-template-columns:auto auto minmax(0,1fr) minmax(240px,auto);gap:12px;align-items:center;padding:14px 15px;border-bottom:1px solid var(--line2)}
+.health-incident-row:last-child{border-bottom:0}
+.health-incident-row:hover{background:color-mix(in srgb,var(--panel2) 88%,var(--accent) 2%)}
+.health-select{display:grid;place-items:center}
+.health-select input{width:16px;height:16px}
+.health-incident-copy{min-width:0}
+.health-incident-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.health-incident-copy p{margin:4px 0 0;color:var(--text);font-size:12px;line-height:1.45}
+.health-incident-copy small{display:block;margin-top:5px;color:var(--muted);font-size:10px;line-height:1.45;overflow-wrap:anywhere}
+.health-incident-copy .health-note{color:#d7b36a}
+.health-incident-side{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.health-row-actions{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap}
+.health-row-actions .btn{padding-inline:9px}
+.health-history-list{display:grid}
+.health-history-row{display:grid;grid-template-columns:170px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line2)}
+.health-history-row:last-child{border-bottom:0}
+.health-history-row time{color:var(--muted);font-size:10px}
+.health-history-row strong,.health-history-row small{display:block}
+.health-history-row small{margin-top:3px;color:var(--muted);font-size:10px;overflow-wrap:anywhere}
+.health-risk-panel{margin-top:12px}
+.health-risk-list{display:grid}
+.health-risk-list>div{padding:11px 14px;border-top:1px solid var(--line2)}
+.health-risk-list strong,.health-risk-list small{display:block}
+.health-risk-list small{margin-top:4px;color:var(--muted);font-size:11px}
+.problem-lifecycle{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin-top:12px;padding:10px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--panel2)}
+.problem-lifecycle span{color:var(--muted);font-size:11px}
+.problem-lifecycle strong{font-size:12px}
+.problem-lifecycle small{grid-column:2;color:var(--muted);font-size:10px}
+.health-action-modal textarea{width:100%;resize:vertical}
+@media(max-width:1100px){
+  .health-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .health-incident-row{grid-template-columns:auto auto minmax(0,1fr)}
+  .health-incident-side{grid-column:3;justify-content:flex-start}
+}
+@media(max-width:760px){
+  .beta9-health-head{display:grid!important;grid-template-columns:1fr!important;gap:10px}
+  .health-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .health-toolbar{grid-template-columns:1fr}
+  .health-toolbar .check{justify-self:start}
+  .health-bulkbar{align-items:flex-start;flex-direction:column}
+  .health-incident-row{grid-template-columns:auto auto minmax(0,1fr);align-items:start;padding:12px}
+  .health-incident-side{grid-column:1/-1;justify-content:flex-start;padding-left:0}
+  .health-row-actions{justify-content:flex-start}
+  .health-history-row{grid-template-columns:1fr}
+}
+@media(max-width:460px){
+  .health-summary-grid{grid-template-columns:1fr 1fr}
+  .health-summary-grid>div:last-child{grid-column:1/-1}
+  .health-incident-row{grid-template-columns:auto minmax(0,1fr)}
+  .health-select{grid-row:1}
+  .health-incident-row>.severity{display:none}
+  .health-incident-copy{grid-column:2}
+  .health-incident-side{grid-column:1/-1}
+  .health-row-actions .btn{flex:1 1 calc(50% - 6px)}
+}
