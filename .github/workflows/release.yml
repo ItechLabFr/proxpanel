@@ -111,6 +111,8 @@ jobs:
           node --check app/public/app.js
           if [ -f app/public/auth-v15.js ]; then node --check app/public/auth-v15.js; fi
           node --check app/public/sw.js
+          bash -n tools-build-update.sh
+          bash -n tools-build-lxc.sh
           test -f "docs/releases/${{ steps.version.outputs.version }}.md"
 
       - name: Validate Docker build
@@ -132,8 +134,9 @@ jobs:
             --output="dist/proxpanel-v${version}.zip" \
             HEAD
 
-          chmod +x tools-build-update.sh
+          chmod +x tools-build-update.sh tools-build-lxc.sh
           ./tools-build-update.sh ./app ./dist
+          ./tools-build-lxc.sh "$version" ./dist
           cp release.json dist/release.json
 
           (
@@ -141,6 +144,7 @@ jobs:
             sha256sum \
               "proxpanel-v${version}.zip" \
               "proxpanel-update-v${version}.zip" \
+              "proxpanel-lxc-v${version}.tar.gz" \
               release.json > SHA256SUMS.txt
           )
 
@@ -152,7 +156,8 @@ jobs:
           cp "docs/releases/${version}.md" dist/RELEASE_NOTES.md
           printf '\n## Téléchargements / Downloads\n\n' >> dist/RELEASE_NOTES.md
           printf -- '- \`proxpanel-v%s.zip\` — package complet / full package\n' "$version" >> dist/RELEASE_NOTES.md
-          printf -- '- \`proxpanel-update-v%s.zip\` — mise à jour OTA / OTA update\n' "$version" >> dist/RELEASE_NOTES.md
+          printf -- '- \`proxpanel-update-v%s.zip\` — mise à jour OTA universelle Docker/LXC / universal Docker/LXC OTA update\n' "$version" >> dist/RELEASE_NOTES.md
+          printf -- '- \`proxpanel-lxc-v%s.tar.gz\` — installation native LXC Debian 13 / native Debian 13 LXC install\n' "$version" >> dist/RELEASE_NOTES.md
           printf -- '- \`release.json\` — métadonnées / metadata\n' >> dist/RELEASE_NOTES.md
           printf -- '- \`SHA256SUMS.txt\` — sommes SHA-256 / SHA-256 checksums\n\n' >> dist/RELEASE_NOTES.md
           printf '**FR :** Docker Hub distribue les images conteneur. Le rollout et les révocations OTA restent gérés par \`updates.proxpanel.fr\`.\n\n' >> dist/RELEASE_NOTES.md
@@ -174,6 +179,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload LXC package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxpanel-lxc-v${{ steps.version.outputs.version }}
+          path: dist/proxpanel-lxc-v${{ steps.version.outputs.version }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Create or update GitHub Release
         shell: bash
         run: |
@@ -188,6 +201,7 @@ jobs:
             gh release upload "$tag" \
               "dist/proxpanel-v${version}.zip" \
               "dist/proxpanel-update-v${version}.zip" \
+              "dist/proxpanel-lxc-v${version}.tar.gz" \
               dist/release.json \
               dist/SHA256SUMS.txt \
               --clobber
@@ -204,6 +218,7 @@ jobs:
             gh "${args[@]}" \
               "dist/proxpanel-v${version}.zip" \
               "dist/proxpanel-update-v${version}.zip" \
+              "dist/proxpanel-lxc-v${version}.tar.gz" \
               dist/release.json \
               dist/SHA256SUMS.txt
           fi
