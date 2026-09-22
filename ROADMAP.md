@@ -4,7 +4,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.8.3**
+- Latest published development release: **1.7.2-beta.9**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
 - Official Docker image architectures: **`linux/amd64` + `linux/arm64`** (Raspberry Pi 64-bit supported).
