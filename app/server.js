@@ -470,7 +470,9 @@ function healthCenterSnapshot(){
       const source=String(row.sourceType||'proxmox');summary.sources[source]=(summary.sources[source]||0)+1;
     }
   }
-  return {summary,incidents:rows.sort((a,b)=>String(b.lastSeenAt).localeCompare(String(a.lastSeenAt))),history:healthReadHistory().slice(0,1000),acceptedRisks:healthReadIgnoreRules()};
+  const incidents=rows.sort((a,b)=>String(b.lastSeenAt).localeCompare(String(a.lastSeenAt))),byId=new Map(incidents.map(x=>[x.id,x]));
+  const history=healthReadHistory().slice(0,1000).map(h=>{const incident=byId.get(String(h.incidentId||''));return {...h,sourceType:h.sourceType||incident?.sourceType||'proxmox',sourceName:h.sourceName||incident?.sourceName||incident?.serverName||''};});
+  return {summary,incidents,history,acceptedRisks:healthReadIgnoreRules()};
 }
 function healthApplyAction(ids,action,{actor='system',note='',until=null,minutes=0,scope='incident'}={}){
   const allowed=new Set(['acknowledge','resolve','dismiss','snooze','ignore','reopen']);
