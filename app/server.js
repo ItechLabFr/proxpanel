@@ -102,6 +102,9 @@ const DASHBOARD_GROUPS_FILE = path.join(DATA_DIR, 'dashboard-groups.json');
 const RESTORE_TESTS_FILE = path.join(DATA_DIR, 'restore-tests.json');
 const METRICS_FILE = path.join(DATA_DIR, 'metrics-history.json');
 const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
+const HEALTH_INCIDENTS_FILE = path.join(DATA_DIR, 'health-incidents.json');
+const HEALTH_HISTORY_FILE = path.join(DATA_DIR, 'health-history.json');
+const HEALTH_IGNORE_RULES_FILE = path.join(DATA_DIR, 'health-ignore-rules.json');
 const DOCKER_MONITOR_STATE_FILE = path.join(DATA_DIR, 'docker-monitor-state.json');
 const DOCKER_TOPOLOGY_FILE = path.join(DATA_DIR, 'docker-topology.json');
 const DOCKER_METRICS_FILE = path.join(DATA_DIR, 'docker-metrics-history.json');
@@ -313,6 +316,160 @@ function addAuditSystem(action, target = '', details = {}, result = 'ok') {
   const rows = jsonRead(AUDIT_FILE, []);
   rows.unshift({ id: crypto.randomUUID(), at: new Date().toISOString(), user: 'system', ip: '', action, target, result, details });
   jsonWrite(AUDIT_FILE, rows.slice(0, 2000));
+}
+
+const HEALTH_STATES = new Set(['active','acknowledged','snoozed','resolved','dismissed','ignored']);
+function healthNow(){ return new Date().toISOString(); }
+function healthIncidentId(serverId, problemId=''){
+  const raw=String(problemId||'');
+  return raw.startsWith(String(serverId)+':')?raw:`${serverId}:${raw}`;
+}
+function healthReadIncidents(){ const rows=jsonRead(HEALTH_INCIDENTS_FILE,[]); return Array.isArray(rows)?rows:[]; }
+function healthSaveIncidents(rows){ jsonWrite(HEALTH_INCIDENTS_FILE,(rows||[]).slice(0,5000)); }
+function healthReadHistory(){ const rows=jsonRead(HEALTH_HISTORY_FILE,[]); return Array.isArray(rows)?rows:[]; }
+function healthHistoryAdd(event){
+  const rows=healthReadHistory();
+  rows.unshift({id:crypto.randomUUID(),at:healthNow(),...event});
+  jsonWrite(HEALTH_HISTORY_FILE,rows.slice(0,10000));
+}
+function healthReadIgnoreRules(){
+  const rows=jsonRead(HEALTH_IGNORE_RULES_FILE,[]);
+  const now=Date.now();
+  return (Array.isArray(rows)?rows:[]).filter(r=>!r.expiresAt||new Date(r.expiresAt).getTime()>now);
+}
+function healthSaveIgnoreRules(rows){ jsonWrite(HEALTH_IGNORE_RULES_FILE,(rows||[]).slice(0,2000)); }
+function healthRuleMatches(rule,row){
+  if(!rule||rule.enabled===false)return false;
+  if(rule.serverId&&String(rule.serverId)!==String(row.serverId||''))return false;
+  if(rule.code&&String(rule.code)!==String(row.code||''))return false;
+  if(rule.target&&String(rule.target)!==String(row.target||''))return false;
+  return !rule.expiresAt||new Date(rule.expiresAt).getTime()>Date.now();
+}
+function healthNormalizeIncident(row={}){
+  const state=HEALTH_STATES.has(String(row.state))?String(row.state):'active';
+  return {
+    id:String(row.id||''),serverId:String(row.serverId||''),serverName:String(row.serverName||''),
+    code:String(row.code||''),title:String(row.title||''),detail:String(row.detail||''),target:String(row.target||''),
+    severity:['critical','warning','info'].includes(String(row.severity))?String(row.severity):'warning',
+    route:String(row.route||''),recommendation:String(row.recommendation||''),
+    facts:Array.isArray(row.facts)?row.facts.slice(0,50):[],items:Array.isArray(row.items)?row.items.slice(0,100):[],
+    state,sourcePresent:row.sourcePresent!==false,firstSeenAt:row.firstSeenAt||healthNow(),
+    lastSeenAt:row.lastSeenAt||row.firstSeenAt||healthNow(),lastCheckAt:row.lastCheckAt||healthNow(),
+    stateChangedAt:row.stateChangedAt||row.firstSeenAt||healthNow(),stateChangedBy:String(row.stateChangedBy||'system'),
+    note:String(row.note||''),snoozeUntil:row.snoozeUntil||null,ignoreUntil:row.ignoreUntil||null,
+    cooldownUntil:row.cooldownUntil||null,resolvedAutomatically:!!row.resolvedAutomatically,
+    reopenedCount:Number(row.reopenedCount||0),acceptedRiskRuleId:String(row.acceptedRiskRuleId||'')
+  };
+}
+function healthIncidentVisible(row){
+  if(!row?.sourcePresent)return false;
+  return row.state==='active'||row.state==='acknowledged';
+}
+function healthExpireState(row, now=Date.now()){
+  if(row.state==='snoozed'&&row.snoozeUntil&&new Date(row.snoozeUntil).getTime()<=now){
+    row.state='active';row.snoozeUntil=null;row.stateChangedAt=healthNow();row.stateChangedBy='system';
+    healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action:'snooze.expired',from:'snoozed',to:'active',actor:'system'});
+  }
+  if(row.state==='ignored'&&row.ignoreUntil&&new Date(row.ignoreUntil).getTime()<=now){
+    row.state='active';row.ignoreUntil=null;row.acceptedRiskRuleId='';row.stateChangedAt=healthNow();row.stateChangedBy='system';
+    healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action:'ignore.expired',from:'ignored',to:'active',actor:'system'});
+  }
+  return row;
+}
+function syncHealthIncidents(server, rawProblems=[]){
+  const serverId=String(server?.id||'unknown'),serverName=String(server?.name||serverId),now=healthNow(),nowMs=Date.now();
+  const rows=healthReadIncidents().map(healthNormalizeIncident),by=new Map(rows.map(x=>[x.id,x]));
+  const rules=healthReadIgnoreRules(); const currentIds=new Set(); const decorated=[];
+  for(const problem of rawProblems||[]){
+    const id=healthIncidentId(serverId,problem.id),rule=rules.find(r=>healthRuleMatches(r,{...problem,serverId}));
+    currentIds.add(id);
+    let row=by.get(id);
+    if(!row){
+      row=healthNormalizeIncident({
+        id,serverId,serverName,...problem,state:rule?'ignored':'active',sourcePresent:true,
+        firstSeenAt:now,lastSeenAt:now,lastCheckAt:now,stateChangedAt:now,stateChangedBy:rule?'system/rule':'system',
+        ignoreUntil:rule?.expiresAt||null,acceptedRiskRuleId:rule?.id||''
+      });
+      rows.unshift(row);by.set(id,row);
+      healthHistoryAdd({incidentId:id,serverId,action:'detected',from:null,to:row.state,actor:'system',note:rule?'Risque accepté correspondant appliqué automatiquement.':''});
+    }else{
+      healthExpireState(row,nowMs);
+      row.serverName=serverName;row.code=String(problem.code||row.code);row.title=String(problem.title||row.title);
+      row.detail=String(problem.detail||row.detail);row.target=String(problem.target||row.target);row.severity=String(problem.severity||row.severity);
+      row.route=String(problem.route||row.route);row.recommendation=String(problem.recommendation||row.recommendation);
+      row.facts=Array.isArray(problem.facts)?problem.facts:row.facts;row.items=Array.isArray(problem.items)?problem.items:row.items;
+      row.lastSeenAt=now;row.lastCheckAt=now;row.sourcePresent=true;
+      if(rule&&row.state!=='ignored'){
+        const from=row.state;row.state='ignored';row.ignoreUntil=rule.expiresAt||null;row.acceptedRiskRuleId=rule.id;row.stateChangedAt=now;row.stateChangedBy='system/rule';
+        healthHistoryAdd({incidentId:id,serverId,action:'ignore.rule-applied',from,to:'ignored',actor:'system',note:rule.reason||''});
+      }else if(!rule&&(row.state==='resolved'||row.state==='dismissed')&&(!row.cooldownUntil||new Date(row.cooldownUntil).getTime()<=nowMs)){
+        const from=row.state;row.state='active';row.resolvedAutomatically=false;row.cooldownUntil=null;row.stateChangedAt=now;row.stateChangedBy='system';row.reopenedCount++;
+        healthHistoryAdd({incidentId:id,serverId,action:'reopened.condition-still-present',from,to:'active',actor:'system'});
+      }
+    }
+    decorated.push({...problem,id,...row,problemId:String(problem.id||'')});
+  }
+  for(const row of rows){
+    if(row.serverId!==serverId||currentIds.has(row.id))continue;
+    row.lastCheckAt=now;
+    if(row.sourcePresent){
+      row.sourcePresent=false;
+      if(['active','acknowledged','snoozed'].includes(row.state)){
+        const from=row.state;row.state='resolved';row.resolvedAutomatically=true;row.snoozeUntil=null;row.stateChangedAt=now;row.stateChangedBy='system';
+        healthHistoryAdd({incidentId:row.id,serverId,action:'recovered',from,to:'resolved',actor:'system',note:'La condition source n’est plus détectée.'});
+      }
+    }
+  }
+  healthSaveIncidents(rows);
+  healthSaveIgnoreRules(rules);
+  return decorated.filter(healthIncidentVisible);
+}
+function healthCenterSnapshot(){
+  const now=Date.now(),rows=healthReadIncidents().map(r=>healthExpireState(healthNormalizeIncident(r),now));
+  healthSaveIncidents(rows);
+  const summary={total:rows.length,active:0,acknowledged:0,snoozed:0,resolved:0,dismissed:0,ignored:0,critical:0,warning:0};
+  for(const row of rows){
+    summary[row.state]=(summary[row.state]||0)+1;
+    if(row.sourcePresent&&(row.state==='active'||row.state==='acknowledged')){
+      if(row.severity==='critical')summary.critical++;else if(row.severity==='warning')summary.warning++;
+    }
+  }
+  return {summary,incidents:rows.sort((a,b)=>String(b.lastSeenAt).localeCompare(String(a.lastSeenAt))),history:healthReadHistory().slice(0,1000),acceptedRisks:healthReadIgnoreRules()};
+}
+function healthApplyAction(ids,action,{actor='system',note='',until=null,minutes=0,scope='incident'}={}){
+  const allowed=new Set(['acknowledge','resolve','dismiss','snooze','ignore','reopen']);
+  if(!allowed.has(action))throw new Error('Action Health Center invalide.');
+  const wanted=new Set((Array.isArray(ids)?ids:[ids]).map(String).filter(Boolean));if(!wanted.size)throw new Error('Aucun incident sélectionné.');
+  const rows=healthReadIncidents().map(healthNormalizeIncident),rules=healthReadIgnoreRules(),now=healthNow(),changed=[];
+  for(const row of rows){
+    if(!wanted.has(row.id))continue;
+    const from=row.state;
+    if(action==='acknowledge'){row.state='acknowledged';row.snoozeUntil=null;}
+    else if(action==='resolve'){row.state='resolved';row.resolvedAutomatically=false;row.cooldownUntil=new Date(Date.now()+Math.max(1,Number(minutes)||10)*60000).toISOString();}
+    else if(action==='dismiss'){row.state='dismissed';row.cooldownUntil=new Date(Date.now()+Math.max(1,Number(minutes)||30)*60000).toISOString();}
+    else if(action==='snooze'){row.state='snoozed';row.snoozeUntil=until||new Date(Date.now()+Math.max(1,Number(minutes)||60)*60000).toISOString();}
+    else if(action==='ignore'){
+      row.state='ignored';row.ignoreUntil=until||null;
+      if(scope==='target'){
+        const existing=rules.find(r=>r.serverId===row.serverId&&r.code===row.code&&r.target===row.target);
+        const rule=existing||{id:crypto.randomUUID(),serverId:row.serverId,serverName:row.serverName,code:row.code,target:row.target,createdAt:now,createdBy:actor,enabled:true};
+        rule.reason=String(note||'Risque accepté');rule.expiresAt=until||null;rule.enabled=true;
+        if(!existing)rules.unshift(rule);row.acceptedRiskRuleId=rule.id;
+      }
+    }else if(action==='reopen'){
+      row.state='active';row.snoozeUntil=null;row.ignoreUntil=null;row.cooldownUntil=null;row.resolvedAutomatically=false;
+      if(row.acceptedRiskRuleId){
+        const idx=rules.findIndex(r=>r.id===row.acceptedRiskRuleId);if(idx>=0)rules.splice(idx,1);
+        row.acceptedRiskRuleId='';
+      }
+    }
+    row.stateChangedAt=now;row.stateChangedBy=actor;row.note=String(note||'');
+    healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action,from,to:row.state,actor,note:row.note,until:row.snoozeUntil||row.ignoreUntil||row.cooldownUntil||null});
+    changed.push(row);
+  }
+  if(!changed.length)throw new Error('Incident introuvable.');
+  healthSaveIncidents(rows);healthSaveIgnoreRules(rules);
+  return changed;
 }
 function pveSessionKey(session, serverId) { return `${session?.nonce || 'none'}:${serverId}`; }
 function getPveUserSession(session, serverId) {
@@ -696,7 +853,7 @@ function safeEqualHex(a, b) {
 
 const ROLE_PERMISSIONS = {
   admin: ['*'],
-  operator: ['dashboard.view','machines.view','machines.control','console.use','backups.run','tasks.manage','pve.updates','audit.view'],
+  operator: ['dashboard.view','machines.view','machines.control','console.use','backups.run','tasks.manage','pve.updates','audit.view','health.manage'],
   viewer: ['dashboard.view','machines.view']
 };
 function defaultPermissionsForRole(role='viewer') { return [...(ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.viewer)]; }
@@ -1983,6 +2140,7 @@ async function buildDashboardPart(server,auth,{timeframe='day',nodesFilter=[],hi
   dash.storages=(dash.storages||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.tasks=(dash.tasks||[]).map(x=>({...x,serverId:server.id,serverName:server.name}));
   dash.problems=(dash.problems||[]).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name}));
+  dash.problems=syncHealthIncidents(server,dash.problems);
   return dash;
 }
 
@@ -4846,6 +5004,7 @@ async function handleApi(req, res, url) {
   const mutating=!['GET','HEAD','OPTIONS'].includes(req.method||'GET');
   if(mutating && (/^\/api\/(settings|servers(?:\/[^/]+)?(?:\/test)?|discord-channels|mail|update(?:\/|$)|integrations)/.test(url.pathname)) && !isAdmin) return sendJson(res,403,{error:'Permission administrateur requise.'});
   if(/^\/api\/audit/.test(url.pathname) && !userHasPermission(currentPanelUser,'audit.view') && !isAdmin) return sendJson(res,403,{error:'Permission audit requise.'});
+  if(mutating && /^\/api\/health-center/.test(url.pathname) && !userHasPermission(currentPanelUser,'health.manage') && !isAdmin) return sendJson(res,403,{error:'Permission Health Center requise.'});
   if(/\/console\/session$/.test(url.pathname) && mutating && !userHasPermission(currentPanelUser,'console.use') && !isAdmin) return sendJson(res,403,{error:'Permission console requise.'});
   if(mutating && (/\/(machines\/[^/]+\/\d+\/(action|snapshots|clone|migrate)|bulk-action|backups\/run|maintenance\/)/.test(url.pathname)||/^\/api\/docker\//.test(url.pathname)) && !userHasPermission(currentPanelUser,'machines.control') && !isAdmin) return sendJson(res,403,{error:'Permission opérateur requise.'});
   if(mutating && /^\/api\/pve-updates/.test(url.pathname) && !userHasPermission(currentPanelUser,'pve.updates') && !isAdmin) return sendJson(res,403,{error:'Permission mises à jour PVE requise.'});
@@ -4976,6 +5135,22 @@ async function handleApi(req, res, url) {
     if(req.method==='POST'&&discordChannelMatch[2]==='test'){try{const hook=row.webhookEnc?decryptText(row.webhookEnc):String(row.webhook||'');if(!hook)throw new Error('Webhook absent.');await postWebhook(hook,{username:'ProxPanel BETA',allowed_mentions:{parse:[]},embeds:[{author:{name:'ProxPanel BETA · Supervision Proxmox'},title:'✅ Test de notification réussi',description:`> Le salon **${row.name}** est correctement configuré et peut recevoir les alertes ProxPanel.`,color:0x16d49a,fields:[{name:'📌 Statut',value:'**OPÉRATIONNEL**',inline:true},{name:'🔔 Canal',value:String(row.name||'Discord'),inline:true},{name:'🧪 Type',value:'Test manuel',inline:true}],timestamp:new Date().toISOString(),footer:{text:'ProxPanel BETA • Test Discord • Aucun incident'}}]});audit(req,'discord-channel.test',row.name);return sendJson(res,200,{ok:true});}catch(e){return sendJson(res,502,{error:e.message});}}
   }
   if (url.pathname === '/api/audit' && req.method === 'GET') return sendJson(res, 200, jsonRead(AUDIT_FILE, []).slice(0, 1000));
+  if (url.pathname === '/api/health-center' && req.method === 'GET') return sendJson(res,200,healthCenterSnapshot());
+  if (url.pathname === '/api/health-center/bulk' && req.method === 'POST') {
+    try{
+      const body=await readBody(req),rows=healthApplyAction(body.ids, String(body.action||''), {actor:currentPanelUser?.username||'system',note:body.note,until:body.until,minutes:body.minutes,scope:body.scope});
+      audit(req,'health.bulk',String(body.action||''),{count:rows.length,ids:rows.map(x=>x.id),note:String(body.note||'')});
+      return sendJson(res,200,{ok:true,changed:rows,snapshot:healthCenterSnapshot()});
+    }catch(e){return sendJson(res,400,{error:e.message});}
+  }
+  const healthIncidentMatch=url.pathname.match(/^\/api\/health-center\/incidents\/(.+)\/action$/);
+  if(healthIncidentMatch&&req.method==='POST'){
+    try{
+      const id=decodeURIComponent(healthIncidentMatch[1]),body=await readBody(req),rows=healthApplyAction([id],String(body.action||''),{actor:currentPanelUser?.username||'system',note:body.note,until:body.until,minutes:body.minutes,scope:body.scope});
+      audit(req,'health.incident.'+String(body.action||''),id,{note:String(body.note||''),scope:String(body.scope||'incident')});
+      return sendJson(res,200,{ok:true,incident:rows[0],snapshot:healthCenterSnapshot()});
+    }catch(e){return sendJson(res,400,{error:e.message});}
+  }
   if (url.pathname === '/api/dashboard-groups' && req.method === 'GET') return sendJson(res,200,jsonRead(DASHBOARD_GROUPS_FILE,[]).map(normalizeDashboardGroup));
   if (url.pathname === '/api/dashboard-groups/candidates' && req.method === 'GET') {
     const rows=[];
@@ -5293,7 +5468,8 @@ async function handleApi(req, res, url) {
       await enrichNodeTemperatures(server,auth,dashboard);
       await enrichNodeHardware(server,auth,dashboard);
       const settings = getSettings();
-      dashboard.problems = computeProblems(dashboard, settings);
+      dashboard.problems = computeProblems(dashboard, settings).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name}));
+      dashboard.problems = syncHealthIncidents(server,dashboard.problems);
       dashboard.capacity = getCapacityForecast(server.id);
       recordMetrics(server.id, dashboard);
       const servers = jsonRead(SERVERS_FILE, []); const target=servers.find(s=>s.id===server.id); if(target){target.status='online';target.lastSeen=new Date().toISOString();target.lastError=null;jsonWrite(SERVERS_FILE,servers);}
@@ -5970,7 +6146,7 @@ async function runBackgroundAlerts() {
     if(now-Number(BACKGROUND_POLL_STATE.get(server.id)||0)<interval)continue;
     BACKGROUND_POLL_STATE.set(server.id,now);
     try {
-      const auth=await proxmoxLogin(server); const dashboard=await buildBackgroundDashboard(server,auth); const rawProblems=listAlertsForDashboard(dashboard,settings);
+      const auth=await proxmoxLogin(server); const dashboard=await buildBackgroundDashboard(server,auth); const computedProblems=listAlertsForDashboard(dashboard,settings).map(x=>({...x,id:`${server.id}:${x.id}`,serverId:server.id,serverName:server.name})); const rawProblems=syncHealthIncidents(server,computedProblems);
       const previousState=alertState[server.id]||{};
       const previousProblems=Array.isArray(previousState.problems)?previousState.problems:[];
       const missingConfirmations={...(previousState.backupMissingConfirmations||{})};
