@@ -5263,6 +5263,7 @@ async function handleApi(req, res, url) {
       // without turning missing data into a fake zero.
       await enrichMissingGuestStorage(server,auth,live);
       await enrichNodeTemperatures(server,auth,live);
+      await enrichNodeHardware(server,auth,live);
       return sendJson(res,200,{collectedAt:live.collectedAt,metrics:live.metrics,nodes:live.nodes,machines:live.machines,storages:live.storages});
     } catch(e){return sendJson(res,502,{error:e.message});}
   }
@@ -5287,10 +5288,10 @@ async function handleApi(req, res, url) {
       dashboard.history.storage = calcStorageRrdHistory(storageRrdResults);
       const inventory = await fetchBackupInventory(server, auth, dashboard);
       dashboard = enrichBackupState(dashboard, inventory);
-      // The grouped dashboard already enriched temperatures through buildDashboardPart().
-      // Do the same for the legacy single-server route so the node cards, temperature
-      // widget, alerts and live refresh all receive the same temperature fields.
+      // Keep the legacy single-server route aligned with grouped views.
+      // Both temperature and hardware enrichment are required by the node cards.
       await enrichNodeTemperatures(server,auth,dashboard);
+      await enrichNodeHardware(server,auth,dashboard);
       const settings = getSettings();
       dashboard.problems = computeProblems(dashboard, settings);
       dashboard.capacity = getCapacityForecast(server.id);
