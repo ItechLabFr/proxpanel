@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.2-beta.7",
+  "version": "1.7.2-beta.8",
   "private": true,
-  "description": "ProxPanel 1.7.2-beta.7 - Automations 2.0, exact node CPU hardware and responsive administration fixes.",
+  "description": "ProxPanel 1.7.2-beta.8 - official native LXC launch, universal OTA/full recovery, administration UX redesign and resilient CPU hardware detection.",
   "scripts": {
     "start": "node server.js"
   },
