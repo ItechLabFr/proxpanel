@@ -6,7 +6,8 @@ on:
       version:
         description: 'Version to publish, for example 1.7.2-beta.5'
         required: true
-        type: string  push:
+        type: string
+  push:
     branches:
       - main
     tags:
