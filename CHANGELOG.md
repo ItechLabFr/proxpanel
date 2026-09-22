@@ -1,3 +1,19 @@
+# ProxPanel 1.7.2-beta.8.2
+
+## Français
+- Détection CPU renforcée : cluster, API status, rapport Proxmox puis SSH/lscpu.
+- Source du modèle CPU affichée et diagnostic d’accès plus précis.
+- Cache négatif CPU raccourci.
+- Refonte des sélecteurs ZIP de secours.
+- Correction des débordements de l’installation manuelle OTA / package complet.
+
+## English
+- Stronger CPU model discovery: cluster, status API, Proxmox report then SSH/lscpu.
+- CPU source display and clearer access diagnostics.
+- Shorter negative CPU cache.
+- Redesigned manual ZIP selectors.
+- Fixed OTA/full package manual update overflow.
+
 # ProxPanel 1.7.2-beta.8.1
 
 ## Français
