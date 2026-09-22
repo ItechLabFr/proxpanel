@@ -702,6 +702,8 @@ function healthStateLabel(state){
 function healthStateTone(state){
   return state==='active'?'warning':state==='acknowledged'?'neutral':state==='snoozed'?'neutral':state==='resolved'?'ok':state==='ignored'?'warning':'neutral';
 }
+function healthSourceLabel(type){return ({proxmox:'Proxmox',docker:'Docker / Portainer',wazuh:'Wazuh',pbs:'PBS'})[String(type||'').toLowerCase()]||'ProxPanel'}
+function healthSourceTone(type){return ({proxmox:'neutral',docker:'ok',wazuh:'warning',pbs:'neutral'})[String(type||'').toLowerCase()]||'neutral'}
 function healthActionButtons(row){
   if(!can('health.manage')&&!can('*'))return `${button('Détails',`problem-detail:${encodeURIComponent(row.id)}`,'tiny')}`;
   if(['resolved','dismissed','ignored','snoozed'].includes(row.state))return `<div class="health-row-actions">${button('Réouvrir',`health-quick:reopen:${encodeURIComponent(row.id)}`,'tiny')}${button('Détails',`problem-detail:${encodeURIComponent(row.id)}`,'tiny')}</div>`;
@@ -715,12 +717,12 @@ function healthActionButtons(row){
   </div>`;
 }
 function healthIncidentRow(row){
-  const selected=state.healthSelected.has(row.id),source=row.serverName||row.serverId||'ProxPanel';
-  return `<article class="health-incident-row" data-health-row data-health-search="${esc((row.title+' '+row.detail+' '+row.target+' '+source+' '+row.code).toLowerCase())}" data-health-severity="${esc(row.severity)}">
+  const selected=state.healthSelected.has(row.id),source=row.sourceName||row.serverName||row.serverId||'ProxPanel',sourceType=row.sourceType||'proxmox';
+  return `<article class="health-incident-row" data-health-row data-health-search="${esc((row.title+' '+row.detail+' '+row.target+' '+source+' '+row.code+' '+sourceType).toLowerCase())}" data-health-severity="${esc(row.severity)}" data-health-source="${esc(sourceType)}">
     <label class="health-select"><input type="checkbox" class="health-check" data-health-id="${esc(row.id)}" ${selected?'checked':''}></label>
     <span class="severity ${row.severity}">${row.severity==='critical'?'!':'△'}</span>
     <div class="health-incident-copy">
-      <div class="health-incident-title"><strong>${esc(row.title)}</strong>${badge(healthStateLabel(row.state),healthStateTone(row.state))}${row.sourcePresent?'':'<span class="pill ok">Source rétablie</span>'}</div>
+      <div class="health-incident-title"><strong>${esc(row.title)}</strong>${badge(healthSourceLabel(sourceType),healthSourceTone(sourceType))}${badge(healthStateLabel(row.state),healthStateTone(row.state))}${row.sourcePresent?'':'<span class="pill ok">Source rétablie</span>'}</div>
       <p>${esc(row.detail)}</p>
       <small>${esc(source)}${row.target?` · ${esc(row.target)}`:''} · détecté ${fmtDate(row.firstSeenAt)} · dernier contrôle ${fmtDate(row.lastCheckAt)}</small>
       ${row.note?`<small class="health-note">Note : ${esc(row.note)}</small>`:''}
