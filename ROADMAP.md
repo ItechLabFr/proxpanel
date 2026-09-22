@@ -59,6 +59,17 @@ Status: **implemented for publication**.
   - running/stopped/unhealthy counts;
   - basic host metadata.
 
+### Audit & session management delivered with beta.9
+
+- Audit 2.0 search and filters by user, action and result.
+- Audit export in CSV and JSON.
+- Technical details remain searchable without exposing credentials.
+- Active ProxPanel sessions are listed in Administration → Users & security.
+- Administrators can revoke an active session.
+- Logout revokes the corresponding server-side session record.
+- Health Center state changes are written to the audit trail.
+- Custom roles gain the dedicated `health.manage` permission.
+
 ### Acceptance criteria
 
 - No Docker socket needs to be mounted in ProxPanel.
@@ -727,7 +738,7 @@ Current roles/permissions become scope-aware.
 
 ## 1.7.2-beta.9 — Health Center 2.0, Warning Lifecycle & Polish
 
-Status: **planned**.
+Status: **implementation ready for validation**.
 
 Replace the simple problem list with a real incident workflow and make warnings actionable instead of leaving a permanently growing list.
 
