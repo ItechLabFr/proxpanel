@@ -4,7 +4,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.5.1**
+- Latest published development release: **1.7.2-beta.6**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
 - Official Docker image architectures: **`linux/amd64` + `linux/arm64`** (Raspberry Pi 64-bit supported).
@@ -563,6 +563,8 @@ Security notifications must not flood the user.
 
 ## 1.7.2-beta.7 — Automations 2.0
 
+Status: **implemented for publication**.
+
 Expand the current automation engine beyond simple waits and machine actions.
 
 - Conditions.
@@ -577,6 +579,13 @@ Expand the current automation engine beyond simple waits and machine actions.
 - Dry-run / execution preview.
 - Reusable templates.
 - Full execution history with per-step result.
+
+### Additional beta.7 deliverables
+
+- Show the exact CPU model for each Proxmox node, plus sockets, cores, threads and frequency when exposed by the Proxmox API.
+- Show formatted CPU hardware information in node details.
+- Fix the mobile Administration navigation overlay seen on narrow screens.
+- Fix manual ZIP update / rollback controls overflowing and overlapping on phones.
 
 Example:
 
