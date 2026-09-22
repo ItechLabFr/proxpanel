@@ -102,9 +102,9 @@ UNIT
 cat > /usr/local/bin/proxpanel <<'CLI'
 #!/usr/bin/env bash
 set -e
-case "${1:-status}" in
+case "\${1:-status}" in
   status) systemctl status proxpanel --no-pager ;;
-  start|stop|restart) systemctl "$1" proxpanel ;;
+  start|stop|restart) systemctl "\$1" proxpanel ;;
   logs) journalctl -u proxpanel -n 100 --no-pager ;;
   follow) journalctl -u proxpanel -f ;;
   health) curl -fsS http://127.0.0.1:8080/healthz && echo ;;
