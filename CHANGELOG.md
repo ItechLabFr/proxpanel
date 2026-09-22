@@ -1,3 +1,27 @@
+# ProxPanel 1.7.2-beta.8
+
+## Français
+- Lancement officiel de l’installation native **LXC Debian 13** sans Docker, amd64 + arm64.
+- Génération d’un package `proxpanel-lxc-v1.7.2-beta.8.tar.gz` depuis la même release que l’OTA et le package complet.
+- OTA commun aux installations Docker et LXC.
+- Nouveau mode **mise à jour complète** et **réparation de la version actuelle**.
+- Vérification post-update `/healthz` et rollback automatique par le bootstrap en cas d’échec.
+- Refonte de l’Administration avec navigation regroupée, accueil simplifié et accès maintenance plus clair.
+- Passe responsive supplémentaire desktop/tablette/mobile/PWA.
+- Détection CPU renforcée : variantes API Proxmox + fallback SSH/lscpu lorsque disponible.
+- Diagnostic explicite du modèle CPU et affichage de sa source.
+
+## English
+- Official native **Debian 13 LXC** installation launch without Docker, amd64 + arm64.
+- Generates `proxpanel-lxc-v1.7.2-beta.8.tar.gz` from the same release as OTA and full packages.
+- Shared OTA package for Docker and LXC installations.
+- New **full update** and **repair current installation** modes.
+- Post-update `/healthz` validation with automatic bootstrap rollback on failure.
+- Administration redesign with grouped navigation, cleaner home and clearer maintenance access.
+- Additional desktop/tablet/mobile/PWA responsive pass.
+- Stronger CPU detection using Proxmox API variants plus SSH/lscpu fallback when available.
+- Explicit CPU diagnostics and model source.
+
 # ProxPanel 1.7.2-beta.7
 
 ## Français
