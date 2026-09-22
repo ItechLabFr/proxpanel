@@ -28,7 +28,8 @@
   "notes": [
     "Les installations LXC encore en 1.7.2-beta.8 doivent installer BusyBox une seule fois avant de pouvoir prendre ce hotfix via OTA : apt update && apt install -y busybox.",
     "Après installation de 1.7.2-beta.8.1, BusyBox n’est plus requis pour les mises à jour LXC.",
-    "Docker Hub reste publié manuellement et séparément du workflow GitHub."
+    "Docker Hub reste publié manuellement et séparément du workflow GitHub.",
+    "Le workflow GitHub de release génère OTA, Full et LXC ; Docker Hub reste publié manuellement."
   ],
   "notes_en": [
     "LXC installations still running 1.7.2-beta.8 must install BusyBox once before taking this hotfix through OTA: apt update && apt install -y busybox.",
