@@ -1,3 +1,15 @@
+# ProxPanel 1.7.2-beta.8.3
+
+## Français
+- Correction définitive de la remontée du modèle CPU en mode serveur unique.
+- Ajout de l’enrichissement matériel sur les routes dashboard et live serveur unique.
+- Alignement du comportement CPU avec les vues groupées/multi-nœuds.
+
+## English
+- Definitive CPU model fix for single-server mode.
+- Added node hardware enrichment to single-server dashboard and live routes.
+- Aligned single-server CPU behavior with grouped/multi-node views.
+
 # ProxPanel 1.7.2-beta.8.2
 
 ## Français
