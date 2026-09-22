@@ -1,41 +1,75 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.8.3",
-  "title": "ProxPanel 1.7.2-beta.8.3 — Single-node CPU Hardware Fix",
-  "title_en": "ProxPanel 1.7.2-beta.8.3 — Single-node CPU Hardware Fix",
-  "summary": "Corrige la remontée du modèle CPU en mode serveur unique : les routes dashboard/live historiques n’exécutaient pas l’enrichissement matériel des nœuds.",
-  "summary_en": "Fixes CPU model retrieval in single-server mode: legacy dashboard/live routes were not running node hardware enrichment.",
+  "version": "1.7.2-beta.9",
+  "title": "ProxPanel 1.7.2-beta.9 — Health Center 2.0",
+  "title_en": "ProxPanel 1.7.2-beta.9 — Health Center 2.0",
+  "summary": "Health Center 2.0 unifié pour Proxmox, backups, Docker/Portainer, Wazuh et PBS, avec cycle de vie persistant des incidents, risques acceptés, actions groupées, Audit 2.0 et gestion des sessions actives.",
+  "summary_en": "Unified Health Center 2.0 for Proxmox, backups, Docker/Portainer, Wazuh and PBS with persistent incident lifecycle, accepted risks, bulk actions, Audit 2.0 and active session management.",
   "improvements": [
-    "Le mode serveur unique exécute maintenant le même enrichissement matériel que les vues groupées.",
-    "Les informations CPU enrichies sont conservées aussi pendant les rafraîchissements live.",
-    "Le comportement de la page Nœuds est désormais cohérent entre serveur unique et multi-nœuds."
+    "Nouveau Health Center 2.0 avec états Actif, Validé, Snoozé, Résolu, Effacé et Risque accepté.",
+    "Actions individuelles et groupées : valider, résoudre, snooze, effacer, ignorer/accepter le risque et réouvrir.",
+    "Règles de risque accepté persistantes par cible et type de warning avec raison, expiration optionnelle et historique.",
+    "Réouverture automatique après cooldown lorsqu’une condition existe toujours.",
+    "Résolution automatique lorsqu’une condition source disparaît réellement.",
+    "Centralisation des incidents Proxmox et couverture de sauvegarde dans le même Health Center.",
+    "Centralisation des incidents Docker / Portainer : intégration injoignable, conteneurs arrêtés ou unhealthy, redémarrages, ressources, stockage et stacks dégradées.",
+    "Centralisation Wazuh : état de l’intégration, agents déconnectés, CVE critiques/élevées regroupées par CVE + logiciel, alertes importantes et FIM sensible.",
+    "Centralisation PBS : état de l’intégration, datastores presque pleins/critiques, tâches en échec et vérifications de sauvegarde.",
+    "Filtre Health Center par source Proxmox, Docker, Wazuh ou PBS et par sévérité.",
+    "Historique persistant des transitions d’incidents avec acteur, date et commentaire.",
+    "Widget Dashboard Health Center alimenté par le même inventaire multi-source.",
+    "Audit 2.0 avec recherche plein texte, filtres utilisateur/action/résultat et export CSV/JSON.",
+    "Liste des sessions ProxPanel actives avec utilisateur, appareil, IP, dernière activité, expiration et révocation.",
+    "Nouvelle permission personnalisée health.manage pour gérer le cycle de vie des incidents sans accès administrateur complet."
   ],
   "improvements_en": [
-    "Single-server mode now runs the same node hardware enrichment as grouped views.",
-    "Enriched CPU data is preserved during live refreshes.",
-    "Nodes page behavior is now consistent across single-server and multi-node views."
+    "New Health Center 2.0 with Active, Acknowledged, Snoozed, Resolved, Dismissed and Accepted Risk states.",
+    "Individual and bulk acknowledge, resolve, snooze, dismiss, ignore/accept-risk and reopen actions.",
+    "Persistent accepted-risk rules by target and warning type with reason, optional expiry and history.",
+    "Automatic reopen after cooldown when the underlying condition remains present.",
+    "Automatic resolution when the source condition genuinely recovers.",
+    "Proxmox and backup coverage incidents are centralized in the same Health Center.",
+    "Docker/Portainer incidents are centralized, including unreachable integrations, stopped/unhealthy containers, restarts, resource/storage and degraded-stack conditions.",
+    "Wazuh incidents include integration health, disconnected agents, critical/high CVEs grouped by CVE + software, important alerts and sensitive FIM changes.",
+    "PBS incidents include integration health, datastore capacity, failed tasks and backup verification failures.",
+    "Health Center filtering by Proxmox, Docker, Wazuh or PBS source and severity.",
+    "Persistent incident transition history with actor, time and comments.",
+    "Dashboard Health Center widget uses the same multi-source incident inventory.",
+    "Audit 2.0 with full-text search, user/action/result filters and CSV/JSON exports.",
+    "Active ProxPanel session list with user, device, IP, last activity, expiry and revocation.",
+    "New health.manage custom-role permission for incident lifecycle management without full admin access."
   ],
   "fixes": [
-    "Correction du cas « Modèle indisponible » alors que Proxmox 8006 affiche correctement le processeur.",
-    "Ajout de enrichNodeHardware() à /api/servers/{id}/dashboard.",
-    "Ajout de enrichNodeHardware() à /api/servers/{id}/live.",
-    "Les champs cpuModel, sockets, cœurs, threads, fréquence, source et diagnostics atteignent désormais la carte Nœud."
+    "Les warnings ignorés ou snoozés ne sont plus retraités comme de nouveaux incidents à chaque rafraîchissement.",
+    "Une condition réellement rétablie passe automatiquement en Résolu au lieu de rester dans la vue active.",
+    "Les incidents effacés/résolus peuvent être réouverts automatiquement si la source signale encore le problème après le cooldown.",
+    "Les exclusions de risque accepté survivent aux redémarrages de ProxPanel.",
+    "La déconnexion normale révoque désormais la session active côté serveur.",
+    "Les sessions administrateur peuvent être révoquées à distance.",
+    "Le Dashboard ne dépend plus uniquement des warnings Proxmox pour son widget Health Center."
   ],
   "fixes_en": [
-    "Fixed “Model unavailable” while Proxmox 8006 correctly shows the processor.",
-    "Added enrichNodeHardware() to /api/servers/{id}/dashboard.",
-    "Added enrichNodeHardware() to /api/servers/{id}/live.",
-    "cpuModel, sockets, cores, threads, frequency, source and diagnostics now reach the Node card."
+    "Ignored or snoozed warnings are no longer recreated as new incidents on every refresh.",
+    "A genuinely recovered condition automatically moves to Resolved instead of remaining active.",
+    "Dismissed/resolved incidents can automatically reopen if the source still reports the problem after cooldown.",
+    "Accepted-risk exclusions survive ProxPanel restarts.",
+    "Normal logout now revokes the active server-side session.",
+    "Administrator sessions can be revoked remotely.",
+    "Dashboard Health Center is no longer limited to Proxmox warnings."
   ],
   "notes": [
-    "Ce correctif vise directement le scénario mono-serveur montré avec PVE-PROD.",
-    "Docker Hub reste publié manuellement.",
-    "Les packages OTA, Full et LXC sont générés automatiquement."
+    "Docker Hub reste publié manuellement et n’est pas déclenché par le workflow GitHub.",
+    "Le workflow officiel génère le ZIP OTA universel Docker/LXC, le package complet et le package LXC natif.",
+    "Le Health Center ne supprime jamais les événements source Proxmox, Portainer, Wazuh ou PBS ; il gère uniquement leur état côté ProxPanel.",
+    "Les risques acceptés restent consultables dans une vue dédiée et dans l’audit.",
+    "La publication LXC reste basée sur Debian 13, amd64 et arm64, port 8080."
   ],
   "notes_en": [
-    "This hotfix directly targets the single-server PVE-PROD scenario.",
-    "Docker Hub remains manually published.",
-    "OTA, Full and LXC packages are generated automatically."
+    "Docker Hub remains manually published and is not triggered by the GitHub workflow.",
+    "The official workflow generates the universal Docker/LXC OTA ZIP, full package and native LXC package.",
+    "Health Center never deletes the original Proxmox, Portainer, Wazuh or PBS event; it only manages its ProxPanel-side lifecycle.",
+    "Accepted risks remain visible in a dedicated view and audit trail.",
+    "Native LXC distribution remains Debian 13, amd64 and arm64, port 8080."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
