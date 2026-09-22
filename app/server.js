@@ -524,51 +524,94 @@ function cpuModelFromNodeStatus(status={}){
   ];
   return String(values.find(v=>typeof v==='string'&&v.trim())||'').trim();
 }
-async function nodeHardwareInfo(server,auth,node,host=''){
+function cpuModelFromReport(report){
+  let raw='';
+  if(typeof report==='string') raw=report;
+  else if(report&&typeof report==='object'){
+    for(const key of ['report','text','output','data']){
+      if(typeof report[key]==='string'&&report[key].trim()){raw=report[key];break;}
+    }
+    if(!raw){try{raw=JSON.stringify(report)}catch{}}
+  }
+  if(!raw)return '';
+  const patterns=[
+    /^\s*Model name\s*:\s*(.+?)\s*$/mi,
+    /^\s*model name\s*:\s*(.+?)\s*$/mi,
+    /"cpuinfo"\s*:\s*\{[\s\S]{0,3000}?"model"\s*:\s*"([^"]+)"/i,
+    /"model"\s*:\s*"((?:Intel|AMD|Ampere|ARM|Apple|Cavium|Neoverse)[^"]+)"/i
+  ];
+  for(const re of patterns){const m=raw.match(re);if(m?.[1]?.trim())return m[1].trim();}
+  return '';
+}
+async function nodeHardwareInfo(server,auth,node,host='',resource={}){
   const key=`${server?.id||server?.url||'server'}:${node}`,cached=NODE_HARDWARE_CACHE.get(key);
   if(cached?.expiresAt>Date.now())return cached.value;
-  let value={cpuModel:'',cpuModelSource:'',cpuModelError:'',cpuSockets:0,cpuCores:0,cpuThreads:0,cpuMhz:0,kernelVersion:'',pveVersion:'',hardwareStatus:'unavailable',hardwareError:''};
+  const resourceModel=cpuModelFromNodeStatus(resource);
+  let value={
+    cpuModel:resourceModel,cpuModelSource:resourceModel?'cluster-resource':'',cpuModelError:'',
+    cpuSockets:Number(resource?.sockets||0),cpuCores:Number(resource?.cores||0),
+    cpuThreads:Number(resource?.cpus||resource?.maxcpu||0),cpuMhz:Number(resource?.mhz||0),
+    kernelVersion:'',pveVersion:'',hardwareStatus:resourceModel?'partial':'unavailable',hardwareError:''
+  };
+  let statusError='',reportError='';
   try{
     const status=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/status`,{auth});
-    const info=status?.cpuinfo||{};
+    const info=status?.cpuinfo&&typeof status.cpuinfo==='object'?status.cpuinfo:{};
     const apiModel=cpuModelFromNodeStatus(status);
     value={
-      cpuModel:apiModel,
-      cpuModelSource:apiModel?'proxmox-api':'',
-      cpuModelError:'',
-      cpuSockets:Number(info.sockets||status?.sockets||0),
-      cpuCores:Number(info.cores||status?.cores||0),
-      cpuThreads:Number(info.cpus||status?.cpus||status?.maxcpu||0),
-      cpuMhz:Number(info.mhz||info.MHz||info.frequency||0),
+      ...value,
+      cpuModel:apiModel||value.cpuModel,
+      cpuModelSource:apiModel?'proxmox-api':value.cpuModelSource,
+      cpuSockets:Number(info.sockets||status?.sockets||value.cpuSockets||0),
+      cpuCores:Number(info.cores||status?.cores||value.cpuCores||0),
+      cpuThreads:Number(info.cpus||status?.cpus||status?.maxcpu||value.cpuThreads||0),
+      cpuMhz:Number(info.mhz||info.MHz||info.frequency||value.cpuMhz||0),
       kernelVersion:String(status?.kversion||status?.kernel||'').trim(),
       pveVersion:String(status?.pveversion||status?.version||'').trim(),
-      hardwareStatus:apiModel?'ok':'partial',
-      hardwareError:apiModel?'':'Le statut Proxmox fournit les caractéristiques CPU mais pas le nom du modèle.'
+      hardwareStatus:(apiModel||value.cpuModel)?'ok':'partial',
+      hardwareError:''
     };
-    if(!value.cpuModel){
-      const ssh=await readCpuModelOverSsh(server,node,host);
-      if(ssh.cpuModel){
-        value.cpuModel=ssh.cpuModel;
-        value.cpuModelSource=ssh.cpuModelSource;
-        value.cpuModelError='';
-        value.hardwareStatus='ok';
-        value.hardwareError='';
-      }else{
-        value.cpuModelError=ssh.cpuModelError;
-        value.hardwareError=[value.hardwareError,ssh.cpuModelError].filter(Boolean).join(' · ');
-      }
-    }
   }catch(error){
-    value.hardwareError=String(error?.message||error||'Informations matérielles indisponibles.');
+    statusError=String(error?.message||error||'Lecture /nodes/{node}/status impossible.').trim();
+  }
+
+  if(!value.cpuModel){
+    try{
+      const report=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/report`,{auth});
+      const reportModel=cpuModelFromReport(report);
+      if(reportModel){
+        value.cpuModel=reportModel;
+        value.cpuModelSource='proxmox-report';
+        value.hardwareStatus='ok';
+      }else reportError='Le rapport Proxmox ne contient pas de modèle CPU exploitable.';
+    }catch(error){
+      reportError=String(error?.message||error||'Lecture du rapport Proxmox impossible.').trim();
+    }
+  }
+
+  if(!value.cpuModel){
     const ssh=await readCpuModelOverSsh(server,node,host);
     if(ssh.cpuModel){
       value.cpuModel=ssh.cpuModel;
       value.cpuModelSource=ssh.cpuModelSource;
       value.cpuModelError='';
-      value.hardwareStatus='partial';
-    }else value.cpuModelError=ssh.cpuModelError;
+      value.hardwareStatus=value.cpuThreads?'ok':'partial';
+      value.hardwareError='';
+    }else{
+      const apiProblem=[statusError,reportError].filter(Boolean).join(' · ');
+      const tokenHint=auth?.authType==='token'
+        ? 'La connexion utilise un token API : le modèle CPU nécessite que cette connexion puisse lire les informations matérielles du nœud, ou qu’un accès PAM/SSH soit disponible.'
+        : '';
+      value.cpuModelError=[apiProblem,ssh.cpuModelError,tokenHint].filter(Boolean).join(' · ');
+      value.hardwareError=value.cpuModelError;
+      value.hardwareStatus=value.cpuThreads||value.cpuCores?'partial':'unavailable';
+    }
+  }else{
+    value.cpuModelError='';
+    value.hardwareError='';
   }
-  const ttl=value.cpuModel?NODE_HARDWARE_CACHE_MS:Math.min(NODE_HARDWARE_CACHE_MS,15000);
+
+  const ttl=value.cpuModel?NODE_HARDWARE_CACHE_MS:Math.min(NODE_HARDWARE_CACHE_MS,10000);
   NODE_HARDWARE_CACHE.set(key,{value,expiresAt:Date.now()+ttl});
   return value;
 }
@@ -581,7 +624,7 @@ async function enrichNodeHardware(server,auth,dashboard){
   const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
   const rows=await Promise.all(nodes.map(async n=>{
     const host=map.get(String(n.node))||(nodes.length===1?fallbackHost:'');
-    return {node:n.node,...await nodeHardwareInfo(server,auth,n.node,host)};
+    return {node:n.node,...await nodeHardwareInfo(server,auth,n.node,host,n)};
   }));
   const by=new Map(rows.map(x=>[String(x.node),x]));
   dashboard.nodes=nodes.map(n=>({...n,...(by.get(String(n.node))||{})}));
