@@ -1,40 +1,45 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.8.1",
-  "title": "ProxPanel 1.7.2-beta.8.1 — LXC OTA Hotfix",
-  "title_en": "ProxPanel 1.7.2-beta.8.1 — LXC OTA Hotfix",
-  "summary": "Correctif critique du moteur OTA LXC : suppression de la dépendance obligatoire à BusyBox pour lire release.json et extraire les packages. ProxPanel utilise désormais unzip natif avec fallback BusyBox.",
-  "summary_en": "Critical LXC OTA updater hotfix: removes the hard BusyBox dependency for release.json reading and package extraction. ProxPanel now prefers native unzip with a BusyBox fallback.",
+  "version": "1.7.2-beta.8.2",
+  "title": "ProxPanel 1.7.2-beta.8.2 — CPU Model + Update UI Hotfix",
+  "title_en": "ProxPanel 1.7.2-beta.8.2 — CPU Model + Update UI Hotfix",
+  "summary": "Correctif de la détection du modèle CPU des nœuds Proxmox et refonte des sélecteurs ZIP de secours dans Administration → Mises à jour.",
+  "summary_en": "Hotfix for Proxmox node CPU model discovery and redesigned manual ZIP selectors in Administration → Updates.",
   "improvements": [
-    "Le moteur de mise à jour sélectionne automatiquement unzip natif ou BusyBox selon l’environnement.",
-    "Le même chemin d’extraction fonctionne désormais sur LXC Debian 13 et Docker Alpine.",
-    "Les erreurs d’extraction ZIP remontent la cause réelle au lieu d’un message générique."
+    "Détection du modèle CPU via plusieurs sources : ressources cluster, /nodes/{node}/status, /nodes/{node}/report puis SSH/lscpu.",
+    "Affichage de la source ayant fourni le modèle CPU.",
+    "Diagnostic plus précis lorsque les informations matérielles ne sont pas accessibles à la connexion Proxmox.",
+    "Nouveaux sélecteurs de fichier propres pour les packages OTA et complets.",
+    "Affichage du nom du fichier sélectionné sans débordement de la carte."
   ],
   "improvements_en": [
-    "The updater automatically selects native unzip or BusyBox depending on the runtime.",
-    "The same extraction path now works on Debian 13 LXC and Alpine-based Docker.",
-    "ZIP extraction errors now report the underlying failure instead of a generic message."
+    "CPU model discovery now tries cluster resources, /nodes/{node}/status, /nodes/{node}/report, then SSH/lscpu.",
+    "Displays the source used for the CPU model.",
+    "More precise diagnostics when hardware information is not accessible through the Proxmox connection.",
+    "Clean file pickers for OTA and full packages.",
+    "Selected filename is shown without overflowing the update cards."
   ],
   "fixes": [
-    "Correction de « Impossible de lire release.json » pendant les mises à jour OTA depuis LXC.",
-    "Correction de l’extraction des packages OTA sur Debian 13 sans BusyBox.",
-    "Correction de la lecture et de l’extraction des packages complets / réparation sur LXC."
+    "Correction du cas « Modèle indisponible » lorsque le modèle peut être obtenu via une autre source Proxmox.",
+    "Le cache négatif du modèle CPU est limité à 10 secondes.",
+    "Correction du débordement du champ de fichier dans Installation manuelle par ZIP.",
+    "Correction des superpositions entre le nom de fichier et les boutons de mise à jour."
   ],
   "fixes_en": [
-    "Fixed “Unable to read release.json” during OTA updates from LXC.",
-    "Fixed OTA package extraction on Debian 13 without BusyBox.",
-    "Fixed full-package and repair manifest reading/extraction on LXC."
+    "Fixed “Model unavailable” when the CPU model can be recovered from another Proxmox source.",
+    "Negative CPU model cache is limited to 10 seconds.",
+    "Fixed file input overflow in Manual ZIP installation.",
+    "Fixed filename/action button overlap."
   ],
   "notes": [
-    "Les installations LXC encore en 1.7.2-beta.8 doivent installer BusyBox une seule fois avant de pouvoir prendre ce hotfix via OTA : apt update && apt install -y busybox.",
-    "Après installation de 1.7.2-beta.8.1, BusyBox n’est plus requis pour les mises à jour LXC.",
-    "Docker Hub reste publié manuellement et séparément du workflow GitHub.",
-    "Le workflow GitHub de release génère OTA, Full et LXC ; Docker Hub reste publié manuellement."
+    "Docker Hub reste publié manuellement et n’est pas déclenché par le workflow de release.",
+    "Les packages OTA, Full et LXC sont générés automatiquement pour cette version.",
+    "Si le modèle CPU reste inaccessible après les quatre méthodes, ProxPanel affiche maintenant la cause technique au lieu d’un message générique."
   ],
   "notes_en": [
-    "LXC installations still running 1.7.2-beta.8 must install BusyBox once before taking this hotfix through OTA: apt update && apt install -y busybox.",
-    "After 1.7.2-beta.8.1 is installed, BusyBox is no longer required for LXC updates.",
-    "Docker Hub remains manually published outside the GitHub release workflow."
+    "Docker Hub remains manually published and is not triggered by the release workflow.",
+    "OTA, Full and LXC packages are generated automatically for this version.",
+    "If the CPU model remains unavailable after all four methods, ProxPanel now displays the technical reason instead of a generic message."
   ],
   "breaking_changes": [],
   "breaking_changes_en": [],
