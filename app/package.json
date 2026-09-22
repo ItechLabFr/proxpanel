@@ -1,8 +1,8 @@
 {
   "name": "proxpanel",
-  "version": "1.7.2-beta.8.1",
+  "version": "1.7.2-beta.8.2",
   "private": true,
-  "description": "ProxPanel 1.7.2-beta.8.1 - portable OTA ZIP extraction hotfix for native LXC and Docker.",
+  "description": "ProxPanel 1.7.2-beta.8.2 - CPU model discovery hardening and responsive manual ZIP picker fixes.",
   "scripts": {
     "start": "node server.js"
   },
