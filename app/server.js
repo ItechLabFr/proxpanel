@@ -500,37 +500,89 @@ async function enrichNodeTemperatures(server,auth,dashboard) {
   return dashboard;
 }
 
-async function nodeHardwareInfo(server,auth,node){
+async function readCpuModelOverSsh(server,node,host){
+  const identity=sshSensorIdentity(server);
+  if(!identity.ok)return {cpuModel:'',cpuModelSource:'',cpuModelError:identity.error||'Fallback SSH indisponible.'};
+  const runtime=sshRuntimeSupport();
+  if(!runtime.ssh||!runtime.sshpass)return {cpuModel:'',cpuModelSource:'',cpuModelError:'Client SSH/sshpass indisponible dans ProxPanel.'};
+  if(!host)return {cpuModel:'',cpuModelSource:'',cpuModelError:'Adresse réseau du nœud introuvable.'};
+  const knownHosts=path.join(DATA_DIR,'ssh-known-hosts');
+  const remoteCommand=`LC_ALL=C; m=$(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -n1); [ -n "$m" ] || m=$(grep -m1 -E '^(model name|Hardware|Processor)[[:space:]]*:' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^[[:space:]]*//'); printf '%s\\n' "$m"`;
+  try{
+    const {stdout}=await execFileAsync('sshpass',['-e','ssh','-o','BatchMode=no','-o','ConnectTimeout=4','-o','ConnectionAttempts=1','-o','PreferredAuthentications=password,keyboard-interactive','-o','PubkeyAuthentication=no','-o','StrictHostKeyChecking=accept-new','-o',`UserKnownHostsFile=${knownHosts}`,`${identity.user}@${host}`,remoteCommand],{env:{...process.env,SSHPASS:identity.password},timeout:6500,maxBuffer:256*1024});
+    const model=String(stdout||'').split(/\\r?\\n/).map(x=>x.trim()).find(Boolean)||'';
+    return model?{cpuModel:model,cpuModelSource:'ssh-lscpu',cpuModelError:''}:{cpuModel:'',cpuModelSource:'',cpuModelError:'Le nœud ne retourne aucun modèle CPU via lscpu ou /proc/cpuinfo.'};
+  }catch(error){
+    return {cpuModel:'',cpuModelSource:'',cpuModelError:String(error?.stderr||error?.message||error||'Lecture SSH impossible.').trim().slice(0,500)};
+  }
+}
+function cpuModelFromNodeStatus(status={}){
+  const info=status?.cpuinfo&&typeof status.cpuinfo==='object'?status.cpuinfo:{};
+  const values=[
+    info.model,info.model_name,info.modelName,info.cpuname,info.cpu_model,info.cpuModel,info.name,
+    status.cpu_model,status.cpuModel,status.cpu_model_name,status.cpuModelName,status.model
+  ];
+  return String(values.find(v=>typeof v==='string'&&v.trim())||'').trim();
+}
+async function nodeHardwareInfo(server,auth,node,host=''){
   const key=`${server?.id||server?.url||'server'}:${node}`,cached=NODE_HARDWARE_CACHE.get(key);
   if(cached?.expiresAt>Date.now())return cached.value;
-  let value={cpuModel:'',cpuSockets:0,cpuCores:0,cpuThreads:0,cpuMhz:0,kernelVersion:'',pveVersion:'',hardwareStatus:'unavailable',hardwareError:''};
+  let value={cpuModel:'',cpuModelSource:'',cpuModelError:'',cpuSockets:0,cpuCores:0,cpuThreads:0,cpuMhz:0,kernelVersion:'',pveVersion:'',hardwareStatus:'unavailable',hardwareError:''};
   try{
     const status=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/status`,{auth});
     const info=status?.cpuinfo||{};
+    const apiModel=cpuModelFromNodeStatus(status);
     value={
-      cpuModel:String(info.model||info.model_name||'').trim(),
-      cpuSockets:Number(info.sockets||status?.cpuinfo?.sockets||0),
-      cpuCores:Number(info.cores||status?.cpuinfo?.cores||0),
-      cpuThreads:Number(info.cpus||status?.cpuinfo?.cpus||status?.maxcpu||0),
-      cpuMhz:Number(info.mhz||info.MHz||0),
-      kernelVersion:String(status?.kversion||'').trim(),
-      pveVersion:String(status?.pveversion||'').trim(),
-      hardwareStatus:'ok',
-      hardwareError:''
+      cpuModel:apiModel,
+      cpuModelSource:apiModel?'proxmox-api':'',
+      cpuModelError:'',
+      cpuSockets:Number(info.sockets||status?.sockets||0),
+      cpuCores:Number(info.cores||status?.cores||0),
+      cpuThreads:Number(info.cpus||status?.cpus||status?.maxcpu||0),
+      cpuMhz:Number(info.mhz||info.MHz||info.frequency||0),
+      kernelVersion:String(status?.kversion||status?.kernel||'').trim(),
+      pveVersion:String(status?.pveversion||status?.version||'').trim(),
+      hardwareStatus:apiModel?'ok':'partial',
+      hardwareError:apiModel?'':'Le statut Proxmox fournit les caractéristiques CPU mais pas le nom du modèle.'
     };
+    if(!value.cpuModel){
+      const ssh=await readCpuModelOverSsh(server,node,host);
+      if(ssh.cpuModel){
+        value.cpuModel=ssh.cpuModel;
+        value.cpuModelSource=ssh.cpuModelSource;
+        value.cpuModelError='';
+        value.hardwareStatus='ok';
+        value.hardwareError='';
+      }else{
+        value.cpuModelError=ssh.cpuModelError;
+        value.hardwareError=[value.hardwareError,ssh.cpuModelError].filter(Boolean).join(' · ');
+      }
+    }
   }catch(error){
     value.hardwareError=String(error?.message||error||'Informations matérielles indisponibles.');
+    const ssh=await readCpuModelOverSsh(server,node,host);
+    if(ssh.cpuModel){
+      value.cpuModel=ssh.cpuModel;
+      value.cpuModelSource=ssh.cpuModelSource;
+      value.cpuModelError='';
+      value.hardwareStatus='partial';
+    }else value.cpuModelError=ssh.cpuModelError;
   }
-  NODE_HARDWARE_CACHE.set(key,{value,expiresAt:Date.now()+NODE_HARDWARE_CACHE_MS});
+  const ttl=value.cpuModel?NODE_HARDWARE_CACHE_MS:Math.min(NODE_HARDWARE_CACHE_MS,15000);
+  NODE_HARDWARE_CACHE.set(key,{value,expiresAt:Date.now()+ttl});
   return value;
 }
 async function enrichNodeHardware(server,auth,dashboard){
   const nodes=dashboard?.nodes||[];if(!nodes.length)return dashboard;
   if(DEMO_MODE&&server?.demo){
-    dashboard.nodes=nodes.map((n,index)=>({...n,cpuModel:index%2?'AMD EPYC 7313P 16-Core Processor':'Intel(R) Xeon(R) Gold 6230R CPU @ 2.10GHz',cpuSockets:1,cpuCores:Number(n.maxcpu||16),cpuThreads:Number(n.maxcpu||32),cpuMhz:index%2?3000:2100,kernelVersion:'6.14.11-2-pve',pveVersion:'9.0.3',hardwareStatus:'ok',hardwareError:''}));
+    dashboard.nodes=nodes.map((n,index)=>({...n,cpuModel:index%2?'AMD EPYC 7313P 16-Core Processor':'Intel(R) Xeon(R) Gold 6230R CPU @ 2.10GHz',cpuModelSource:'demo',cpuModelError:'',cpuSockets:1,cpuCores:Number(n.maxcpu||16),cpuThreads:Number(n.maxcpu||32),cpuMhz:index%2?3000:2100,kernelVersion:'6.14.11-2-pve',pveVersion:'9.0.3',hardwareStatus:'ok',hardwareError:''}));
     return dashboard;
   }
-  const rows=await Promise.all(nodes.map(async n=>({node:n.node,...await nodeHardwareInfo(server,auth,n.node)})));
+  const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
+  const rows=await Promise.all(nodes.map(async n=>{
+    const host=map.get(String(n.node))||(nodes.length===1?fallbackHost:'');
+    return {node:n.node,...await nodeHardwareInfo(server,auth,n.node,host)};
+  }));
   const by=new Map(rows.map(x=>[String(x.node),x]));
   dashboard.nodes=nodes.map(n=>({...n,...(by.get(String(n.node))||{})}));
   return dashboard;
@@ -833,7 +885,7 @@ function receiveRawZip(req, destination) {
     out.on('error', fail);
   });
 }
-function readZipCentralDirectory(zipPath) {
+function readZipCentralDirectory(zipPath, { requireRootManifest = true } = {}) {
   const stat = fs.statSync(zipPath);
   if (!stat.isFile() || stat.size < 22) throw new Error('ZIP vide ou invalide.');
   const fd = fs.openSync(zipPath, 'r');
@@ -891,7 +943,7 @@ function readZipCentralDirectory(zipPath) {
       entries.push({ name, uncompressedSize, method });
       pos = end;
     }
-    if (!entries.some(entry => entry.name === 'release.json')) throw new Error('Le ZIP ne contient pas release.json à sa racine.');
+    if (requireRootManifest && !entries.some(entry => entry.name === 'release.json')) throw new Error('Le ZIP ne contient pas release.json à sa racine.');
     return entries;
   } finally {
     fs.closeSync(fd);
@@ -1008,7 +1060,8 @@ function installUpdateZip(zipPath, uploadInfo = {}) {
       currentRelease: releaseName,
       previousRelease,
       updatedAt: new Date().toISOString(),
-      lastPackageSha256: uploadInfo.sha256 || null
+      lastPackageSha256: uploadInfo.sha256 || null,
+      pendingValidation: { release: releaseName, previousRelease, mode: uploadInfo.automatic ? 'ota-auto' : 'ota', createdAt: new Date().toISOString() }
     });
     addUpdateHistory({
       action: uploadInfo.automatic ? 'auto-install' : 'install', fromVersion: APP_VERSION, toVersion: manifest.version,
@@ -1021,6 +1074,108 @@ function installUpdateZip(zipPath, uploadInfo = {}) {
     throw e;
   }
 }
+function fullPackageLayout(zipPath){
+  const entries=readZipCentralDirectory(zipPath,{requireRootManifest:false});
+  const manifestEntries=entries.map(x=>x.name).filter(name=>/(^|\/)release\.json$/.test(name));
+  const candidate=manifestEntries.find(name=>{
+    const prefix=name.slice(0,-'release.json'.length);
+    return entries.some(e=>e.name===`${prefix}app/server.js`)&&entries.some(e=>e.name===`${prefix}app/package.json`);
+  });
+  if(!candidate)throw new Error('Package complet invalide : release.json + app/server.js introuvables.');
+  const prefix=candidate.slice(0,-'release.json'.length);
+  let raw;
+  try{raw=execFileSync('busybox',['unzip','-p',zipPath,candidate],{encoding:'utf8',maxBuffer:1024*1024});}
+  catch{throw new Error('Impossible de lire le manifeste du package complet.');}
+  let manifest;try{manifest=JSON.parse(raw)}catch{throw new Error('release.json du package complet est invalide.');}
+  if(String(manifest.product||'').toLowerCase()!=='proxpanel'||!parseSemver(String(manifest.version||'')))throw new Error('Le package complet ne correspond pas à une release ProxPanel valide.');
+  return {entries,prefix,manifest};
+}
+function installFullPackageZip(zipPath,uploadInfo={}, { repair=false } = {}){
+  const layout=fullPackageLayout(zipPath),manifest=layout.manifest;
+  const releaseName=`v${manifest.version}`,releaseDir=path.join(RELEASES_DIR,releaseName);
+  if(repair&&String(manifest.version)!==String(APP_VERSION))throw new Error(`La réparation doit utiliser exactement ProxPanel ${APP_VERSION}.`);
+  if(!repair&&compareSemver(String(manifest.version),String(APP_VERSION))<0)throw new Error('Une mise à jour complète ne peut pas installer une version plus ancienne.');
+  const unpack=path.join(RELEASES_DIR,`.full-unpack-${crypto.randomUUID()}`),stage=path.join(RELEASES_DIR,`.full-stage-${crypto.randomUUID()}`);
+  fs.mkdirSync(unpack,{recursive:true});fs.mkdirSync(stage,{recursive:true});
+  let replacedRelease='',backupDir='';
+  try{
+    execFileSync('busybox',['unzip','-q','-o',zipPath,'-d',unpack],{timeout:60000,maxBuffer:8*1024*1024});
+    const root=path.join(unpack,...layout.prefix.split('/').filter(Boolean));
+    const appDir=path.join(root,'app');
+    if(!fs.existsSync(appDir))throw new Error('Le dossier app/ est absent du package complet.');
+    fs.cpSync(appDir,stage,{recursive:true,force:true});
+    fs.copyFileSync(path.join(root,'release.json'),path.join(stage,'release.json'));
+    validateExtractedRelease(stage,manifest);
+    backupDir=createConfigBackup(`${repair?'repair':'full-update'}-${releaseName}`);
+    const runtime=getRuntimeState(),currentRelease=runtime.currentRelease||`v${APP_VERSION}`;
+    if(fs.existsSync(releaseDir)){
+      if(!repair&&currentRelease!==releaseName)throw new Error(`La release ${releaseName} existe déjà. Utilise le rollback ou la réparation.`);
+      replacedRelease=`${releaseName}-backup-${Date.now()}`;
+      fs.renameSync(releaseDir,path.join(RELEASES_DIR,replacedRelease));
+    }
+    fs.renameSync(stage,releaseDir);
+    switchCurrentRelease(releaseName);
+    jsonWrite(RUNTIME_STATE_FILE,{
+      ...runtime,currentRelease:releaseName,previousRelease:replacedRelease||currentRelease,updatedAt:new Date().toISOString(),
+      lastPackageSha256:uploadInfo.sha256||null,pendingValidation:{release:releaseName,previousRelease:replacedRelease||currentRelease,mode:repair?'repair':'full-update',createdAt:new Date().toISOString()}
+    });
+    addUpdateHistory({action:repair?'repair':'full-update',fromVersion:APP_VERSION,toVersion:manifest.version,packageSha256:uploadInfo.sha256||null,packageSize:uploadInfo.size||null,backupDir:path.basename(backupDir),notes:Array.isArray(manifest.notes)?manifest.notes.slice(0,20):[]});
+    return {manifest,releaseName,backupDir:path.basename(backupDir),repair};
+  }catch(e){
+    try{fs.rmSync(stage,{recursive:true,force:true})}catch{}
+    if(replacedRelease&&fs.existsSync(path.join(RELEASES_DIR,replacedRelease))&&!fs.existsSync(releaseDir)){
+      try{fs.renameSync(path.join(RELEASES_DIR,replacedRelease),releaseDir)}catch{}
+    }
+    throw e;
+  }finally{try{fs.rmSync(unpack,{recursive:true,force:true})}catch{}}
+}
+function findFullPackageCandidate(value,version,pathParts=[],depth=0,out=[]){
+  if(depth>5||value==null)return out;
+  if(typeof value==='string'){
+    if(/\.zip(?:\?|$)/i.test(value)&&value.includes(`proxpanel-v${version}`))out.push({url:value,filename:`proxpanel-v${version}.zip`,score:8});
+    return out;
+  }
+  if(Array.isArray(value)){value.forEach((x,i)=>findFullPackageCandidate(x,version,[...pathParts,String(i)],depth+1,out));return out;}
+  if(typeof value!=='object')return out;
+  const filename=String(value.filename||value.name||'');
+  const url=String(value.download_url||value.downloadUrl||value.url||'');
+  const context=[...pathParts,String(value.type||''),String(value.kind||''),String(value.role||''),filename].join(' ').toLowerCase();
+  if(url&&/\.zip(?:\?|$)/i.test(url)){
+    let score=0;
+    if(filename===`proxpanel-v${version}.zip`)score+=10;
+    if(url.includes(`proxpanel-v${version}`))score+=8;
+    if(/full|complete|complet/.test(context))score+=5;
+    if(score)out.push({url,filename:filename||path.basename(new URL(url).pathname),sha256:String(value.sha256||value.digest||'').replace(/^sha256:/,'').toLowerCase(),size:Number(value.size||value.file_size||0),score});
+  }
+  for(const [k,v] of Object.entries(value))findFullPackageCandidate(v,version,[...pathParts,k],depth+1,out);
+  return out;
+}
+async function resolveOtaFullPackage(cfg,version){
+  const base=normalizeOtaBaseUrl(cfg.otaBaseUrl||OFFICIAL_OTA_BASE_URL);
+  const detail=await requestJsonUrl(otaAbsoluteUrl(base,`api/v1/public/releases/${encodeURIComponent(version)}`));
+  const candidates=findFullPackageCandidate(detail,version).sort((a,b)=>b.score-a.score);
+  const selected=candidates[0];if(!selected)throw new Error(`Le package complet ProxPanel ${version} n’est pas publié sur le serveur OTA.`);
+  assertOtaSameOrigin(base,selected.url,'Le package complet');
+  if(!selected.sha256||!/^[a-f0-9]{64}$/.test(selected.sha256))throw new Error('Le serveur OTA ne fournit pas de SHA-256 valide pour le package complet.');
+  return selected;
+}
+async function installFullPackageFromOta({version,repair=false}={}){
+  const settings=getSettings(),cfg={...(settings.updates||{})};cfg.otaBaseUrl=cfg.otaBaseUrl||OFFICIAL_OTA_BASE_URL;
+  if(cfg.provider==='legacy')throw new Error('Le fournisseur OTA officiel est désactivé.');
+  if(isOfficialOtaBaseUrl(cfg.otaBaseUrl))await ensureOfficialOtaTrust(cfg);
+  const target=String(version||APP_VERSION).replace(/^v/,'').trim();
+  if(!parseSemver(target))throw new Error('Version cible invalide.');
+  const pkg=await resolveOtaFullPackage(cfg,target),tempZip=path.join(UPDATE_UPLOAD_DIR,`full-${Date.now()}-${crypto.randomUUID()}.zip`);
+  try{
+    const base=new URL(normalizeOtaBaseUrl(cfg.otaBaseUrl));
+    const dl=await downloadUrlToFile(pkg.url,tempZip,{maxBytes:MAX_UPDATE_BYTES,expectedOrigin:base.origin});
+    if(dl.sha256.toLowerCase()!==pkg.sha256)throw new Error('SHA-256 du package complet invalide.');
+    if(pkg.size>0&&pkg.size!==dl.size)throw new Error('Taille du package complet incohérente.');
+    const result=installFullPackageZip(tempZip,{...dl,filename:pkg.filename},{repair});
+    return {result,download:dl,pkg,cfg};
+  }finally{try{fs.rmSync(tempZip,{force:true})}catch{}}
+}
+
 function rollbackUpdate() {
   const runtime = getRuntimeState();
   const target = runtime.previousRelease;
@@ -4908,6 +5063,26 @@ async function handleApi(req, res, url) {
       audit(req, 'update.install', 'zip', { error: e.message }, 'error');
       return sendJson(res, 400, { error: e.message || 'Mise à jour impossible.' });
     }
+  }
+  if (url.pathname === '/api/update/full/ota' && req.method === 'POST') {
+    try{
+      const body=await readBody(req),target=String(body.version||APP_VERSION).replace(/^v/,'').trim(),repair=body.repair===true;
+      const installed=await installFullPackageFromOta({version:target,repair}),result=installed.result;
+      audit(req,repair?'update.repair.ota':'update.full.ota',`v${result.manifest.version}`,{sha256:installed.download.sha256,backup:result.backupDir});
+      sendJson(res,202,{ok:true,installedVersion:result.manifest.version,repair,restarting:true,backup:result.backupDir});
+      setTimeout(()=>process.exit(75),1200).unref();return;
+    }catch(e){audit(req,'update.full.ota','ota',{error:e.message},'error');return sendJson(res,400,{error:e.message||'Mise à jour complète impossible.'});}
+  }
+  if (url.pathname === '/api/update/full-upload' && req.method === 'POST') {
+    const contentType=String(req.headers['content-type']||'').toLowerCase();
+    if(!contentType.includes('application/zip')&&!contentType.includes('application/octet-stream'))return sendJson(res,415,{error:'Envoie directement le package complet .zip.'});
+    const tempZip=path.join(UPDATE_UPLOAD_DIR,`full-upload-${Date.now()}-${crypto.randomUUID()}.zip`);
+    try{
+      const uploadInfo=await receiveRawZip(req,tempZip),repair=url.searchParams.get('repair')==='1';
+      const result=installFullPackageZip(tempZip,uploadInfo,{repair});fs.rmSync(tempZip,{force:true});
+      audit(req,repair?'update.repair.upload':'update.full.upload',`v${result.manifest.version}`,{sha256:uploadInfo.sha256,backup:result.backupDir});
+      sendJson(res,202,{ok:true,installedVersion:result.manifest.version,repair,restarting:true,backup:result.backupDir});setTimeout(()=>process.exit(75),1200).unref();return;
+    }catch(e){try{fs.rmSync(tempZip,{force:true})}catch{}audit(req,'update.full.upload','zip',{error:e.message},'error');return sendJson(res,400,{error:e.message||'Package complet invalide.'});}
   }
   if (url.pathname === '/api/update/rollback' && req.method === 'POST') {
     try {
