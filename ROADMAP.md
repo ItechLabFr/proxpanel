@@ -823,6 +823,9 @@ An ignored VM must not disappear silently: show it in a dedicated **Ignored / ac
 - Maintenance suppression.
 - Cooldown and duplicate suppression.
 - Correlate related Proxmox, backup, Docker, PBS and Wazuh events.
+- Unified Health Center source adapters for Proxmox, Docker/Portainer, Wazuh and PBS.
+- Automatic incident recovery when Docker, Wazuh or PBS returns to a healthy state.
+- Health Center source filter and unified dashboard counters.
 - Improve cluster health explanations.
 - Recovery notifications only when the incident was previously active.
 - Do not recreate duplicate incidents at every refresh.
