@@ -1,3 +1,29 @@
+# ProxPanel 1.7.2-beta.7
+
+## Français
+- Nouveau moteur **Automatisations 2.0** avec conditions, branches, retries, timeouts et dépendances entre étapes.
+- Attente d’état VM/LXC avant poursuite des scénarios.
+- Ciblage par VMID, tag Proxmox ou groupe ProxPanel.
+- Étapes Docker via Portainer et étapes de sauvegarde Proxmox.
+- Prévisualisation / dry-run sans action réelle.
+- Modèles réutilisables et historique persistant avec résultat par étape.
+- Affichage du **modèle exact du processeur** de chaque nœud Proxmox avec sockets, cœurs, threads et fréquence lorsque disponibles.
+- Informations CPU enrichies dans le détail des nœuds.
+- Correction du menu Administration mobile qui recouvrait le contenu.
+- Correction de l’interface ZIP/rollback qui débordait et se superposait sur téléphone.
+
+## English
+- New **Automations 2.0** engine with conditions, branches, retries, timeouts and step dependencies.
+- Wait-until VM/LXC state before continuing scenarios.
+- Target by VMID, Proxmox tag or ProxPanel group.
+- Docker steps through Portainer and Proxmox backup steps.
+- Preview / dry-run without real actions.
+- Reusable templates and persistent per-step execution history.
+- Exact **CPU model** shown for each Proxmox node, including sockets, cores, threads and frequency when available.
+- Richer CPU information in node details.
+- Fixed mobile Administration navigation overlay.
+- Fixed ZIP/rollback controls overflowing and overlapping on phones.
+
 # ProxPanel 1.7.2-beta.5.1
 
 ## Français
