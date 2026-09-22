@@ -956,6 +956,18 @@ function inspectUpdateZip(zipPath) {
     throw new Error(`ZIP illisible : ${String(e.message || e).trim()}`);
   }
 }
+function updateUnzipRuntime() {
+  const commandPath=name=>{try{return String(execFileSync('/bin/sh',['-lc',`command -v ${name}`],{encoding:'utf8',timeout:1500})).trim();}catch{return '';}};
+  const unzip=commandPath('unzip');
+  if(unzip)return {bin:unzip,prefix:[],source:'unzip'};
+  const busybox=commandPath('busybox');
+  if(busybox)return {bin:busybox,prefix:['unzip'],source:'busybox'};
+  throw new Error('Aucun outil unzip compatible n’est disponible sur cette installation.');
+}
+function execUpdateUnzip(args, options={}) {
+  const runtime=updateUnzipRuntime();
+  return execFileSync(runtime.bin,[...runtime.prefix,...args],options);
+}
 function releaseChannelFromVersion(version) {
   const parsed = parseSemver(version);
   if (!parsed) throw new Error('Version du package invalide : SemVer attendu.');
@@ -963,8 +975,8 @@ function releaseChannelFromVersion(version) {
 }
 function readUpdateManifest(zipPath) {
   let raw;
-  try { raw = execFileSync('busybox', ['unzip', '-p', zipPath, 'release.json'], { encoding: 'utf8', maxBuffer: 1024 * 1024 }); }
-  catch { throw new Error('Impossible de lire release.json.'); }
+  try { raw = execUpdateUnzip(['-p', zipPath, 'release.json'], { encoding: 'utf8', maxBuffer: 1024 * 1024 }); }
+  catch (error) { throw new Error(`Impossible de lire release.json : ${String(error?.message||error||'extraction ZIP impossible')}`); }
   let release;
   try { release = JSON.parse(raw); } catch { throw new Error('release.json contient un JSON invalide.'); }
   if (String(release.product || '').toLowerCase() !== 'proxpanel') throw new Error('release.json ne correspond pas au produit ProxPanel.');
@@ -1048,7 +1060,7 @@ function installUpdateZip(zipPath, uploadInfo = {}) {
   const stage = path.join(RELEASES_DIR, `.staging-${crypto.randomUUID()}`);
   fs.mkdirSync(stage, { recursive: true });
   try {
-    execFileSync('busybox', ['unzip', '-q', '-o', zipPath, '-d', stage], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+    execUpdateUnzip(['-q', '-o', zipPath, '-d', stage], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
     validateExtractedRelease(stage, manifest);
     const backupDir = createConfigBackup(`before-${releaseName}`);
     fs.renameSync(stage, releaseDir);
@@ -1084,8 +1096,8 @@ function fullPackageLayout(zipPath){
   if(!candidate)throw new Error('Package complet invalide : release.json + app/server.js introuvables.');
   const prefix=candidate.slice(0,-'release.json'.length);
   let raw;
-  try{raw=execFileSync('busybox',['unzip','-p',zipPath,candidate],{encoding:'utf8',maxBuffer:1024*1024});}
-  catch{throw new Error('Impossible de lire le manifeste du package complet.');}
+  try{raw=execUpdateUnzip(['-p',zipPath,candidate],{encoding:'utf8',maxBuffer:1024*1024});}
+  catch(error){throw new Error(`Impossible de lire le manifeste du package complet : ${String(error?.message||error||'extraction ZIP impossible')}`);}
   let manifest;try{manifest=JSON.parse(raw)}catch{throw new Error('release.json du package complet est invalide.');}
   if(String(manifest.product||'').toLowerCase()!=='proxpanel'||!parseSemver(String(manifest.version||'')))throw new Error('Le package complet ne correspond pas à une release ProxPanel valide.');
   return {entries,prefix,manifest};
@@ -1099,7 +1111,7 @@ function installFullPackageZip(zipPath,uploadInfo={}, { repair=false } = {}){
   fs.mkdirSync(unpack,{recursive:true});fs.mkdirSync(stage,{recursive:true});
   let replacedRelease='',backupDir='';
   try{
-    execFileSync('busybox',['unzip','-q','-o',zipPath,'-d',unpack],{timeout:60000,maxBuffer:8*1024*1024});
+    execUpdateUnzip(['-q','-o',zipPath,'-d',unpack],{timeout:60000,maxBuffer:8*1024*1024});
     const root=path.join(unpack,...layout.prefix.split('/').filter(Boolean));
     const appDir=path.join(root,'app');
     if(!fs.existsSync(appDir))throw new Error('Le dossier app/ est absent du package complet.');
