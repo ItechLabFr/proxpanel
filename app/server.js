@@ -402,12 +402,12 @@ function healthIncidentVisible(row){
 }
 function healthExpireState(row, now=Date.now()){
   if(row.state==='snoozed'&&row.snoozeUntil&&new Date(row.snoozeUntil).getTime()<=now){
-    row.state='active';row.snoozeUntil=null;row.stateChangedAt=healthNow();row.stateChangedBy='system';
-    healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action:'snooze.expired',from:'snoozed',to:'active',actor:'system'});
+    const from='snoozed';row.state=row.sourcePresent===false?'resolved':'active';row.snoozeUntil=null;row.resolvedAutomatically=row.sourcePresent===false;row.stateChangedAt=healthNow();row.stateChangedBy='system';
+    healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action:row.sourcePresent===false?'recovered.while-snoozed':'snooze.expired',from,to:row.state,actor:'system'});
   }
   if(row.state==='ignored'&&row.ignoreUntil&&new Date(row.ignoreUntil).getTime()<=now){
-    row.state='active';row.ignoreUntil=null;row.acceptedRiskRuleId='';row.stateChangedAt=healthNow();row.stateChangedBy='system';
-    healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action:'ignore.expired',from:'ignored',to:'active',actor:'system'});
+    const from='ignored';row.state=row.sourcePresent===false?'resolved':'active';row.ignoreUntil=null;row.acceptedRiskRuleId='';row.resolvedAutomatically=row.sourcePresent===false;row.stateChangedAt=healthNow();row.stateChangedBy='system';
+    healthHistoryAdd({incidentId:row.id,serverId:row.serverId,action:row.sourcePresent===false?'recovered.while-ignored':'ignore.expired',from,to:row.state,actor:'system'});
   }
   return row;
 }
@@ -956,7 +956,7 @@ function base64url(input) { return Buffer.from(input).toString('base64url'); }
 function signSessionPayload(payload) { return crypto.createHmac('sha256', MASTER_KEY).update(payload).digest('base64url'); }
 function panelSessionRows(){
   const now=Date.now(),rows=jsonRead(PANEL_SESSIONS_FILE,[]);
-  const clean=(Array.isArray(rows)?rows:[]).filter(x=>Number(x.expires||0)>now||x.revokedAt);
+  const clean=(Array.isArray(rows)?rows:[]).filter(x=>Number(x.expires||0)>now||Boolean(x.revokedAt&&new Date(x.revokedAt).getTime()>now-30*24*60*60*1000));
   if(clean.length!==(Array.isArray(rows)?rows.length:0))jsonWrite(PANEL_SESSIONS_FILE,clean.slice(0,2000));
   return clean;
 }
@@ -5018,7 +5018,10 @@ async function handleApi(req, res, url) {
     if (session) {
       for (const key of [...PVE_USER_SESSIONS.keys()]) if (key.startsWith(`${session.nonce}:`)) PVE_USER_SESSIONS.delete(key);
     }
-    if(session)addAuditSystem('auth.logout',session.username,{ip:clientIp(req)},'ok');
+    if(session){
+      addAuditSystem('auth.logout',session.username,{ip:clientIp(req)},'ok');
+      try{revokePanelSession(session.nonce,session.username)}catch{}
+    }
     clearSession(req, res);
     return sendJson(res, 200, { ok: true });
   }
@@ -5239,8 +5242,10 @@ async function handleApi(req, res, url) {
   if(panelSessionMatch&&req.method==='DELETE'){
     if(!userHasPermission(currentPanelUser,'*')&&!userHasPermission(currentPanelUser,'admin.users'))return sendJson(res,403,{error:'Permission utilisateurs requise.'});
     try{
+      const targetRow=panelSessionRows().find(x=>x.nonce===panelSessionMatch[1]);
+      if(!targetRow)throw new Error('Session introuvable.');
+      audit(req,'session.revoke',targetRow.username,{nonce:targetRow.nonce,current:targetRow.nonce===session.nonce});
       const row=revokePanelSession(panelSessionMatch[1],currentPanelUser?.username||'system');
-      audit(req,'session.revoke',row.username,{nonce:row.nonce,current:row.nonce===session.nonce});
       return sendJson(res,200,{ok:true,current:row.nonce===session.nonce});
     }catch(e){return sendJson(res,404,{error:e.message});}
   }
