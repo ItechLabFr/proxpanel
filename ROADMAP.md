@@ -4,7 +4,7 @@ This roadmap is indicative and can evolve with testing feedback and Proxmox/Port
 
 ## Current status
 
-- Latest published development release: **1.7.2-beta.6**
+- Latest published development release: **1.7.2-beta.7**
 - The **1.7.1** series reached its planned maximum of 10 betas.
 - Current development series: **1.7.2-beta.x**
 - Official Docker image architectures: **`linux/amd64` + `linux/arm64`** (Raspberry Pi 64-bit supported).
@@ -601,7 +601,96 @@ Example:
 
 ---
 
-## 1.7.2-beta.8 — RBAC & Audit 2.0
+## 1.7.2-beta.8 — LXC Launch, Update Recovery, Administration UX, RBAC & Audit 2.0
+
+Status: **planned as a major distribution and UX milestone**.
+
+Beta.8 officially launches **native ProxPanel installation in a Proxmox LXC** alongside the existing Docker distribution. Docker remains fully supported; LXC becomes an additional official installation method, not a replacement.
+
+### Official native LXC distribution
+
+- Official Debian 13 LXC installation path.
+- Unprivileged container by default.
+- Native Node.js/systemd runtime: **no Docker inside the LXC**.
+- One permanent public installation command:
+  `bash -c "$(curl -fsSL https://updates.proxpanel.fr/lxc.sh)"`
+- Guided installer with automatic Proxmox detection and sensible defaults.
+- User only chooses the Debian template storage and the LXC rootfs/disk storage when several compatible choices exist.
+- Automatic CT ID, hostname, CPU, RAM, disk size, bridge, Debian 13 template and Beta channel defaults.
+- Default recommendation: 2 vCPU, 2 GiB RAM and 8 GiB disk.
+- Official amd64 and arm64 support.
+- LXC releases are distributed from `updates.proxpanel.fr`, with SHA-256 verification.
+- LXC package naming: `proxpanel-lxc-v<VERSION>.tar.gz`.
+- Future Beta releases must ship three coherent packages for the same version:
+  - `proxpanel-update-v<VERSION>.zip` — universal OTA update for Docker and LXC;
+  - `proxpanel-v<VERSION>.zip` — complete package;
+  - `proxpanel-lxc-v<VERSION>.tar.gz` — new LXC installations.
+- Docker images remain published separately in multi-architecture amd64/arm64 form.
+
+### Universal OTA + complete update / repair
+
+The existing OTA remains the recommended update path for both Docker and LXC installations.
+
+Add a second recovery-oriented path in **Administration → Updates**:
+
+- **OTA update** — default and recommended; installs the incremental OTA package.
+- **Complete update** — reinstalls the complete ProxPanel application release while preserving persistent data, settings and integrations.
+- **Repair current installation** — re-downloads/reinstalls the complete package for the currently installed version without changing version.
+- Complete update/repair must never reset user data.
+- Validate product, version, archive structure and SHA-256 before switching releases.
+- Stage the new release before activation.
+- Keep the current release available for rollback.
+- Run a post-switch `/healthz` verification.
+- Automatically return to the previous release if the new release fails the health check.
+- Surface when an old installed version cannot use a direct OTA and requires a complete update.
+
+### Administration UX redesign
+
+The Administration area receives a substantial information-architecture and responsive redesign.
+
+Goals:
+
+- Remove the current “everything in one place” feeling.
+- Reduce unnecessary controls and duplicated actions.
+- Make common actions reachable in one or two clicks.
+- Separate configuration, integrations, security, updates and advanced/diagnostic operations clearly.
+- Use a clean Administration home with health/status summary and shortcuts.
+- Replace the long flat navigation with grouped sections and clearer hierarchy.
+- Improve search/filter of Administration sections.
+- Keep destructive or rare actions in contextual **Advanced** / **Maintenance** areas.
+- Standardize cards, forms, spacing, button placement, help text and empty states.
+- Remove large unused whitespace and prevent compressed cards/tables.
+- Full responsive pass for desktop, tablet, mobile and PWA.
+- No sticky/overlay navigation covering content on narrow screens.
+- Modals, tables, file selectors and action rows must remain inside the viewport.
+- Light/Dark themes and density settings must remain visually consistent.
+
+### Global display / responsive correction pass
+
+Beta.8 includes a broad UI quality pass rather than isolated CSS patches.
+
+- Audit every primary page at desktop, tablet and phone breakpoints.
+- Fix overflowing text, clipped controls, duplicated bars, compressed cards and inconsistent heights.
+- Fix long labels and technical values without breaking layouts.
+- Improve tables that become unusable on phones.
+- Normalize spacing and section headers.
+- Improve loading, warning, degraded and empty states.
+- Ensure notification details and error messages remain readable without horizontal scrolling.
+- Validate PWA navigation and Administration after screen rotation/resizing.
+
+### Node processor model reliability
+
+Fix **“Processeur — Modèle indisponible”** when Proxmox itself exposes the processor model.
+
+- Read the documented `/nodes/{node}/status` CPU information first.
+- Accept compatible model field variants returned by supported Proxmox versions.
+- Do not mark hardware as fully available when the model field is empty.
+- When API data is incomplete and a PAM/SSH connection is available, use a safe read-only fallback through `lscpu` / `/proc/cpuinfo`.
+- Cache successful hardware identification while avoiding long-lived negative cache entries.
+- Expose the source used: Proxmox API or SSH fallback.
+- Show an actionable diagnostic when neither source can provide the model.
+- Never invent a CPU model.
+- Keep sockets, cores, threads and frequency visible independently when available.
 
 ### RBAC
 
@@ -624,6 +713,15 @@ Current roles/permissions become scope-aware.
 - Link an audit event to its Proxmox/Docker task.
 - Export JSON/CSV where appropriate.
 - Clear actor, target, time and result.
+
+### Beta.8 release acceptance criteria
+
+- A fresh ProxPanel installation can be completed through the permanent `lxc.sh` command on supported Proxmox VE hosts.
+- Docker and LXC installations can both install the same OTA package for a given ProxPanel version.
+- Complete update and repair preserve persistent data and can roll back on failed health verification.
+- Administration remains usable without overlaps or horizontal overflow on desktop, tablet and phone.
+- The processor model shown by Proxmox is also shown by ProxPanel when accessible through the API or configured SSH fallback.
+- Beta.8 publication is not complete until OTA, full ZIP, LXC package and Docker multi-arch image all represent the exact same ProxPanel version.
 
 ---
 
