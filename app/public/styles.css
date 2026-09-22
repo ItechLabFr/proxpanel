@@ -2081,3 +2081,33 @@ html[data-theme="light"] .docker-image-toolbar,html[data-theme="light"] .docker-
   .update-manual-grid .actions .btn{width:100%;justify-content:center}
   .beta7-node-cpu em{font-size:10px}
 }
+
+
+/* 1.7.2-beta.8.2 — manual ZIP picker + CPU diagnostics */
+.zip-picker{
+  position:relative;display:flex;align-items:center;gap:10px;min-width:0;width:100%;
+  padding:9px;border:1px dashed var(--line2);border-radius:10px;background:var(--panel2);
+  box-sizing:border-box;cursor:pointer
+}
+.zip-picker:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line2));background:color-mix(in srgb,var(--accent) 4%,var(--panel2))}
+.zip-picker-input{
+  position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;
+  overflow:hidden!important;clip:rect(0 0 0 0)!important;clip-path:inset(50%)!important;white-space:nowrap!important
+}
+.zip-picker-button{
+  flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;min-height:34px;
+  padding:0 12px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:850
+}
+.zip-picker-name{
+  min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--text);font-size:11px
+}
+.zip-picker-hint{display:block;margin-top:6px;color:var(--muted);font-size:10px;overflow-wrap:anywhere}
+.update-manual-grid>div{overflow:hidden}
+.update-manual-grid .actions{align-items:center}
+.beta7-node-cpu.missing em{display:block;margin-top:2px}
+@media(max-width:620px){
+  .zip-picker{display:grid;grid-template-columns:1fr}
+  .zip-picker-button{width:100%}
+  .zip-picker-name{text-align:center;white-space:normal;overflow-wrap:anywhere}
+}
