@@ -9,6 +9,9 @@ services:
       PORT: 8080
       PROXPANEL_RUNTIME_DIR: /opt/proxpanel-runtime
       PROXPANEL_DATA_DIR: /app/data
+      # N'accepte X-Forwarded-For/Proto/Host que depuis ces proxies explicites.
+      # Ex.: "10.10.20.5,172.18.0.0/16". Loopback reste toujours approuvé.
+      PROXPANEL_TRUSTED_PROXIES: ${PROXPANEL_TRUSTED_PROXIES:-}
       # Optionnel : fixe manuellement la clé maître. Sans cette variable, ProxPanel
       # génère sa propre clé persistante dans le volume proxpanel_data.
       # APP_MASTER_KEY: change-this-with-a-long-random-secret
