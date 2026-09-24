@@ -29,6 +29,7 @@ const {
 const {
   normalizeReauthCode,strongReauthAllowed,nextSensitiveAttempt,sensitiveAttemptBlocked
 } = require('./lib/auth-security');
+const { ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost } = require('./lib/security-policy');
 const {
   collectWazuh,testWazuhConnection,period:wazuhPeriod,alertThreshold:wazuhAlertThreshold
 } = require('./lib/wazuh-client');
@@ -156,6 +157,7 @@ for (const dir of [RUNTIME_DIR, RELEASES_DIR, UPDATE_UPLOAD_DIR, UPDATE_BACKUP_D
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const MACHINE_CONFIG_ALLOWED_KEYS=['cores','sockets','memory','balloon','cpu','scsihw','bios','machine','onboot','agent','tags','description','name','hostname','net0','net1','net2','scsi0','scsi1','scsi2','virtio0','virtio1','sata0','sata1','ide0','ide2','boot','bootdisk','delete','revert'];
 
 function jsonRead(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
@@ -306,7 +308,7 @@ function normalizeSettings(settings) {
 }
 function getSettings() { return normalizeSettings(deepMerge(defaultSettings(), jsonRead(SETTINGS_FILE, {}))); }
 function saveSettings(value) { jsonWrite(SETTINGS_FILE, normalizeSettings(deepMerge(defaultSettings(), value || {}))); }
-function clientIp(req) { return String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim(); }
+function clientIp(req) { return effectiveClientIp(req); }
 function audit(req, action, target = '', details = {}, result = 'ok') {
   const session = getSession(req);
   const rows = jsonRead(AUDIT_FILE, []);
@@ -889,11 +891,6 @@ function safeEqualHex(a, b) {
   } catch { return false; }
 }
 
-const ROLE_PERMISSIONS = {
-  admin: ['*'],
-  operator: ['dashboard.view','machines.view','machines.control','console.use','backups.run','tasks.manage','pve.updates','audit.view','health.manage'],
-  viewer: ['dashboard.view','machines.view']
-};
 function defaultPermissionsForRole(role='viewer') { return [...(ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.viewer)]; }
 function panelUsers(config=jsonRead(CONFIG_FILE,{})) {
   let rows=jsonRead(USERS_FILE,[]);
@@ -946,7 +943,7 @@ function verifyStrongReauth(req,user,body={},action='sensitive'){
   if(!ok){const state=recordSensitiveReauthFailure(req,user,action);return {ok:false,status:state.blocked?429:401,error:'Ré-authentification impossible. Vérifie tes informations et réessaie.'};}
   clearSensitiveReauthFailures(req,user,action);return {ok:true,status:200};
 }
-function originAllowed(req){if(['GET','HEAD','OPTIONS'].includes(req.method||'GET'))return true;const origin=req.headers.origin;if(!origin)return true;try{const host=String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim();return new URL(origin).host===host;}catch{return false;}}
+function originAllowed(req){if(['GET','HEAD','OPTIONS'].includes(req.method||'GET'))return true;const origin=req.headers.origin;if(!origin)return true;try{const host=effectiveRequestHost(req);return !!host&&new URL(origin).host===host;}catch{return false;}}
 function parseCookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
@@ -1029,11 +1026,11 @@ function setSession(req,res,user) {
   const payload = base64url(JSON.stringify(sessionData));
   const token = `${payload}.${signSessionPayload(payload)}`;
   registerPanelSession(sessionData,req);
-  const secure=String(req.headers['x-forwarded-proto']||'').split(',')[0].trim()==='https'||!!req.socket?.encrypted;
+  const secure=effectiveRequestHttps(req);
   res.setHeader('Set-Cookie', `proxpanel_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS/1000)}${secure?'; Secure':''}`);
 }
 function clearSession(req, res) {
-  const secure=String(req.headers['x-forwarded-proto']||'').split(',')[0].trim()==='https'||!!req.socket?.encrypted;
+  const secure=effectiveRequestHttps(req);
   res.setHeader('Set-Cookie', `proxpanel_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure?'; Secure':''}`);
 }
 function sendJson(res, status, body) {
@@ -4928,9 +4925,12 @@ async function previewAutomation(server,auth,scenario){
   await walk(normalized.steps);
   return {ok:true,dryRun:true,name:normalized.name,serverId:normalized.serverId,steps:preview};
 }
-async function runAutomation(server, auth, scenario, reqForAudit=null) {
+function assertAutomationStepPermissions(user,steps){if(!user||user.active===false)throw new Error('Propriétaire de l’automatisation invalide ou désactivé.');const missing=automationStepPermissions(steps).filter(p=>!userHasPermission(user,p));if(missing.length)throw new Error(`Permissions insuffisantes pour l’automatisation : ${missing.join(', ')}`);}
+async function runAutomation(server, auth, scenario, reqForAudit=null, actorUser=null) {
   const normalized=normalizeAutomationScenario(scenario),validation=validateAutomationSteps(normalized.steps);
   if(!validation.ok)throw new Error(validation.error);
+  if(!actorUser)throw new Error('Contexte RBAC requis pour exécuter une automatisation.');
+  assertAutomationStepPermissions(actorUser,normalized.steps);
   const runId=crypto.randomUUID(),run={id:runId,scenarioId:scenario.id||'',name:normalized.name,status:'running',serverId:server.id,serverName:server.name,startedAt:new Date().toISOString(),finishedAt:'',steps:[]};
   const ctx={run,stepResults:new Map(),reqForAudit};persistAutomationRun(run);
   (async()=>{
@@ -5206,15 +5206,11 @@ async function handleApi(req, res, url) {
   }
 
 
-  // Server-side role enforcement. UI hiding is convenience only; the API remains authoritative.
+  // Centralized fail-closed RBAC. UI hiding is convenience only.
   const isAdmin=userHasPermission(currentPanelUser,'*')||userHasPermission(currentPanelUser,'admin.manage');
-  const mutating=!['GET','HEAD','OPTIONS'].includes(req.method||'GET');
-  if(mutating && (/^\/api\/(settings|servers(?:\/[^/]+)?(?:\/test)?|discord-channels|mail|update(?:\/|$)|integrations)/.test(url.pathname)) && !isAdmin) return sendJson(res,403,{error:'Permission administrateur requise.'});
+  const requiredPermission=requiredPermissionForMutation(url.pathname,req.method);
+  if(requiredPermission&&!isAdmin&&!userHasPermission(currentPanelUser,requiredPermission)){audit(req,'rbac.denied',url.pathname,{method:req.method,requiredPermission},'error');return sendJson(res,403,{error:`Permission ${requiredPermission} requise.`});}
   if(/^\/api\/audit/.test(url.pathname) && !userHasPermission(currentPanelUser,'audit.view') && !isAdmin) return sendJson(res,403,{error:'Permission audit requise.'});
-  if(mutating && /^\/api\/health-center/.test(url.pathname) && !userHasPermission(currentPanelUser,'health.manage') && !isAdmin) return sendJson(res,403,{error:'Permission Health Center requise.'});
-  if(/\/console\/session$/.test(url.pathname) && mutating && !userHasPermission(currentPanelUser,'console.use') && !isAdmin) return sendJson(res,403,{error:'Permission console requise.'});
-  if(mutating && (/\/(machines\/[^/]+\/\d+\/(action|snapshots|clone|migrate)|bulk-action|backups\/run|maintenance\/)/.test(url.pathname)||/^\/api\/docker\//.test(url.pathname)) && !userHasPermission(currentPanelUser,'machines.control') && !isAdmin) return sendJson(res,403,{error:'Permission opérateur requise.'});
-  if(mutating && /^\/api\/pve-updates/.test(url.pathname) && !userHasPermission(currentPanelUser,'pve.updates') && !isAdmin) return sendJson(res,403,{error:'Permission mises à jour PVE requise.'});
 
   // ----- Dynamic settings / branding / alerts / dashboard -----
   if (url.pathname === '/api/settings' && req.method === 'GET') {
@@ -5839,7 +5835,7 @@ async function handleApi(req, res, url) {
     const server=findServer(configMatch[1]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
     try{const auth=await resolveProxmoxAuth(server,session);const machine=await findMachineResource(server,auth,configMatch[2],configMatch[3]);if(!machine)return sendJson(res,404,{error:'Machine introuvable.'});const p=`${machineBasePath(machine)}/config`;
       if(req.method==='GET'){return sendJson(res,200,await proxmoxApi(server,p,{auth}));}
-      if(req.method==='PUT'){const body=await readBody(req);const allow=['cores','sockets','memory','balloon','cpu','scsihw','bios','machine','onboot','agent','tags','description','name','hostname','net0','net1','net2','scsi0','scsi1','scsi2','virtio0','virtio1','sata0','sata1','ide0','ide2','boot','bootdisk','delete','revert'];const payload=cleanConfigBody(body,allow);if(!Object.keys(payload).length)return sendJson(res,400,{error:'Aucune modification autorisée.'});const task=await proxmoxApi(server,p,{method:'PUT',auth,body:payload});audit(req,'machine.config',`${machine.name||machine.vmid} (${machine.vmid})`,{changes:Object.keys(payload),task});return sendJson(res,200,{ok:true,task});}
+      if(req.method==='PUT'){const body=await readBody(req);const payload=cleanConfigBody(body,MACHINE_CONFIG_ALLOWED_KEYS);if(!Object.keys(payload).length)return sendJson(res,400,{error:'Aucune modification autorisée.'});const task=await proxmoxApi(server,p,{method:'PUT',auth,body:payload});audit(req,'machine.config',`${machine.name||machine.vmid} (${machine.vmid})`,{changes:Object.keys(payload),task});return sendJson(res,200,{ok:true,task});}
     }catch(e){return sendJson(res,502,{error:e.message});}
   }
 
@@ -5920,7 +5916,7 @@ async function handleApi(req, res, url) {
   if(url.pathname==='/api/changes'&&req.method==='GET')return sendJson(res,200,jsonRead(CHANGES_FILE,[]).slice(0,500));
   if(url.pathname==='/api/changes'&&req.method==='POST'){
     const body=await readBody(req);const server=findServer(body.serverId);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});if(!['qemu','lxc'].includes(body.type)||!Number(body.vmid))return sendJson(res,400,{error:'VM/LXC invalide.'});
-    try{const auth=await resolveProxmoxAuth(server,session);const resources=await proxmoxApi(server,'/cluster/resources',{auth});const m=(resources||[]).find(x=>x.type===body.type&&Number(x.vmid)===Number(body.vmid));if(!m)return sendJson(res,404,{error:'Machine introuvable.'});const before=await proxmoxApi(server,`/nodes/${encodeURIComponent(m.node)}/${m.type}/${m.vmid}/config`,{auth});const changes={};for(const[k,v]of Object.entries(body.changes||{}))if(k&&!['digest','pending','current'].includes(k))changes[k]=v; if(!Object.keys(changes).length)return sendJson(res,400,{error:'Aucune modification.'});
+    try{const auth=await resolveProxmoxAuth(server,session);const resources=await proxmoxApi(server,'/cluster/resources',{auth});const m=(resources||[]).find(x=>x.type===body.type&&Number(x.vmid)===Number(body.vmid));if(!m)return sendJson(res,404,{error:'Machine introuvable.'});const before=await proxmoxApi(server,`/nodes/${encodeURIComponent(m.node)}/${m.type}/${m.vmid}/config`,{auth});const changes=cleanConfigBody(body.changes||{},MACHINE_CONFIG_ALLOWED_KEYS);if(!Object.keys(changes).length)return sendJson(res,400,{error:'Aucune modification autorisée.'});
       const row={id:crypto.randomUUID(),createdAt:new Date().toISOString(),createdBy:session.username,status:'pending',serverId:server.id,serverName:server.name,node:m.node,type:m.type,vmid:m.vmid,machineName:m.name||`${m.type}-${m.vmid}`,reason:String(body.reason||''),before:Object.fromEntries(Object.keys(changes).map(k=>[k,before?.[k]])),after:changes};const all=jsonRead(CHANGES_FILE,[]);all.unshift(row);jsonWrite(CHANGES_FILE,all.slice(0,1000));audit(req,'change.create',`${row.machineName} (${row.vmid})`,{changes});return sendJson(res,201,row);
     }catch(e){return sendJson(res,502,{error:e.message});}
   }
@@ -5928,6 +5924,7 @@ async function handleApi(req, res, url) {
   if(changeApply&&req.method==='POST'){
     const rows=jsonRead(CHANGES_FILE,[]);const row=rows.find(x=>x.id===changeApply[1]);if(!row)return sendJson(res,404,{error:'Changement introuvable.'});if(row.status!=='pending')return sendJson(res,409,{error:`Changement déjà ${row.status}.`});
     if(changeApply[2]==='cancel'){row.status='cancelled';row.finishedAt=new Date().toISOString();jsonWrite(CHANGES_FILE,rows);audit(req,'change.cancel',`${row.machineName} (${row.vmid})`);return sendJson(res,200,row);}
+    if(!isAdmin&&!userHasPermission(currentPanelUser,'changes.manage'))return sendJson(res,403,{error:'Permission changes.manage requise.'});
     const server=findServer(row.serverId);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
     try{const auth=await resolveProxmoxAuth(server,session);const task=await proxmoxApi(server,`/nodes/${encodeURIComponent(row.node)}/${row.type}/${row.vmid}/config`,{method:'PUT',auth,body:row.after});row.status='applied';row.appliedAt=new Date().toISOString();row.appliedBy=session.username;row.task=task||null;jsonWrite(CHANGES_FILE,rows);audit(req,'change.apply',`${row.machineName} (${row.vmid})`,{before:row.before,after:row.after});return sendJson(res,200,row);}catch(e){row.lastError=e.message;jsonWrite(CHANGES_FILE,rows);return sendJson(res,502,{error:e.message});}
   }
@@ -6327,7 +6324,7 @@ async function handleApi(req, res, url) {
     const body=await readBody(req),scenario=normalizeAutomationScenario(body);
     if(!scenario.name||!scenario.steps.length)return sendJson(res,400,{error:'Nom et étapes requis.'});
     const validation=validateAutomationSteps(scenario.steps);if(!validation.ok)return sendJson(res,400,{error:validation.error,path:validation.path});
-    const row={...scenario,id:crypto.randomUUID(),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),lastScheduledRunKey:''};
+    const row={...scenario,id:crypto.randomUUID(),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),createdByUserId:currentPanelUser?.id||session.userId||'',createdBy:currentPanelUser?.username||session.username,lastScheduledRunKey:''};
     const all=jsonRead(AUTOMATIONS_FILE,[]);all.push(row);jsonWrite(AUTOMATIONS_FILE,all);audit(req,'automation.add',row.name,{steps:row.steps.length,scheduleTime:row.scheduleTime});return sendJson(res,201,row);
   }
   const autoMatch=url.pathname.match(/^\/api\/automations\/([^/]+)(?:\/(run|preview))?$/);
@@ -6343,7 +6340,7 @@ async function handleApi(req, res, url) {
     try{
       const auth=await resolveProxmoxAuth(server,session);
       if(autoMatch[2]==='preview')return sendJson(res,200,await previewAutomation(server,auth,scenario));
-      const run=await runAutomation(server,auth,scenario,req);audit(req,'automation.start',scenario.name,{runId:run.id});return sendJson(res,202,run);
+      assertAutomationStepPermissions(currentPanelUser,scenario.steps);const run=await runAutomation(server,auth,scenario,req,currentPanelUser);audit(req,'automation.start',scenario.name,{runId:run.id});return sendJson(res,202,run);
     }catch(error){return sendJson(res,502,{error:error.message});}
   }
   if(url.pathname==='/api/automation-runs'&&req.method==='GET')return sendJson(res,200,automationRunHistory().slice(0,100));
@@ -6479,7 +6476,9 @@ async function runScheduledAutomations() {
     if(Array.isArray(scenario.scheduleDays)&&scenario.scheduleDays.length&&!scenario.scheduleDays.includes(day))continue;
     const server=findServer(scenario.serverId);scenario.lastScheduledRunKey=dateKey;save=true;
     if(!server){addAuditSystem('automation.schedule',scenario.name,{error:'Serveur planifié introuvable'},'error');continue;}
-    try{const auth=await proxmoxLogin(server);await runAutomation(server,auth,scenario);addAuditSystem('automation.schedule',scenario.name,{server:server.name,time});}catch(e){addAuditSystem('automation.schedule',scenario.name,{error:e.message},'error');}
+    const owner=panelUsers().find(u=>String(u.id)===String(scenario.createdByUserId||'')||(scenario.createdBy&&u.username===scenario.createdBy));
+    if(!owner||owner.active===false||!userHasPermission(owner,'automations.run')){addAuditSystem('automation.schedule.denied',scenario.name,{error:'Propriétaire absent/désactivé ou permission automations.run manquante'},'error');continue;}
+    try{assertAutomationStepPermissions(owner,scenario.steps);const auth=await proxmoxLogin(server);await runAutomation(server,auth,scenario,null,owner);addAuditSystem('automation.schedule',scenario.name,{server:server.name,time,owner:owner.username});}catch(e){addAuditSystem('automation.schedule',scenario.name,{error:e.message,owner:owner.username},'error');}
   }
   if(save)jsonWrite(AUTOMATIONS_FILE,rows);
 }
@@ -6528,13 +6527,9 @@ function serveStatic(req, res, url) {
 }
 
 function setSecurityHeaders(req,res){
-  res.setHeader('X-Content-Type-Options','nosniff');
-  res.setHeader('X-Frame-Options','DENY');
-  res.setHeader('Referrer-Policy','no-referrer');
-  res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=(), payment=(), usb=()');
-  res.setHeader('Cross-Origin-Opener-Policy','same-origin');
-  res.setHeader('Cross-Origin-Resource-Policy','same-origin');
-  if(String(req.headers['x-forwarded-proto']||'').split(',')[0].trim()==='https'||req.socket?.encrypted)res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
+  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=(), payment=(), usb=()');res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Resource-Policy','same-origin');
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  if(effectiveRequestHttps(req))res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
 }
 
 const server = http.createServer(async (req, res) => {
