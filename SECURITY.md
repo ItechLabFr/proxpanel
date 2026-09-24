@@ -36,3 +36,14 @@ latest beta/stable release channels.
 Persistent secrets belong in `/app/data` and must never be committed to Git.
 The repository intentionally excludes runtime data through `.gitignore` and
 `.dockerignore`.
+
+
+## Reverse proxy trust
+
+ProxPanel ignores `X-Forwarded-For`, `X-Forwarded-Proto` and
+`X-Forwarded-Host` unless the direct peer is a trusted proxy. Loopback is
+trusted by default. For any other reverse proxy, set
+`PROXPANEL_TRUSTED_PROXIES` to a comma-separated list of exact IP addresses
+and/or IPv4 CIDRs, for example `10.10.20.5,172.18.0.0/16`.
+
+Do not trust an entire client network merely to make forwarded headers work.
