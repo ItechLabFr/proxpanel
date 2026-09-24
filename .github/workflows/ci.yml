@@ -27,6 +27,7 @@ jobs:
           node --check app/lib/docker-history.js
           node --check app/lib/docker-images.js
           node --check app/lib/auth-security.js
+          node --check app/lib/security-policy.js
           node --check app/lib/wazuh.js
           node --check app/lib/wazuh-client.js
           node --check app/lib/wazuh-alerts.js
