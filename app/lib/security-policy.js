@@ -40,7 +40,14 @@ function isTrustedProxyAddress(address,rawSpecs){const ip=normalizeIp(address);i
 function directRemoteIp(req){return normalizeIp(req?.socket?.remoteAddress||'');}
 function isTrustedProxyRequest(req,rawSpecs){return isTrustedProxyAddress(directRemoteIp(req),rawSpecs===undefined?trustedProxySpecs():rawSpecs);}
 function firstForwarded(req,name,rawSpecs){if(!isTrustedProxyRequest(req,rawSpecs))return'';return String(req?.headers?.[name]||'').split(',')[0].trim();}
-function effectiveClientIp(req,rawSpecs){return normalizeIp(firstForwarded(req,'x-forwarded-for',rawSpecs))||directRemoteIp(req);}
+function effectiveClientIp(req,rawSpecs){
+  const direct=directRemoteIp(req);if(!isTrustedProxyRequest(req,rawSpecs))return direct;
+  const specs=rawSpecs===undefined?trustedProxySpecs():rawSpecs;
+  const chain=String(req?.headers?.['x-forwarded-for']||'').split(',').map(normalizeIp).filter(Boolean);
+  let current=direct;
+  for(let i=chain.length-1;i>=0;i--){if(!isTrustedProxyAddress(current,specs))break;current=chain[i];}
+  return current||direct;
+}
 function effectiveRequestHttps(req,rawSpecs){return!!req?.socket?.encrypted||firstForwarded(req,'x-forwarded-proto',rawSpecs).toLowerCase()==='https';}
 function effectiveRequestHost(req,rawSpecs){return firstForwarded(req,'x-forwarded-host',rawSpecs)||String(req?.headers?.host||'').split(',')[0].trim();}
 module.exports={ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,normalizeIp,trustedProxySpecs,isTrustedProxyAddress,isTrustedProxyRequest,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost};
