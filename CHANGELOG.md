@@ -1,3 +1,12 @@
+## 1.7.2-beta.9.1 — Security & RBAC hotfix
+
+- Centralized fail-closed authorization for mutating API routes.
+- Fixed viewer privilege escalation through Change Center, PBS actions and Automations.
+- Restored intended Operator permissions below `/api/servers/:id/*`.
+- Added trusted-proxy handling for forwarded IP/proto/host headers.
+- Added CSP and regression tests for RBAC/trusted proxies.
+- Change Center now uses the same VM/LXC configuration allowlist as direct edits.
+
 # ProxPanel 1.7.2-beta.9
 
 ## Français
