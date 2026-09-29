@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const tls = require('tls');
 const net = require('net');
+const dns = require('dns').promises;
 const dgram = require('dgram');
 const zlib = require('zlib');
 const { execFileSync, execFile } = require('child_process');
@@ -2617,6 +2618,38 @@ function validateIntegrationUrl(value) {
   if(!['http:','https:'].includes(parsed.protocol))throw new Error('L’intégration doit utiliser une URL HTTP ou HTTPS.');
   return raw;
 }
+// Only blocks loopback, link-local (incl. 169.254.169.254 cloud metadata) and 0.0.0.0 — NOT
+// RFC1918 private ranges (10/8, 172.16/12, 192.168/16), because ProxPanel's whole purpose is
+// reaching Portainer/PBS/Wazuh on the user's own LAN, which is almost always a private IP.
+// This stops an integration URL from reaching the ProxPanel host itself or a cloud metadata
+// endpoint, without breaking the normal HomeLab deployment this product is built for.
+function isBlockedSsrfIp(ip){
+  const kind=net.isIP(ip);
+  if(kind===4){
+    const p=ip.split('.').map(Number);
+    return p[0]===127||p[0]===0||(p[0]===169&&p[1]===254);
+  }
+  if(kind===6){
+    const low=ip.toLowerCase();
+    if(low==='::1'||low==='::')return true;
+    if(low.startsWith('::ffff:'))return isBlockedSsrfIp(low.slice(7));
+    return low.startsWith('fe80:');
+  }
+  return false;
+}
+async function assertPublicIntegrationHost(rawUrl){
+  let hostname;try{hostname=new URL(String(rawUrl||'')).hostname;}catch{throw new Error('URL invalide.');}
+  if(!hostname)throw new Error('URL invalide.');
+  if(hostname.toLowerCase()==='localhost')throw new Error('Cible réseau interne refusée.');
+  if(net.isIP(hostname)){
+    if(isBlockedSsrfIp(hostname))throw new Error('Cible réseau interne refusée.');
+    return;
+  }
+  let addresses;
+  try{addresses=await dns.lookup(hostname,{all:true,verbatim:true});}
+  catch{throw new Error('Résolution DNS impossible pour cet hôte.');}
+  if(!addresses.length||addresses.some(a=>isBlockedSsrfIp(a.address)))throw new Error('Cible réseau interne refusée.');
+}
 async function portainerSystemInfo(item) {
   const headers=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
   for(const path of ['/api/system/status','/api/status']){
@@ -3601,6 +3634,8 @@ async function runPbsHealthCenter(settings=getSettings()){
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
+  await assertPublicIntegrationHost(url);
+  if (item.type === 'wazuh' && item.indexerUrl) await assertPublicIntegrationHost(item.indexerUrl);
   if (item.type === 'wazuh') {
     return testWazuhConnection(wazuhRuntimeItem(item));
   }
