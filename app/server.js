@@ -126,8 +126,10 @@ const PVE_USER_SESSIONS = new Map();
 const AUTOMATION_RUNS = new Map();
 const CONSOLE_TTL_MS = 5 * 60 * 1000;
 const LOGIN_ATTEMPTS = new Map();
+const LOGIN_ATTEMPTS_BY_IP = new Map();
 const SENSITIVE_REAUTH_ATTEMPTS = new Map();
 const EMAIL_2FA_CODES = new Map();
+const TOTP_LAST_STEP = new Map();
 const GUEST_STORAGE_CACHE = new Map();
 const GUEST_STORAGE_CACHE_OK_MS = 5 * 60 * 1000;
 const GUEST_STORAGE_CACHE_NEGATIVE_MS = 60 * 1000;
@@ -907,7 +909,23 @@ function userHasPermission(user,perm){if(!user||user.active===false)return false
 function base32Encode(buf){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0,out='';for(const byte of buf){value=(value<<8)|byte;bits+=8;while(bits>=5){out+=alphabet[(value>>>(bits-5))&31];bits-=5;}}if(bits>0)out+=alphabet[(value<<(5-bits))&31];return out;}
 function base32Decode(str){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0,out=[];for(const ch of String(str||'').toUpperCase().replace(/[^A-Z2-7]/g,'')){const idx=alphabet.indexOf(ch);if(idx<0)continue;value=(value<<5)|idx;bits+=5;if(bits>=8){out.push((value>>>(bits-8))&255);bits-=8;}}return Buffer.from(out);}
 function totpCode(secret,counter){const key=base32Decode(secret);const b=Buffer.alloc(8);let n=BigInt(counter);for(let i=7;i>=0;i--){b[i]=Number(n&255n);n>>=8n;}const h=crypto.createHmac('sha1',key).update(b).digest();const o=h[h.length-1]&15;const bin=((h[o]&127)<<24)|((h[o+1]&255)<<16)|((h[o+2]&255)<<8)|(h[o+3]&255);return String(bin%1000000).padStart(6,'0');}
-function verifyTotp(secret,code,window=1){const clean=String(code||'').replace(/\D/g,'');if(clean.length!==6)return false;const step=Math.floor(Date.now()/30000);for(let i=-window;i<=window;i++)if(totpCode(secret,step+i)===clean)return true;return false;}
+function verifyTotp(secret,code,window=1,replayKey=''){
+  const clean=String(code||'').replace(/\D/g,'');
+  if(clean.length!==6)return false;
+  const step=Math.floor(Date.now()/30000);
+  for(let i=-window;i<=window;i++){
+    const candidateStep=step+i;
+    if(totpCode(secret,candidateStep)===clean){
+      if(replayKey){
+        const last=TOTP_LAST_STEP.get(replayKey);
+        if(typeof last==='number'&&candidateStep<=last)return false;
+        TOTP_LAST_STEP.set(replayKey,candidateStep);
+      }
+      return true;
+    }
+  }
+  return false;
+}
 function validAccountEmail(value){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim())&&String(value||'').trim().length<=254;}
 function maskEmail(value){const email=String(value||'').trim(),i=email.indexOf('@');if(i<1)return '';const local=email.slice(0,i),domain=email.slice(i+1);return `${local.slice(0,Math.min(2,local.length))}${local.length>2?'***':'*'}@${domain}`;}
 function normalizeRecoveryCode(value){return String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
@@ -922,6 +940,11 @@ function loginAttemptKey(req,username){return `${clientIp(req)}|${String(usernam
 function checkLoginAllowed(req,username){const row=LOGIN_ATTEMPTS.get(loginAttemptKey(req,username));if(!row)return true;if(row.blockedUntil&&row.blockedUntil>Date.now())return false;if(row.blockedUntil&&row.blockedUntil<=Date.now())LOGIN_ATTEMPTS.delete(loginAttemptKey(req,username));return true;}
 function recordLoginFailure(req,username){const k=loginAttemptKey(req,username),now=Date.now(),old=LOGIN_ATTEMPTS.get(k)||{count:0,firstAt:now};const within=now-old.firstAt<15*60*1000;const count=within?old.count+1:1;LOGIN_ATTEMPTS.set(k,{count,firstAt:within?old.firstAt:now,blockedUntil:count>=5?now+15*60*1000:0});}
 function clearLoginFailures(req,username){LOGIN_ATTEMPTS.delete(loginAttemptKey(req,username));}
+// Tracks failed logins per source IP across ALL usernames, independently of the
+// per-(IP,username) throttle above, so an attacker cannot dodge the limit by
+// spreading guesses across many known/guessed accounts from the same IP.
+function checkLoginAllowedByIp(req){const k=clientIp(req),row=LOGIN_ATTEMPTS_BY_IP.get(k);if(!row)return true;if(row.blockedUntil&&row.blockedUntil>Date.now())return false;if(row.blockedUntil&&row.blockedUntil<=Date.now())LOGIN_ATTEMPTS_BY_IP.delete(k);return true;}
+function recordLoginFailureByIp(req){const k=clientIp(req),now=Date.now(),old=LOGIN_ATTEMPTS_BY_IP.get(k)||{count:0,firstAt:now};const within=now-old.firstAt<15*60*1000;const count=within?old.count+1:1;LOGIN_ATTEMPTS_BY_IP.set(k,{count,firstAt:within?old.firstAt:now,blockedUntil:count>=30?now+15*60*1000:0});}
 function sensitiveReauthKey(req,user,action='sensitive'){return `${clientIp(req)}|${String(user?.id||user?.username||'unknown')}|${String(action||'sensitive')}`;}
 function sensitiveReauthAllowed(req,user,action='sensitive'){
   const key=sensitiveReauthKey(req,user,action),row=SENSITIVE_REAUTH_ATTEMPTS.get(key);
@@ -939,12 +962,21 @@ function verifyStrongReauth(req,user,body={},action='sensitive'){
   if(!sensitiveReauthAllowed(req,user,action))return {ok:false,status:429,error:'Ré-authentification temporairement bloquée. Réessaie plus tard.'};
   const ok=strongReauthAllowed(user,{password:String(body.password||''),code:normalizeReauthCode(body.code)},{
     password:(actor,password)=>!!actor?.salt&&safeEqualHex(hashPassword(password,actor.salt).hash,actor.hash||''),
-    totp:(actor,code)=>{let secret='';try{secret=decryptText(actor?.totpSecretEnc||'')}catch{}return !!secret&&verifyTotp(secret,code);}
+    totp:(actor,code)=>{let secret='';try{secret=decryptText(actor?.totpSecretEnc||'')}catch{}return !!secret&&verifyTotp(secret,code,1,`totp:${actor?.id||''}`);}
   });
   if(!ok){const state=recordSensitiveReauthFailure(req,user,action);return {ok:false,status:state.blocked?429:401,error:'Ré-authentification impossible. Vérifie tes informations et réessaie.'};}
   clearSensitiveReauthFailures(req,user,action);return {ok:true,status:200};
 }
-function originAllowed(req){if(['GET','HEAD','OPTIONS'].includes(req.method||'GET'))return true;const origin=req.headers.origin;if(!origin)return true;try{const host=effectiveRequestHost(req);return !!host&&new URL(origin).host===host;}catch{return false;}}
+function originAllowed(req){
+  if(['GET','HEAD','OPTIONS'].includes(req.method||'GET'))return true;
+  const host=effectiveRequestHost(req);
+  if(!host)return false;
+  const origin=req.headers.origin;
+  if(origin){try{return new URL(origin).host===host;}catch{return false;}}
+  const referer=req.headers.referer;
+  if(referer){try{return new URL(referer).host===host;}catch{return false;}}
+  return false;
+}
 function parseCookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
@@ -5096,18 +5128,19 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
+    if(!checkLoginAllowedByIp(req))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     if(!checkLoginAllowed(req,username))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     const all=panelUsers(config),user=all.find(u=>u.username.toLowerCase()===username.toLowerCase());
     const candidate=user?.salt?hashPassword(password,user.salt).hash:'';
-    if (!user || user.active===false || !safeEqualHex(candidate,user.hash||'')) { recordLoginFailure(req,username);addAuditSystem('auth.login.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'}); }
+    if (!user || user.active===false || !safeEqualHex(candidate,user.hash||'')) { recordLoginFailure(req,username);recordLoginFailureByIp(req);addAuditSystem('auth.login.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'}); }
     if(user.totpEnabled){
       const otp=String(body.otp||''),recoveryCode=String(body.recoveryCode||''),emailCode=String(body.emailCode||'');
       if(!otp&&!recoveryCode&&!emailCode){const er=emailRecoveryState(user);return sendJson(res,200,{ok:false,needTotp:true,username:user.username,emailRecoveryAvailable:er.available,emailMasked:er.emailMasked,mailConfigured:er.mailConfigured,recoveryCodesRemaining:Array.isArray(user.recoveryCodeHashes)?user.recoveryCodeHashes.length:0});}
       let factorOk=false,factor='';
-      if(otp){let secret='';try{secret=decryptText(user.totpSecretEnc||'')}catch{}factorOk=!!secret&&verifyTotp(secret,otp);factor='totp';}
+      if(otp){let secret='';try{secret=decryptText(user.totpSecretEnc||'')}catch{}factorOk=!!secret&&verifyTotp(secret,otp,1,`totp:${user.id}`);factor='totp';}
       else if(recoveryCode){const wanted=hashRecoveryCode(user.id,recoveryCode),idx=(user.recoveryCodeHashes||[]).findIndex(h=>safeEqualText(h,wanted));if(idx>=0){user.recoveryCodeHashes.splice(idx,1);factorOk=true;factor='recovery';savePanelUsers(all);}}
       else if(emailCode){const key=email2faKey(user.id),row=EMAIL_2FA_CODES.get(key),now=Date.now();if(row&&row.expiresAt>now&&row.ip===clientIp(req)&&row.attempts<5){const wanted=hashEmail2faCode(user.id,emailCode);if(safeEqualText(row.hash,wanted)){factorOk=true;factor='email';EMAIL_2FA_CODES.delete(key);}else{row.attempts+=1;EMAIL_2FA_CODES.set(key,row);}}}
-      if(!factorOk){recordLoginFailure(req,username);addAuditSystem('auth.2fa.failed',username,{ip:clientIp(req),factor:factor||'unknown'},'error');return sendJson(res,401,{error:factor==='recovery'?'Code de récupération invalide.':factor==='email'?'Code e-mail invalide ou expiré.':'Code TOTP incorrect.'});}
+      if(!factorOk){recordLoginFailure(req,username);recordLoginFailureByIp(req);addAuditSystem('auth.2fa.failed',username,{ip:clientIp(req),factor:factor||'unknown'},'error');return sendJson(res,401,{error:factor==='recovery'?'Code de récupération invalide.':factor==='email'?'Code e-mail invalide ou expiré.':'Code TOTP incorrect.'});}
       addAuditSystem('auth.2fa.success',username,{ip:clientIp(req),factor},'ok');
     }
     clearLoginFailures(req,username);user.lastLoginAt=new Date().toISOString();savePanelUsers(all);setSession(req,res,user);addAuditSystem('auth.login',username,{ip:clientIp(req),role:user.role},'ok');
@@ -5117,9 +5150,10 @@ async function handleApi(req, res, url) {
     if(!setupDone)return sendJson(res,409,{error:'Configuration initiale requise.'});
     if(!originAllowed(req))return sendJson(res,403,{error:'Origine de requête refusée.'});
     const body=await readBody(req),username=String(body.username||'').trim(),password=String(body.password||'');
+    if(!checkLoginAllowedByIp(req))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     if(!checkLoginAllowed(req,username))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     const all=panelUsers(config),user=all.find(u=>u.username.toLowerCase()===username.toLowerCase()),candidate=user?.salt?hashPassword(password,user.salt).hash:'';
-    if(!user||user.active===false||!safeEqualHex(candidate,user.hash||'')){recordLoginFailure(req,username);addAuditSystem('auth.email2fa.request.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'});}
+    if(!user||user.active===false||!safeEqualHex(candidate,user.hash||'')){recordLoginFailure(req,username);recordLoginFailureByIp(req);addAuditSystem('auth.email2fa.request.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'});}
     if(!user.totpEnabled)return sendJson(res,400,{error:'La double authentification n’est pas activée sur ce compte.'});
     if(!validAccountEmail(user.email))return sendJson(res,400,{error:'Aucune adresse e-mail valide n’est associée à ce compte.'});
     const mailCfg=getSettings().alerts?.smtp||{};if(!mailCfg.enabled)return sendJson(res,503,{error:'Le secours 2FA par e-mail est indisponible : la configuration e-mail ProxPanel n’est pas activée.'});
@@ -5181,7 +5215,7 @@ async function handleApi(req, res, url) {
     if(req.method==='PUT'&&!op){const body=await readBody(req);if(body.username&&String(body.username).toLowerCase()!==target.username.toLowerCase()&&rows.some(u=>u.username.toLowerCase()===String(body.username).toLowerCase()))return sendJson(res,409,{error:'Ce nom utilisateur existe déjà.'});if(body.username)target.username=String(body.username).trim();if(body.displayName!==undefined)target.displayName=String(body.displayName||target.username).slice(0,80);if(body.email!==undefined){const email=String(body.email||'').trim().toLowerCase();if(!validAccountEmail(email))return sendJson(res,400,{error:'Une adresse e-mail valide est obligatoire.'});target.email=email;}if(body.active!==undefined){if(target.id===currentPanelUser.id&&body.active===false)return sendJson(res,400,{error:'Tu ne peux pas désactiver ton propre compte.'});target.active=!!body.active;}if(body.role){target.role=['admin','operator','viewer','custom'].includes(body.role)?body.role:target.role;target.permissions=target.role==='custom'?(Array.isArray(body.permissions)?body.permissions.map(String):target.permissions):defaultPermissionsForRole(target.role);}if(body.password){if(String(body.password).length<12)return sendJson(res,400,{error:'Mot de passe : 12 caractères minimum.'});const pw=hashPassword(String(body.password));target.salt=pw.salt;target.hash=pw.hash;}rows[idx]=target;savePanelUsers(rows);audit(req,'user.update',target.username,{role:target.role,active:target.active});return sendJson(res,200,publicPanelUser(target));}
     if(req.method==='DELETE'&&!op){if(target.id===currentPanelUser.id)return sendJson(res,400,{error:'Tu ne peux pas supprimer ton propre compte.'});rows.splice(idx,1);savePanelUsers(rows);audit(req,'user.delete',target.username);return sendJson(res,200,{ok:true});}
     if(req.method==='POST'&&op==='totp-setup'){if(!validAccountEmail(target.email))return sendJson(res,400,{error:'Ajoute d’abord une adresse e-mail valide au compte. Elle sera utilisée comme méthode de secours 2FA.'});const secret=base32Encode(crypto.randomBytes(20));target.totpPendingEnc=encryptText(secret);rows[idx]=target;savePanelUsers(rows);const issuer=encodeURIComponent('ProxPanel'),label=encodeURIComponent(`ProxPanel:${target.username}`),otpauth=`otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`,er=emailRecoveryState(target);return sendJson(res,200,{secret,otpauth,qrSvg:makeQrSvg(otpauth),emailMasked:er.emailMasked,emailRecoveryAvailable:er.available,mailConfigured:er.mailConfigured});}
-    if(req.method==='POST'&&op==='totp-enable'){const body=await readBody(req);let secret='';try{secret=decryptText(target.totpPendingEnc||target.totpSecretEnc||'')}catch{}if(!secret||!verifyTotp(secret,body.code))return sendJson(res,400,{error:'Code TOTP invalide.'});const recoveryCodes=generateRecoveryCodes(10);target.totpSecretEnc=encryptText(secret);target.totpEnabled=true;target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));delete target.totpPendingEnc;rows[idx]=target;savePanelUsers(rows);audit(req,'user.totp.enable',target.username,{recoveryCodes:recoveryCodes.length,emailRecovery:emailRecoveryState(target).available});return sendJson(res,200,{ok:true,recoveryCodes,emailMasked:maskEmail(target.email),emailRecoveryAvailable:emailRecoveryState(target).available});}
+    if(req.method==='POST'&&op==='totp-enable'){const body=await readBody(req);let secret='';try{secret=decryptText(target.totpPendingEnc||target.totpSecretEnc||'')}catch{}if(!secret||!verifyTotp(secret,body.code,1,`totp:${target.id}`))return sendJson(res,400,{error:'Code TOTP invalide.'});const recoveryCodes=generateRecoveryCodes(10);target.totpSecretEnc=encryptText(secret);target.totpEnabled=true;target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));delete target.totpPendingEnc;rows[idx]=target;savePanelUsers(rows);audit(req,'user.totp.enable',target.username,{recoveryCodes:recoveryCodes.length,emailRecovery:emailRecoveryState(target).available});return sendJson(res,200,{ok:true,recoveryCodes,emailMasked:maskEmail(target.email),emailRecoveryAvailable:emailRecoveryState(target).available});}
     if(req.method==='POST'&&op==='totp-disable'){
       if(!target.totpEnabled)return sendJson(res,409,{error:'La double authentification est déjà désactivée pour ce compte.'});
       const body=await readBody(req),actor=currentPanelUser;
@@ -5203,7 +5237,7 @@ async function handleApi(req, res, url) {
       }
       return sendJson(res,200,{ok:true,notified:!!(mailCfg.enabled&&validAccountEmail(target.email))});
     }
-    if(req.method==='POST'&&op==='recovery-regenerate'){if(target.id!==currentPanelUser?.id)return sendJson(res,403,{error:'Les codes de récupération ne peuvent être régénérés que par leur propriétaire.'});const body=await readBody(req);let secret='';try{secret=decryptText(target.totpSecretEnc||'')}catch{}if(!target.totpEnabled||!secret||!verifyTotp(secret,body.code))return sendJson(res,400,{error:'Code TOTP actuel requis.'});const recoveryCodes=generateRecoveryCodes(10);target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));rows[idx]=target;savePanelUsers(rows);audit(req,'user.recovery.regenerate',target.username,{count:recoveryCodes.length});return sendJson(res,200,{ok:true,recoveryCodes});}
+    if(req.method==='POST'&&op==='recovery-regenerate'){if(target.id!==currentPanelUser?.id)return sendJson(res,403,{error:'Les codes de récupération ne peuvent être régénérés que par leur propriétaire.'});const body=await readBody(req);let secret='';try{secret=decryptText(target.totpSecretEnc||'')}catch{}if(!target.totpEnabled||!secret||!verifyTotp(secret,body.code,1,`totp:${target.id}`))return sendJson(res,400,{error:'Code TOTP actuel requis.'});const recoveryCodes=generateRecoveryCodes(10);target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));rows[idx]=target;savePanelUsers(rows);audit(req,'user.recovery.regenerate',target.username,{count:recoveryCodes.length});return sendJson(res,200,{ok:true,recoveryCodes});}
   }
 
 
@@ -5824,7 +5858,7 @@ async function handleApi(req, res, url) {
         if(body.bridge){payload.net0=`virtio,bridge=${body.bridge}${body.vlan?`,tag=${safeInteger(body.vlan,1,4094)}`:''}`;}
         if(body.iso)payload.ide2=`${body.iso},media=cdrom`;if(body.bios)payload.bios=String(body.bios);if(body.machine)payload.machine=String(body.machine);
       } else {
-        if(!body.ostemplate)return sendJson(res,400,{error:'Template LXC requis.'});payload={...payload,hostname:String(body.hostname||`ct-${vmid}`),cores:safeInteger(body.cores,1,512,2),memory:safeInteger(body.memory,64,1048576,1024),swap:safeInteger(body.swap,0,1048576,512),ostemplate:String(body.ostemplate),unprivileged:body.unprivileged===false?0:1,onboot:body.onboot?1:0};
+        if(!body.ostemplate)return sendJson(res,400,{error:'Template LXC requis.'});if(body.password&&String(body.password).length<12)return sendJson(res,400,{error:'Mot de passe root : 12 caractères minimum.'});payload={...payload,hostname:String(body.hostname||`ct-${vmid}`),cores:safeInteger(body.cores,1,512,2),memory:safeInteger(body.memory,64,1048576,1024),swap:safeInteger(body.swap,0,1048576,512),ostemplate:String(body.ostemplate),unprivileged:body.unprivileged===false?0:1,onboot:body.onboot?1:0};
         if(body.storage&&body.diskGb)payload.rootfs=`${body.storage}:${safeInteger(body.diskGb,1,1048576,8)}`;if(body.bridge)payload.net0=`name=eth0,bridge=${body.bridge},ip=${body.ip||'dhcp'}${body.vlan?`,tag=${safeInteger(body.vlan,1,4094)}`:''}`;if(body.password)payload.password=String(body.password);
       }
       const task=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/${type}`,{method:'POST',auth,body:payload});audit(req,'machine.create',`${type}/${vmid}`,{node,task});return sendJson(res,202,{ok:true,vmid,task});
@@ -6226,7 +6260,7 @@ async function handleApi(req, res, url) {
         const r=await portainerDockerBuffer(item,endpointId,`/exec/${encodeURIComponent(execId)}/start`,{
           method:'POST',body:JSON.stringify({Detach:false,Tty:false}),headers:{'Content-Type':'application/json'}
         });
-        audit(req,'docker.container.exec',containerId,{portainer:item.name,endpointId,commandLength:command.length});
+        audit(req,'docker.container.exec',containerId,{portainer:item.name,endpointId,commandLength:command.length,command:command.slice(0,500)});
         return sendJson(res,200,{ok:true,output:dockerStreamText(r.data)});
       }
     }catch(e){return sendJson(res,502,{error:e.message});}
@@ -6489,7 +6523,7 @@ function serveStatic(req, res, url) {
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/') pathname = '/index.html';
   const candidate = path.normalize(path.join(PUBLIC_DIR, pathname));
-  if (!candidate.startsWith(PUBLIC_DIR)) return sendText(res, 403, 'Forbidden');
+  if (candidate !== PUBLIC_DIR && !candidate.startsWith(PUBLIC_DIR + path.sep)) return sendText(res, 403, 'Forbidden');
   fs.stat(candidate, (err, stat) => {
     if (err || !stat.isFile()) {
       const index = path.join(PUBLIC_DIR, 'index.html');
@@ -6529,7 +6563,7 @@ function serveStatic(req, res, url) {
 
 function setSecurityHeaders(req,res){
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=(), payment=(), usb=()');res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Resource-Policy','same-origin');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   if(effectiveRequestHttps(req))res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
 }
 

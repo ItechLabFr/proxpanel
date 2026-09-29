@@ -10,3 +10,9 @@ test('automation nested permissions',()=>assert.deepEqual(automationStepPermissi
 test('untrusted forwarded headers ignored',()=>{const r=req('203.0.113.10',{'x-forwarded-for':'198.51.100.7','x-forwarded-proto':'https','x-forwarded-host':'evil','host':'panel.local'});assert.equal(effectiveClientIp(r,''),'203.0.113.10');assert.equal(effectiveRequestHttps(r,''),false);assert.equal(effectiveRequestHost(r,''),'panel.local');});
 test('trusted forwarded headers accepted',()=>{const r=req('172.18.0.12',{'x-forwarded-for':'198.51.100.8','x-forwarded-proto':'https','x-forwarded-host':'panel.example'});assert.equal(effectiveClientIp(r,'172.18.0.0/16'),'198.51.100.8');assert.equal(effectiveRequestHttps(r,'172.18.0.0/16'),true);assert.equal(effectiveRequestHost(r,'172.18.0.0/16'),'panel.example');});
 test('trusted proxy chain ignores a spoofed left-most XFF value',()=>{const r=req('172.18.0.12',{'x-forwarded-for':'203.0.113.99, 198.51.100.8'});assert.equal(effectiveClientIp(r,'172.18.0.0/16'),'198.51.100.8');});
+test('docker exec requires a dedicated permission, not granted to operator by default',()=>{
+  assert.equal(requiredPermissionForMutation('/api/docker/portainers/p1/environments/2/containers/abc123/exec','POST'),'docker.exec');
+  assert.equal(allowed('operator','/api/docker/portainers/p1/environments/2/containers/abc123/exec','POST'),false);
+  assert.equal(allowed('admin','/api/docker/portainers/p1/environments/2/containers/abc123/exec','POST'),true);
+  assert.equal(allowed('operator','/api/docker/portainers/p1/environments/2/containers/abc123/action','POST'),true);
+});

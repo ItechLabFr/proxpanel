@@ -852,7 +852,8 @@ function dockerContainerActions(c){
   const primary=running
     ? `${button('Redémarrer',`docker-container-action:${id}:restart`,'tiny')}${button(paused?'Reprendre':'Pause',`docker-container-action:${id}:${paused?'resume':'pause'}`,'tiny')}${button('Arrêter',`docker-container-action:${id}:stop`,'tiny danger')}`
     : button('Démarrer',`docker-container-action:${id}:start`,'tiny primary');
-  return `<div class="row-actions docker-row-actions">${readOnly}${running?button('Exec',`docker-container-exec:${id}`,'tiny'):''}${primary}</div>`;
+  const canExec=running&&can('docker.exec');
+  return `<div class="row-actions docker-row-actions">${readOnly}${canExec?button('Exec',`docker-container-exec:${id}`,'tiny'):''}${primary}</div>`;
 }
 function dockerContainersView(){
   const rows=state.dockerContainers||[];
@@ -1186,7 +1187,7 @@ function notificationsPage(){
 }
 
 const PANEL_PERMISSION_OPTIONS=[
-  ['dashboard.view','Voir le dashboard'],['machines.view','Voir les machines'],['machines.control','Contrôler VM/LXC'],['console.use','Ouvrir les consoles'],['backups.run','Lancer des backups'],['tasks.manage','Gérer les tâches'],['pve.updates','Contrôler les mises à jour PVE'],['audit.view','Voir l’audit'],['health.manage','Gérer le Health Center'],['changes.manage','Appliquer les changements VM/LXC'],['pbs.control','Exécuter les actions PBS'],['automations.view','Voir/prévisualiser les automatisations'],['automations.manage','Créer/modifier les automatisations'],['automations.run','Exécuter les automatisations'],['dependencies.manage','Gérer les dépendances'],['groups.manage','Gérer les groupes et vues'],['wazuh.manage','Gérer les actions Wazuh'],['admin.manage','Administrer ProxPanel'],['admin.users','Gérer les utilisateurs']
+  ['dashboard.view','Voir le dashboard'],['machines.view','Voir les machines'],['machines.control','Contrôler VM/LXC'],['docker.exec','Exécuter des commandes dans un conteneur Docker'],['console.use','Ouvrir les consoles'],['backups.run','Lancer des backups'],['tasks.manage','Gérer les tâches'],['pve.updates','Contrôler les mises à jour PVE'],['audit.view','Voir l’audit'],['health.manage','Gérer le Health Center'],['changes.manage','Appliquer les changements VM/LXC'],['pbs.control','Exécuter les actions PBS'],['automations.view','Voir/prévisualiser les automatisations'],['automations.manage','Créer/modifier les automatisations'],['automations.run','Exécuter les automatisations'],['dependencies.manage','Gérer les dépendances'],['groups.manage','Gérer les groupes et vues'],['wazuh.manage','Gérer les actions Wazuh'],['admin.manage','Administrer ProxPanel'],['admin.users','Gérer les utilisateurs']
 ];
 function roleLabel(role){return({admin:'Administrateur',operator:'Opérateur',viewer:'Lecture seule',custom:'Personnalisé'})[role]||role}
 function sessionDeviceLabel(row){

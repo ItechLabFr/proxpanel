@@ -1,6 +1,8 @@
 'use strict';
 const net=require('net');
 const SAFE_METHODS=new Set(['GET','HEAD','OPTIONS']);
+// 'docker.exec' (arbitrary shell in a container) is intentionally absent from every
+// built-in role, including operator: grant it only via a 'custom' role permission list.
 const ROLE_PERMISSIONS={
   admin:['*'],
   operator:['dashboard.view','machines.view','machines.control','console.use','backups.run','tasks.manage','pve.updates','audit.view','health.manage','changes.manage','pbs.control','automations.view','automations.manage','automations.run','dependencies.manage','groups.manage','wazuh.manage'],
@@ -17,6 +19,7 @@ function requiredPermissionForMutation(pathname,method='GET'){
   if(/^\/api\/pbs\/actions\/(verify|prune|sync|gc)$/.test(p))return'pbs.control';
   if(p==='/api/wazuh/panel-notifications/read')return'dashboard.view';
   if(p==='/api/wazuh/topology-mappings'||p==='/api/wazuh/test-notification')return'wazuh.manage';
+  if(/^\/api\/docker\/portainers\/[^/]+\/environments\/\d+\/containers\/[^/]+\/exec$/.test(p))return'docker.exec';
   if(/^\/api\/docker(?:\/|$)/.test(p))return'machines.control';
   if(/^\/api\/dependencies\/manual(?:\/|$)/.test(p))return'dependencies.manage';
   if(p==='/api/automations/preview'||/^\/api\/automations\/[^/]+\/preview$/.test(p))return'automations.view';
