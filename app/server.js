@@ -30,7 +30,7 @@ const {
 const {
   normalizeReauthCode,strongReauthAllowed,nextSensitiveAttempt,sensitiveAttemptBlocked
 } = require('./lib/auth-security');
-const { ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost } = require('./lib/security-policy');
+const { ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost,isBlockedSsrfIp } = require('./lib/security-policy');
 const {
   collectWazuh,testWazuhConnection,period:wazuhPeriod,alertThreshold:wazuhAlertThreshold
 } = require('./lib/wazuh-client');
@@ -2617,25 +2617,6 @@ function validateIntegrationUrl(value) {
   let parsed;try{parsed=new URL(raw);}catch{throw new Error('URL invalide.');}
   if(!['http:','https:'].includes(parsed.protocol))throw new Error('L’intégration doit utiliser une URL HTTP ou HTTPS.');
   return raw;
-}
-// Only blocks loopback, link-local (incl. 169.254.169.254 cloud metadata) and 0.0.0.0 — NOT
-// RFC1918 private ranges (10/8, 172.16/12, 192.168/16), because ProxPanel's whole purpose is
-// reaching Portainer/PBS/Wazuh on the user's own LAN, which is almost always a private IP.
-// This stops an integration URL from reaching the ProxPanel host itself or a cloud metadata
-// endpoint, without breaking the normal HomeLab deployment this product is built for.
-function isBlockedSsrfIp(ip){
-  const kind=net.isIP(ip);
-  if(kind===4){
-    const p=ip.split('.').map(Number);
-    return p[0]===127||p[0]===0||(p[0]===169&&p[1]===254);
-  }
-  if(kind===6){
-    const low=ip.toLowerCase();
-    if(low==='::1'||low==='::')return true;
-    if(low.startsWith('::ffff:'))return isBlockedSsrfIp(low.slice(7));
-    return low.startsWith('fe80:');
-  }
-  return false;
 }
 async function assertPublicIntegrationHost(rawUrl){
   let hostname;try{hostname=new URL(String(rawUrl||'')).hostname;}catch{throw new Error('URL invalide.');}
