@@ -5,9 +5,10 @@ const path = require('path');
 const crypto = require('crypto');
 const tls = require('tls');
 const net = require('net');
+const dns = require('dns').promises;
 const dgram = require('dgram');
 const zlib = require('zlib');
-const { execFileSync, execFile } = require('child_process');
+const { execFileSync, execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const { URL } = require('url');
@@ -29,7 +30,7 @@ const {
 const {
   normalizeReauthCode,strongReauthAllowed,nextSensitiveAttempt,sensitiveAttemptBlocked
 } = require('./lib/auth-security');
-const { ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost } = require('./lib/security-policy');
+const { ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost,isBlockedSsrfIp } = require('./lib/security-policy');
 const {
   collectWazuh,testWazuhConnection,period:wazuhPeriod,alertThreshold:wazuhAlertThreshold
 } = require('./lib/wazuh-client');
@@ -125,9 +126,13 @@ const CONSOLE_STATES = new Map();
 const PVE_USER_SESSIONS = new Map();
 const AUTOMATION_RUNS = new Map();
 const CONSOLE_TTL_MS = 5 * 60 * 1000;
+const SSH_SHELL_SESSIONS = new Map();
+const SSH_SHELL_TTL_MS = 5 * 60 * 1000;
 const LOGIN_ATTEMPTS = new Map();
+const LOGIN_ATTEMPTS_BY_IP = new Map();
 const SENSITIVE_REAUTH_ATTEMPTS = new Map();
 const EMAIL_2FA_CODES = new Map();
+const TOTP_LAST_STEP = new Map();
 const GUEST_STORAGE_CACHE = new Map();
 const GUEST_STORAGE_CACHE_OK_MS = 5 * 60 * 1000;
 const GUEST_STORAGE_CACHE_NEGATIVE_MS = 60 * 1000;
@@ -583,7 +588,7 @@ let SSH_RUNTIME_SUPPORT = null;
 function sshRuntimeSupport() {
   if(SSH_RUNTIME_SUPPORT)return SSH_RUNTIME_SUPPORT;
   const commandPath=name=>{try{return String(execFileSync('/bin/sh',['-lc',`command -v ${name}`],{encoding:'utf8',timeout:1500})).trim();}catch{return '';}};
-  SSH_RUNTIME_SUPPORT={ssh:commandPath('ssh'),sshpass:commandPath('sshpass')};
+  SSH_RUNTIME_SUPPORT={ssh:commandPath('ssh'),sshpass:commandPath('sshpass'),sshKeygen:commandPath('ssh-keygen')};
   return SSH_RUNTIME_SUPPORT;
 }
 function sshSensorIdentity(server) {
@@ -593,12 +598,26 @@ function sshSensorIdentity(server) {
     raw?`Le compte « ${raw} » n’utilise pas le realm PAM. La lecture de lm-sensors se fait en SSH sur le nœud.`:'Aucun compte Proxmox PAM exploitable n’est configuré pour la lecture SSH.',
     'Configure la connexion Proxmox avec un compte de type utilisateur@pam disposant du droit de connexion SSH.'
   )};
-  if(!server?.passwordEnc)return {ok:false,error:'Mot de passe Proxmox persistant requis pour la lecture SSH.',...temperatureDiagnostic(
-    'password-missing','Mot de passe non enregistré',
-    `Le compte ${raw||user+'@pam'} est compatible, mais ProxPanel ne possède pas de mot de passe persistant pour ouvrir la session SSH.`,
-    'Modifie la connexion Proxmox dans ProxPanel et enregistre le mot de passe du compte PAM.'
+  // Prefer a generated SSH key (no plaintext-capable secret ever leaves ProxPanel, no
+  // sshpass involved) over a stored password. Both are independent of authMode/apiToken
+  // (main Proxmox API auth), so either works for a server using API Token auth. The
+  // sshPasswordEnc/passwordEnc password fallback stays for users who haven't generated
+  // a key yet, or still rely on the historical behavior of password authMode.
+  if(server?.sshPrivateKeyEnc){
+    try{return {ok:true,user,authKind:'key',privateKeyPem:decryptText(server.sshPrivateKeyEnc)};}
+    catch{return {ok:false,error:'La clé SSH enregistrée ne peut pas être déchiffrée.',...temperatureDiagnostic(
+      'key-unreadable','Clé SSH illisible',
+      'La clé privée enregistrée pour cette connexion Proxmox ne peut plus être déchiffrée avec la clé maître actuelle.',
+      'Régénère une clé SSH dans la connexion Proxmox.'
+    )};}
+  }
+  const sshSecretEnc=server?.sshPasswordEnc||server?.passwordEnc;
+  if(!sshSecretEnc)return {ok:false,error:'Clé ou mot de passe SSH requis pour la lecture SSH.',...temperatureDiagnostic(
+    'password-missing','Aucun identifiant SSH enregistré',
+    `Le compte ${raw||user+'@pam'} est compatible, mais ProxPanel ne possède ni clé ni mot de passe SSH persistant pour ouvrir la session.`,
+    'Génère une clé SSH (recommandé) ou renseigne un mot de passe SSH pour la surveillance température, dans la connexion Proxmox — indépendant du mode d’authentification API.'
   )};
-  try{return {ok:true,user,password:decryptText(server.passwordEnc)};}
+  try{return {ok:true,user,authKind:'password',password:decryptText(sshSecretEnc)};}
   catch{return {ok:false,error:'Le mot de passe enregistré ne peut pas être déchiffré.',...temperatureDiagnostic(
     'password-unreadable','Mot de passe illisible',
     'Le secret enregistré pour cette connexion Proxmox ne peut plus être déchiffré avec la clé maître actuelle.',
@@ -617,6 +636,25 @@ async function clusterNodeIpMap(server,auth) {
   const result={entries:[...out.entries()],fallbackHost};NODE_ADDRESS_CACHE.set(cacheKey,{...result,expiresAt:Date.now()+NODE_ADDRESS_CACHE_MS});
   return {map:new Map(result.entries),fallbackHost};
 }
+// Shared by every feature that needs to run one non-interactive command on a node over real
+// SSH (lm-sensors temperature/CPU model today, hardware probes tomorrow) — NOT the termproxy
+// WebSocket automation that was tried and reverted for being unreliable; this is a plain
+// `ssh`/`sshpass` child process, the same well-understood mechanism already used everywhere
+// else in this codebase. Key auth writes the private key to a throwaway 0600 file for the
+// single call and removes it in a finally; password auth is unchanged.
+async function runSshCommand(identity,host,knownHosts,remoteCommand,execOptions={}) {
+  const opts={timeout:6500,maxBuffer:1024*1024,...execOptions};
+  if(identity.authKind==='key'){
+    const keyDir=path.join(DATA_DIR,'.ssh-runtime');
+    fs.mkdirSync(keyDir,{recursive:true,mode:0o700});
+    const keyFile=path.join(keyDir,`key-${crypto.randomUUID()}`);
+    fs.writeFileSync(keyFile,identity.privateKeyPem,{mode:0o600});
+    try{
+      return await execFileAsync('ssh',['-i',keyFile,'-o','BatchMode=yes','-o','ConnectTimeout=4','-o','ConnectionAttempts=1','-o','PreferredAuthentications=publickey','-o','PubkeyAuthentication=yes','-o','StrictHostKeyChecking=accept-new','-o',`UserKnownHostsFile=${knownHosts}`,`${identity.user}@${host}`,remoteCommand],opts);
+    }finally{fs.rmSync(keyFile,{force:true});}
+  }
+  return execFileAsync('sshpass',['-e','ssh','-o','BatchMode=no','-o','ConnectTimeout=4','-o','ConnectionAttempts=1','-o','PreferredAuthentications=password,keyboard-interactive','-o','PubkeyAuthentication=no','-o','StrictHostKeyChecking=accept-new','-o',`UserKnownHostsFile=${knownHosts}`,`${identity.user}@${host}`,remoteCommand],{...opts,env:{...process.env,SSHPASS:identity.password}});
+}
 async function readLmSensorsOverSsh(server,node,host) {
   const identity=sshSensorIdentity(server);
   if(!identity.ok)return {temperatureC:null,temperatureStatus:'unavailable',temperatureError:identity.error,temperatureSource:'lm-sensors',...identity};
@@ -626,7 +664,7 @@ async function readLmSensorsOverSsh(server,node,host) {
     'La commande ssh n’est pas disponible dans le conteneur ProxPanel. La température ne peut pas être lue sur le nœud.',
     'Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.2-beta.5 ou plus récente.'
   )};
-  if(!runtime.sshpass)return {temperatureC:null,temperatureStatus:'unavailable',temperatureError:'sshpass absent de l’image ProxPanel.',temperatureSource:'lm-sensors',...temperatureDiagnostic(
+  if(identity.authKind==='password'&&!runtime.sshpass)return {temperatureC:null,temperatureStatus:'unavailable',temperatureError:'sshpass absent de l’image ProxPanel.',temperatureSource:'lm-sensors',...temperatureDiagnostic(
     'sshpass-missing','Composant SSH incomplet',
     'Le client SSH est présent mais sshpass est absent du conteneur. ProxPanel ne peut pas utiliser le mot de passe PAM configuré.',
     'Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel 1.7.2-beta.5 ou plus récente.'
@@ -640,7 +678,7 @@ async function readLmSensorsOverSsh(server,node,host) {
   if(cached&&cached.expiresAt>Date.now())return cached.value;
   const knownHosts=path.join(DATA_DIR,'ssh-known-hosts');
   try{
-    const {stdout}=await execFileAsync('sshpass',['-e','ssh','-o','BatchMode=no','-o','ConnectTimeout=4','-o','ConnectionAttempts=1','-o','PreferredAuthentications=password,keyboard-interactive','-o','PubkeyAuthentication=no','-o','StrictHostKeyChecking=accept-new','-o',`UserKnownHostsFile=${knownHosts}`,`${identity.user}@${host}`,'LC_ALL=C sensors -j 2>/dev/null || LC_ALL=C sensors'],{env:{...process.env,SSHPASS:identity.password},timeout:6500,maxBuffer:1024*1024});
+    const {stdout}=await runSshCommand(identity,host,knownHosts,'LC_ALL=C sensors -j 2>/dev/null || LC_ALL=C sensors');
     let points=[];try{points=sensorPointsFromJson(JSON.parse(String(stdout||'{}')))}catch{points=sensorPointsFromText(stdout)}
     const picked=pickCpuTemperature(points);
     const value=picked.temperatureC==null
@@ -663,6 +701,109 @@ async function readLmSensorsOverSsh(server,node,host) {
     const value={temperatureC:null,temperatureStatus:'error',temperatureError:msg||diag.temperatureDiagnosticDetail,temperatureSource:'lm-sensors',host,...diag};
     NODE_TEMPERATURE_CACHE.set(cacheKey,{value,expiresAt:Date.now()+NODE_TEMPERATURE_CACHE_MS});return value;
   }
+}
+async function generateNodeSshKeypair(server) {
+  const runtime=sshRuntimeSupport();
+  if(!runtime.sshKeygen)throw new Error('ssh-keygen absent de l’image ProxPanel. Mets à jour/recrée le conteneur avec l’image Docker complète ProxPanel la plus récente.');
+  const keyDir=path.join(DATA_DIR,'.ssh-runtime');
+  fs.mkdirSync(keyDir,{recursive:true,mode:0o700});
+  const base=path.join(keyDir,`gen-${crypto.randomUUID()}`);
+  const comment=`proxpanel@${String(server?.name||server?.id||'server').replace(/[^\w.-]/g,'-')}`;
+  try{
+    await execFileAsync('ssh-keygen',['-t','ed25519','-f',base,'-N','','-C',comment],{timeout:8000});
+    const privateKeyPem=fs.readFileSync(base,'utf8');
+    const publicKeyLine=fs.readFileSync(`${base}.pub`,'utf8').trim();
+    return {privateKeyPem,publicKeyLine};
+  }finally{
+    fs.rmSync(base,{force:true});fs.rmSync(`${base}.pub`,{force:true});
+  }
+}
+// Interactive node shell over plain SSH (spawned `ssh -tt`/`sshpass ssh -tt`, the same
+// mechanism as runSshCommand, just long-lived and interactive) instead of Proxmox's termproxy
+// console — needed because API-token auth cannot open a Proxmox node Shell on this cluster's
+// PVE version, while SSH key/password auth (already used for temperature collection) works
+// fine. Deliberately NOT a repeat of the abandoned termproxy-automation approach: no PTY
+// echo-scraping, no Proxmox wire protocol at all — just raw bytes piped both directions.
+async function createSshShellSession(server, node, host, ownerSession) {
+  const identity=sshSensorIdentity(server);
+  if(!identity.ok)throw new Error(identity.error||'Identifiants SSH indisponibles pour ce nœud.');
+  const runtime=sshRuntimeSupport();
+  if(!runtime.ssh)throw new Error('Client SSH absent de l’image ProxPanel.');
+  if(identity.authKind==='password'&&!runtime.sshpass)throw new Error('sshpass absent de l’image ProxPanel.');
+  if(!host)throw new Error('Adresse réseau du nœud introuvable.');
+  const token=crypto.randomBytes(32).toString('hex');
+  SSH_SHELL_SESSIONS.set(token,{token,serverId:server.id,node,host,identity,knownHosts:path.join(DATA_DIR,'ssh-known-hosts'),ownerNonce:ownerSession.nonce,expiresAt:Date.now()+SSH_SHELL_TTL_MS,used:false});
+  setTimeout(()=>{SSH_SHELL_SESSIONS.delete(token);},SSH_SHELL_TTL_MS+30000).unref();
+  return {token,user:identity.user,node,expiresInSeconds:Math.round(SSH_SHELL_TTL_MS/1000),websocketPath:`/ws/ssh-shell?token=${token}`};
+}
+// Minimal hand-rolled RFC6455 framing for the SSH-shell WebSocket, where ProxPanel itself is
+// the server (not a client, unlike the deleted termproxy automation). Server->client frames
+// must NOT be masked; client->server frames from the browser always are and must be unmasked.
+function encodeWsServerFrame(buf, opcode=2) {
+  const len=buf.length;let header;
+  if(len<126){header=Buffer.from([0x80|opcode,len]);}
+  else if(len<65536){header=Buffer.alloc(4);header[0]=0x80|opcode;header[1]=126;header.writeUInt16BE(len,2);}
+  else{header=Buffer.alloc(10);header[0]=0x80|opcode;header[1]=127;header.writeBigUInt64BE(BigInt(len),2);}
+  return Buffer.concat([header,buf]);
+}
+function makeWsServerFrameReader(onMessage, onClose) {
+  let buf=Buffer.alloc(0);
+  return function push(chunk) {
+    buf=Buffer.concat([buf,chunk]);
+    for(;;){
+      if(buf.length<2)return;
+      const b1=buf[1],masked=!!(b1&0x80);let len=b1&0x7f,offset=2;
+      if(len===126){if(buf.length<4)return;len=buf.readUInt16BE(2);offset=4;}
+      else if(len===127){if(buf.length<10)return;len=Number(buf.readBigUInt64BE(2));offset=10;}
+      let maskKey=null;
+      if(masked){if(buf.length<offset+4)return;maskKey=buf.slice(offset,offset+4);offset+=4;}
+      if(buf.length<offset+len)return;
+      let payload=buf.slice(offset,offset+len);
+      if(masked){const unmasked=Buffer.alloc(len);for(let i=0;i<len;i++)unmasked[i]=payload[i]^maskKey[i%4];payload=unmasked;}
+      const opcode=buf[0]&0x0f;
+      buf=buf.slice(offset+len);
+      if(opcode===0x8)return onClose();
+      if(opcode===0x1||opcode===0x2)onMessage(payload);
+    }
+  };
+}
+function handleSshShellUpgrade(req, clientSocket, head) {
+  let url; try{url=new URL(req.url,`http://${req.headers.host||'localhost'}`);}catch{return clientSocket.destroy();}
+  if(url.pathname!=='/ws/ssh-shell')return clientSocket.destroy();
+  const session=getSession(req); if(!session){clientSocket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return clientSocket.destroy();}
+  const token=url.searchParams.get('token'); const item=SSH_SHELL_SESSIONS.get(token);
+  if(!item||item.expiresAt<Date.now()||item.ownerNonce!==session.nonce){clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');return clientSocket.destroy();}
+  if(item.used){clientSocket.write('HTTP/1.1 409 Conflict\r\n\r\n');return clientSocket.destroy();}
+  item.used=true; SSH_SHELL_SESSIONS.delete(token);
+  const wsKey=req.headers['sec-websocket-key'];
+  if(!wsKey){clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');return clientSocket.destroy();}
+  const accept=crypto.createHash('sha1').update(wsKey+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  let keyFile='';
+  let child;
+  const cleanup=()=>{if(keyFile)try{fs.rmSync(keyFile,{force:true})}catch{}};
+  let closed=false;
+  const closeAll=()=>{if(closed)return;closed=true;cleanup();try{child&&child.kill()}catch{};try{clientSocket.end()}catch{}};
+  try{
+    const sshOpts=['-tt','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=6','-o',`UserKnownHostsFile=${item.knownHosts}`];
+    let bin,args,env=process.env;
+    if(item.identity.authKind==='key'){
+      const keyDir=path.join(DATA_DIR,'.ssh-runtime');fs.mkdirSync(keyDir,{recursive:true,mode:0o700});
+      keyFile=path.join(keyDir,`shell-${crypto.randomUUID()}`);
+      fs.writeFileSync(keyFile,item.identity.privateKeyPem,{mode:0o600});
+      bin='ssh';args=[...sshOpts,'-i',keyFile,`${item.identity.user}@${item.host}`];
+    }else{
+      bin='sshpass';args=['-e','ssh',...sshOpts,`${item.identity.user}@${item.host}`];
+      env={...process.env,SSHPASS:item.identity.password};
+    }
+    child=spawn(bin,args,{env,stdio:['pipe','pipe','pipe']});
+  }catch(e){clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');cleanup();return clientSocket.destroy();}
+  clientSocket.write(['HTTP/1.1 101 Switching Protocols','Upgrade: websocket','Connection: Upgrade',`Sec-WebSocket-Accept: ${accept}`,'\r\n'].join('\r\n'));
+  child.stdout.on('data',d=>{try{clientSocket.write(encodeWsServerFrame(d))}catch{}});
+  child.stderr.on('data',d=>{try{clientSocket.write(encodeWsServerFrame(d))}catch{}});
+  child.on('exit',closeAll); child.on('error',closeAll);
+  const push=makeWsServerFrameReader(payload=>{try{child.stdin.write(payload)}catch{}},closeAll);
+  clientSocket.on('data',push); clientSocket.on('close',closeAll); clientSocket.on('error',closeAll);
+  if(head&&head.length)push(head);
 }
 async function enrichNodeTemperatures(server,auth,dashboard) {
   const nodes=dashboard?.nodes||[];if(!nodes.length)return dashboard;
@@ -701,17 +842,87 @@ async function readCpuModelOverSsh(server,node,host){
   const identity=sshSensorIdentity(server);
   if(!identity.ok)return {cpuModel:'',cpuModelSource:'',cpuModelError:identity.error||'Fallback SSH indisponible.'};
   const runtime=sshRuntimeSupport();
-  if(!runtime.ssh||!runtime.sshpass)return {cpuModel:'',cpuModelSource:'',cpuModelError:'Client SSH/sshpass indisponible dans ProxPanel.'};
+  if(!runtime.ssh||(identity.authKind==='password'&&!runtime.sshpass))return {cpuModel:'',cpuModelSource:'',cpuModelError:'Client SSH/sshpass indisponible dans ProxPanel.'};
   if(!host)return {cpuModel:'',cpuModelSource:'',cpuModelError:'Adresse réseau du nœud introuvable.'};
   const knownHosts=path.join(DATA_DIR,'ssh-known-hosts');
   const remoteCommand=`LC_ALL=C; m=$(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -n1); [ -n "$m" ] || m=$(grep -m1 -E '^(model name|Hardware|Processor)[[:space:]]*:' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^[[:space:]]*//'); printf '%s\\n' "$m"`;
   try{
-    const {stdout}=await execFileAsync('sshpass',['-e','ssh','-o','BatchMode=no','-o','ConnectTimeout=4','-o','ConnectionAttempts=1','-o','PreferredAuthentications=password,keyboard-interactive','-o','PubkeyAuthentication=no','-o','StrictHostKeyChecking=accept-new','-o',`UserKnownHostsFile=${knownHosts}`,`${identity.user}@${host}`,remoteCommand],{env:{...process.env,SSHPASS:identity.password},timeout:6500,maxBuffer:256*1024});
+    const {stdout}=await runSshCommand(identity,host,knownHosts,remoteCommand,{maxBuffer:256*1024});
     const model=String(stdout||'').split(/\\r?\\n/).map(x=>x.trim()).find(Boolean)||'';
     return model?{cpuModel:model,cpuModelSource:'ssh-lscpu',cpuModelError:''}:{cpuModel:'',cpuModelSource:'',cpuModelError:'Le nœud ne retourne aucun modèle CPU via lscpu ou /proc/cpuinfo.'};
   }catch(error){
     return {cpuModel:'',cpuModelSource:'',cpuModelError:String(error?.stderr||error?.message||error||'Lecture SSH impossible.').trim().slice(0,500)};
   }
+}
+const PWM_PATH_RE=/^\/sys\/class\/hwmon\/hwmon\d+\/pwm\d+$/;
+// Standard Linux hwmon sysfs fan control (it87/nct6775/w83627-family drivers), read over the
+// same real SSH channel already used for temperature/CPU model — not every node exposes this
+// (laptop firmware-controlled fans, or a Super I/O chip lm-sensors was never configured for
+// via sensors-detect never show any pwm* file at all; confirmed live on this cluster: 4 of 5
+// nodes have nothing here, 1 does). Callers must treat an empty `fans` array as "unsupported
+// on this node", not an error.
+async function readFanControlOverSsh(server,node,host){
+  const identity=sshSensorIdentity(server);
+  if(!identity.ok)return {fans:[],fanError:identity.error||'SSH indisponible.'};
+  const runtime=sshRuntimeSupport();
+  if(!runtime.ssh||(identity.authKind==='password'&&!runtime.sshpass))return {fans:[],fanError:'Client SSH/sshpass indisponible dans ProxPanel.'};
+  if(!host)return {fans:[],fanError:'Adresse réseau du nœud introuvable.'};
+  const knownHosts=path.join(DATA_DIR,'ssh-known-hosts');
+  const remoteCommand=`LC_ALL=C; for f in /sys/class/hwmon/*/pwm[0-9]; do [ -e "$f" ] || continue; dir=$(dirname "$f"); num=$(basename "$f" | tr -dc '0-9'); val=$(cat "$f" 2>/dev/null); en=$(cat "\${f}_enable" 2>/dev/null); mn=$(cat "\${f}_min" 2>/dev/null); mx=$(cat "\${f}_max" 2>/dev/null); rpm=$(cat "$dir/fan\${num}_input" 2>/dev/null); label=$(cat "$dir/fan\${num}_label" 2>/dev/null); printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$f" "\${val:--1}" "\${en:--1}" "\${mn:-0}" "\${mx:-255}" "\${rpm:--1}" "\${label:-}"; done`;
+  try{
+    const {stdout}=await runSshCommand(identity,host,knownHosts,remoteCommand,{maxBuffer:64*1024});
+    const fans=String(stdout||'').split(/\r?\n/).filter(Boolean).map(line=>{
+      const [pwmPath,val,en,mn,mx,rpm,label]=line.split('\t');
+      if(!PWM_PATH_RE.test(pwmPath))return null;
+      const max=Number(mx)||255,min=Number(mn)||0,value=Number(val);
+      return {
+        pwmPath,
+        label:label||pwmPath.split('/').pop(),
+        percent:Number.isFinite(value)&&value>=0?Math.round(((value-min)/Math.max(1,max-min))*100):null,
+        rawValue:Number.isFinite(value)?value:null,
+        min,max,
+        enableMode:Number(en),
+        manual:Number(en)===1,
+        rpm:Number(rpm)>=0?Number(rpm):null
+      };
+    }).filter(Boolean);
+    return {fans,fanError:''};
+  }catch(error){
+    return {fans:[],fanError:String(error?.stderr||error?.message||error||'Lecture SSH impossible.').trim().slice(0,500)};
+  }
+}
+async function setFanPwmOverSsh(server,node,host,pwmPath,action){
+  const identity=sshSensorIdentity(server);
+  if(!identity.ok)throw new Error(identity.error||'SSH indisponible.');
+  if(!PWM_PATH_RE.test(String(pwmPath||'')))throw new Error('Chemin PWM invalide.');
+  const runtime=sshRuntimeSupport();
+  if(!runtime.ssh||(identity.authKind==='password'&&!runtime.sshpass))throw new Error('Client SSH/sshpass indisponible dans ProxPanel.');
+  if(!host)throw new Error('Adresse réseau du nœud introuvable.');
+  const knownHosts=path.join(DATA_DIR,'ssh-known-hosts');
+  if(action.restoreMode!=null){
+    // Write back the exact enable value observed before ProxPanel ever switched this fan to
+    // manual, instead of a hardcoded guess — chips disagree on which value means "automatic"
+    // (2, 4 and 5 all showed up as the native auto mode across this cluster's real hardware).
+    const restoreValue=Number(action.restoreMode);
+    if(!Number.isFinite(restoreValue))throw new Error('Mode à restaurer invalide.');
+    const {stdout}=await runSshCommand(identity,host,knownHosts,`set -e; echo ${restoreValue} > '${pwmPath}_enable'; cat '${pwmPath}_enable'`,{maxBuffer:4096});
+    return {output:String(stdout||'').trim(),previousEnable:null};
+  }
+  const percent=Math.max(0,Math.min(100,Number(action.percent)));
+  if(!Number.isFinite(percent))throw new Error('Pourcentage invalide.');
+  // Read the enable mode as it stands right now, before switching to manual: if this fan has
+  // never been touched by ProxPanel before, this IS the hardware's native automatic mode and
+  // the caller persists it so a later "Auto" can restore this exact value instead of guessing.
+  const enBefore=await runSshCommand(identity,host,knownHosts,`cat '${pwmPath}_enable' 2>/dev/null`,{maxBuffer:64}).catch(()=>({stdout:''}));
+  const previousEnable=Number(String(enBefore.stdout||'').trim());
+  const mn=await runSshCommand(identity,host,knownHosts,`cat '${pwmPath}_min' 2>/dev/null`,{maxBuffer:64}).catch(()=>({stdout:'0'}));
+  const mx=await runSshCommand(identity,host,knownHosts,`cat '${pwmPath}_max' 2>/dev/null`,{maxBuffer:64}).catch(()=>({stdout:'255'}));
+  const min=Number(String(mn.stdout||'0').trim())||0,max=Number(String(mx.stdout||'255').trim())||255;
+  const raw=Math.round(min+(percent/100)*(max-min));
+  const {stdout}=await runSshCommand(identity,host,knownHosts,`set -e; echo 1 > '${pwmPath}_enable'; echo ${raw} > '${pwmPath}'; cat '${pwmPath}'; echo; cat '${pwmPath}_enable'`,{maxBuffer:4096});
+  // previousEnable===1 means it was already manual (very likely from an earlier ProxPanel
+  // call) — not a real "original automatic mode", so don't let it clobber an already-stored one.
+  return {output:String(stdout||'').trim(),previousEnable:Number.isFinite(previousEnable)&&previousEnable!==1?previousEnable:null};
 }
 function cpuModelFromNodeStatus(status={}){
   const info=status?.cpuinfo&&typeof status.cpuinfo==='object'?status.cpuinfo:{};
@@ -907,7 +1118,23 @@ function userHasPermission(user,perm){if(!user||user.active===false)return false
 function base32Encode(buf){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0,out='';for(const byte of buf){value=(value<<8)|byte;bits+=8;while(bits>=5){out+=alphabet[(value>>>(bits-5))&31];bits-=5;}}if(bits>0)out+=alphabet[(value<<(5-bits))&31];return out;}
 function base32Decode(str){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0,out=[];for(const ch of String(str||'').toUpperCase().replace(/[^A-Z2-7]/g,'')){const idx=alphabet.indexOf(ch);if(idx<0)continue;value=(value<<5)|idx;bits+=5;if(bits>=8){out.push((value>>>(bits-8))&255);bits-=8;}}return Buffer.from(out);}
 function totpCode(secret,counter){const key=base32Decode(secret);const b=Buffer.alloc(8);let n=BigInt(counter);for(let i=7;i>=0;i--){b[i]=Number(n&255n);n>>=8n;}const h=crypto.createHmac('sha1',key).update(b).digest();const o=h[h.length-1]&15;const bin=((h[o]&127)<<24)|((h[o+1]&255)<<16)|((h[o+2]&255)<<8)|(h[o+3]&255);return String(bin%1000000).padStart(6,'0');}
-function verifyTotp(secret,code,window=1){const clean=String(code||'').replace(/\D/g,'');if(clean.length!==6)return false;const step=Math.floor(Date.now()/30000);for(let i=-window;i<=window;i++)if(totpCode(secret,step+i)===clean)return true;return false;}
+function verifyTotp(secret,code,window=1,replayKey=''){
+  const clean=String(code||'').replace(/\D/g,'');
+  if(clean.length!==6)return false;
+  const step=Math.floor(Date.now()/30000);
+  for(let i=-window;i<=window;i++){
+    const candidateStep=step+i;
+    if(totpCode(secret,candidateStep)===clean){
+      if(replayKey){
+        const last=TOTP_LAST_STEP.get(replayKey);
+        if(typeof last==='number'&&candidateStep<=last)return false;
+        TOTP_LAST_STEP.set(replayKey,candidateStep);
+      }
+      return true;
+    }
+  }
+  return false;
+}
 function validAccountEmail(value){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim())&&String(value||'').trim().length<=254;}
 function maskEmail(value){const email=String(value||'').trim(),i=email.indexOf('@');if(i<1)return '';const local=email.slice(0,i),domain=email.slice(i+1);return `${local.slice(0,Math.min(2,local.length))}${local.length>2?'***':'*'}@${domain}`;}
 function normalizeRecoveryCode(value){return String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
@@ -922,6 +1149,11 @@ function loginAttemptKey(req,username){return `${clientIp(req)}|${String(usernam
 function checkLoginAllowed(req,username){const row=LOGIN_ATTEMPTS.get(loginAttemptKey(req,username));if(!row)return true;if(row.blockedUntil&&row.blockedUntil>Date.now())return false;if(row.blockedUntil&&row.blockedUntil<=Date.now())LOGIN_ATTEMPTS.delete(loginAttemptKey(req,username));return true;}
 function recordLoginFailure(req,username){const k=loginAttemptKey(req,username),now=Date.now(),old=LOGIN_ATTEMPTS.get(k)||{count:0,firstAt:now};const within=now-old.firstAt<15*60*1000;const count=within?old.count+1:1;LOGIN_ATTEMPTS.set(k,{count,firstAt:within?old.firstAt:now,blockedUntil:count>=5?now+15*60*1000:0});}
 function clearLoginFailures(req,username){LOGIN_ATTEMPTS.delete(loginAttemptKey(req,username));}
+// Tracks failed logins per source IP across ALL usernames, independently of the
+// per-(IP,username) throttle above, so an attacker cannot dodge the limit by
+// spreading guesses across many known/guessed accounts from the same IP.
+function checkLoginAllowedByIp(req){const k=clientIp(req),row=LOGIN_ATTEMPTS_BY_IP.get(k);if(!row)return true;if(row.blockedUntil&&row.blockedUntil>Date.now())return false;if(row.blockedUntil&&row.blockedUntil<=Date.now())LOGIN_ATTEMPTS_BY_IP.delete(k);return true;}
+function recordLoginFailureByIp(req){const k=clientIp(req),now=Date.now(),old=LOGIN_ATTEMPTS_BY_IP.get(k)||{count:0,firstAt:now};const within=now-old.firstAt<15*60*1000;const count=within?old.count+1:1;LOGIN_ATTEMPTS_BY_IP.set(k,{count,firstAt:within?old.firstAt:now,blockedUntil:count>=30?now+15*60*1000:0});}
 function sensitiveReauthKey(req,user,action='sensitive'){return `${clientIp(req)}|${String(user?.id||user?.username||'unknown')}|${String(action||'sensitive')}`;}
 function sensitiveReauthAllowed(req,user,action='sensitive'){
   const key=sensitiveReauthKey(req,user,action),row=SENSITIVE_REAUTH_ATTEMPTS.get(key);
@@ -939,12 +1171,21 @@ function verifyStrongReauth(req,user,body={},action='sensitive'){
   if(!sensitiveReauthAllowed(req,user,action))return {ok:false,status:429,error:'Ré-authentification temporairement bloquée. Réessaie plus tard.'};
   const ok=strongReauthAllowed(user,{password:String(body.password||''),code:normalizeReauthCode(body.code)},{
     password:(actor,password)=>!!actor?.salt&&safeEqualHex(hashPassword(password,actor.salt).hash,actor.hash||''),
-    totp:(actor,code)=>{let secret='';try{secret=decryptText(actor?.totpSecretEnc||'')}catch{}return !!secret&&verifyTotp(secret,code);}
+    totp:(actor,code)=>{let secret='';try{secret=decryptText(actor?.totpSecretEnc||'')}catch{}return !!secret&&verifyTotp(secret,code,1,`totp:${actor?.id||''}`);}
   });
   if(!ok){const state=recordSensitiveReauthFailure(req,user,action);return {ok:false,status:state.blocked?429:401,error:'Ré-authentification impossible. Vérifie tes informations et réessaie.'};}
   clearSensitiveReauthFailures(req,user,action);return {ok:true,status:200};
 }
-function originAllowed(req){if(['GET','HEAD','OPTIONS'].includes(req.method||'GET'))return true;const origin=req.headers.origin;if(!origin)return true;try{const host=effectiveRequestHost(req);return !!host&&new URL(origin).host===host;}catch{return false;}}
+function originAllowed(req){
+  if(['GET','HEAD','OPTIONS'].includes(req.method||'GET'))return true;
+  const host=effectiveRequestHost(req);
+  if(!host)return false;
+  const origin=req.headers.origin;
+  if(origin){try{return new URL(origin).host===host;}catch{return false;}}
+  const referer=req.headers.referer;
+  if(referer){try{return new URL(referer).host===host;}catch{return false;}}
+  return false;
+}
 function parseCookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
@@ -1501,6 +1742,8 @@ function sanitizeServer(s) {
     username: s.username || '',
     authMode: s.authMode || (s.passwordEnc ? 'password' : 'interactive'),
     hasBackgroundAuth: !!(s.passwordEnc || s.apiTokenSecretEnc),
+    hasSshPassword: !!(s.sshPasswordEnc || s.passwordEnc),
+    sshPublicKey: s.sshPublicKey || '',
     apiTokenId: s.apiTokenId || '',
     allowSelfSigned: !!s.allowSelfSigned,
     certFingerprint: s.certFingerprint || '',
@@ -1689,7 +1932,13 @@ async function proxmoxPasswordLogin(server, username, password, otp = '') {
 async function proxmoxLogin(server) {
   await ensureCertificatePin(server);
   if (server.apiTokenSecretEnc && server.apiTokenId && server.username) {
-    return { authType: 'token', authorization: `PVEAPIToken=${server.username}!${server.apiTokenId}=${decryptText(server.apiTokenSecretEnc)}`, username: server.username };
+    // Proxmox's own UI labels the full "user@realm!tokenname" string as the token's
+    // "Token ID", so pasting that whole thing into our Token ID field is a natural
+    // mistake. Tolerate it instead of silently doubling the user prefix and sending
+    // Proxmox an unparseable "user@realm!user@realm!tokenname" header.
+    const rawTokenId = String(server.apiTokenId);
+    const tokenName = rawTokenId.includes('!') ? rawTokenId.slice(rawTokenId.lastIndexOf('!') + 1) : rawTokenId;
+    return { authType: 'token', authorization: `PVEAPIToken=${server.username}!${tokenName}=${decryptText(server.apiTokenSecretEnc)}`, username: server.username };
   }
   if (!server.passwordEnc) throw new Error('Connexion interactive Proxmox requise pour ce serveur.');
   const key = `${server.id || ''}|${server.username || ''}|${server.passwordEnc}`;
@@ -2584,6 +2833,19 @@ function validateIntegrationUrl(value) {
   let parsed;try{parsed=new URL(raw);}catch{throw new Error('URL invalide.');}
   if(!['http:','https:'].includes(parsed.protocol))throw new Error('L’intégration doit utiliser une URL HTTP ou HTTPS.');
   return raw;
+}
+async function assertPublicIntegrationHost(rawUrl){
+  let hostname;try{hostname=new URL(String(rawUrl||'')).hostname;}catch{throw new Error('URL invalide.');}
+  if(!hostname)throw new Error('URL invalide.');
+  if(hostname.toLowerCase()==='localhost')throw new Error('Cible réseau interne refusée.');
+  if(net.isIP(hostname)){
+    if(isBlockedSsrfIp(hostname))throw new Error('Cible réseau interne refusée.');
+    return;
+  }
+  let addresses;
+  try{addresses=await dns.lookup(hostname,{all:true,verbatim:true});}
+  catch{throw new Error('Résolution DNS impossible pour cet hôte.');}
+  if(!addresses.length||addresses.some(a=>isBlockedSsrfIp(a.address)))throw new Error('Cible réseau interne refusée.');
 }
 async function portainerSystemInfo(item) {
   const headers=portainerHeaders(item),rejectUnauthorized=!item.allowSelfSigned;
@@ -3569,6 +3831,8 @@ async function runPbsHealthCenter(settings=getSettings()){
 async function testIntegration(item) {
   const url = String(item.url || '').replace(/\/$/,'');
   if (!url) throw new Error('URL requise.');
+  await assertPublicIntegrationHost(url);
+  if (item.type === 'wazuh' && item.indexerUrl) await assertPublicIntegrationHost(item.indexerUrl);
   if (item.type === 'wazuh') {
     return testWazuhConnection(wazuhRuntimeItem(item));
   }
@@ -3809,8 +4073,23 @@ async function sendDiscordEvent(settings, event) {
     const diag=diagnostics.slice(0,8).map(x=>`**${x.label} :** ${String(x.value||'').slice(0,500)}`).join('\n');
     jobs.push(postWebhook(settings.alerts.discordWebhook,{allowed_mentions:{parse:[]},content:`**${eventIcon(event)} ${event.title || 'ProxPanel'}**\n${event.message || ''}${diag?`\n\n**Diagnostic :**\n${diag}`:''}\n\n**Action recommandée :** ${defaultRecommendation(event)}`.slice(0,1950)}));
   }
-  await Promise.allSettled(jobs);
-  return jobs.length;
+  const failures=await settledFailures(jobs);
+  return {attempted:jobs.length,failed:failures.length,failures};
+}
+// Promise.allSettled() never rejects on its own — every one of this file's fire-and-forget
+// notification senders awaited it and threw the per-job outcome away, so a dead Discord
+// webhook, a refused SMTP login or an invalid M365 tenant all looked identical to a real
+// send: no audit entry, no error, and /api/notifications/test answered {ok:true} regardless.
+async function settledFailures(jobs){
+  const results=await Promise.allSettled(jobs);
+  const failures=[];
+  for(const r of results){
+    if(r.status==='rejected')failures.push(String(r.reason?.message||r.reason||'Erreur inconnue'));
+    // sendDiscordEvent() itself always resolves (it swallows its own per-channel failures the
+    // same way) so a plain rejected-only check would miss it when mixed into a shared jobs[].
+    else if(r.value&&typeof r.value==='object'&&Array.isArray(r.value.failures))failures.push(...r.value.failures);
+  }
+  return failures;
 }
 async function postWebhook(url, payload) {
   if (!url) return;
@@ -4163,11 +4442,14 @@ function telegramAlertText(event={}) {
 async function sendAlertChannels(settings, title, message, event = {}) {
   const a=settings.alerts||{}; const jobs=[];
   const fullEvent=sanitizeAlertEvent({type:event.type||'system.test',severity:event.severity||'info',title,message,serverName:event.serverName||'',target:event.target||'',at:event.at||Date.now(),recommendation:event.recommendation||'',details:event.details||[],source:event.source||'',error:event.error||'',upid:event.upid||'',technicalDetails:event.technicalDetails||[],logExcerpt:event.logExcerpt||''});
-  jobs.push(sendDiscordEvent(settings,fullEvent));
+  const discordResult=await sendDiscordEvent(settings,fullEvent);
   if(a.genericWebhook)jobs.push(postWebhook(a.genericWebhook,{source:'proxpanel',...fullEvent,at:new Date(fullEvent.at).toISOString()}));
   if(a.telegramBotToken&&a.telegramChatId)jobs.push(postWebhook(`https://api.telegram.org/bot${a.telegramBotToken}/sendMessage`,{chat_id:a.telegramChatId,text:telegramAlertText(fullEvent)}));
   if(a.smtp?.enabled)jobs.push(sendMailNotification(a.smtp,fullEvent.title,fullEvent.message,fullEvent));
-  await Promise.allSettled(jobs);
+  const failures=[...discordResult.failures,...await settledFailures(jobs)];
+  const attempted=discordResult.attempted+jobs.length;
+  if(failures.length)addAuditSystem('notifications.channel.failed',title,{attempted,failed:failures.length,failures:failures.slice(0,10)},'error');
+  return {attempted,failed:failures.length,failures};
 }
 function normalizeReleaseNotes(value) {
   if (Array.isArray(value)) return value.map(x=>String(x).trim()).filter(Boolean).slice(0,100);
@@ -4461,7 +4743,7 @@ async function checkRemoteUpdate({manual=false,notify=true}={}) {
         const title=`ProxPanel ${release.version} disponible`,message=updateSummaryFr(release),jobs=[];
         if(cfg.notifyDiscord!==false)jobs.push(sendDiscordEvent(settings,{type:'system.update.available',severity:release.securityNotesFr?.length?'warning':'info',title,message,target:`v${release.version}`}));
         if(cfg.notifyEmail!==false&&settings.alerts?.smtp?.enabled)jobs.push(sendMailNotification(settings.alerts.smtp,title,message,{type:'system.update.available',severity:release.securityNotesFr?.length?'warning':'info',serverName:'ProxPanel',target:`v${release.version}`,channel:release.releaseChannel||normalizeUpdateChannel(cfg.otaChannel),details:release.releaseNotesFr||[]}));
-        await Promise.allSettled(jobs);state.lastNotifiedVersion=release.version;addAuditSystem('update.available',`v${release.version}`,{provider,verified:!!release.signatureVerified,discord:cfg.notifyDiscord!==false,email:cfg.notifyEmail!==false});
+        const notifyFailures=await settledFailures(jobs);state.lastNotifiedVersion=release.version;addAuditSystem('update.available',`v${release.version}`,{provider,verified:!!release.signatureVerified,discord:cfg.notifyDiscord!==false,email:cfg.notifyEmail!==false,...(notifyFailures.length?{notifyFailures}:{})},notifyFailures.length?'error':'ok');
       }
       jsonWrite(UPDATE_CHECK_STATE_FILE,state);return state;
     }catch(e){const state={...previous,currentVersion:APP_VERSION,provider,configured:true,available:false,lastCheckAt:new Date().toISOString(),error:e.message};jsonWrite(UPDATE_CHECK_STATE_FILE,state);if(manual)throw e;return state;}
@@ -4716,7 +4998,7 @@ async function checkPveUpdates({manual=false,notify=true}={}){
               const updateEvent={type:hasCritical||hasSecurity?'pve.update.security':'pve.update.available',severity:hasCritical?'critical':hasSecurity?'warning':'info',title,message,serverName:server.name,target:node,details:[`Paquets : ${updates.length}`,`Critiques : ${criticalCount}`,`Sécurité : ${securityCount}`,`Importantes : ${importantCount}`,...(cves.length?[`CVE : ${cves.join(', ')}`]:[]),...updates.slice(0,14).map(u=>`[${pveUpdateLevelLabel(u.level)}] ${u.package} : ${u.oldVersion||'installée'} → ${u.version||'nouvelle version'}${(u.cves||[]).length?` · ${(u.cves||[]).join(', ')}`:''}`)],recommendation:hasCritical?'Une criticité élevée a été détectée dans le changelog. Consulte immédiatement le détail puis planifie la maintenance selon ton niveau de risque.':hasSecurity?'Des références de sécurité/CVE ont été détectées. Consulte le changelog officiel et planifie la mise à jour.':'Consulte ProxPanel → Mises à jour PVE, lis les changelogs puis planifie la maintenance du nœud avant installation.'};
               if(cfg.notifyDiscord!==false)jobs.push(sendDiscordEvent(settings,updateEvent));
               if(cfg.notifyEmail!==false&&settings.alerts?.smtp?.enabled)jobs.push(sendMailNotification(settings.alerts.smtp,title,message,updateEvent));
-              await Promise.allSettled(jobs);nodeRows[nodeRows.length-1].lastNotifiedDigest=digest;addAuditSystem('pve-updates.available',node,{server:server.name,count:updates.length,criticalCount,securityCount,cves});
+              const notifyFailures=await settledFailures(jobs);nodeRows[nodeRows.length-1].lastNotifiedDigest=digest;addAuditSystem('pve-updates.available',node,{server:server.name,count:updates.length,criticalCount,securityCount,cves,...(notifyFailures.length?{notifyFailures}:{})},notifyFailures.length?'error':'ok');
             }
           }catch(e){nodeRows.push({node,count:0,updates:[],digest:'',criticalCount:0,securityCount:0,importantCount:0,cves:[],checkedAt:new Date().toISOString(),error:e.message,lastNotifiedDigest:null});}
         }
@@ -4736,8 +5018,8 @@ async function checkPveUpdates({manual=false,notify=true}={}){
       const jobs=[];
       if(cfg.manualReportEmail!==false&&settings.alerts?.smtp?.enabled)jobs.push(sendMailNotification(settings.alerts.smtp,title,report,event));
       if(cfg.manualReportDiscord!==false)jobs.push(sendDiscordEvent(settings,event));
-      await Promise.allSettled(jobs);
-      if(cfg.manualAudit!==false)addAuditSystem('pve-updates.manual-report','all',{totalUpdates,totalNodes,criticalTotal,securityTotal,importantTotal,cves,email:cfg.manualReportEmail!==false,discord:cfg.manualReportDiscord!==false});
+      const notifyFailures=await settledFailures(jobs);
+      if(cfg.manualAudit!==false)addAuditSystem('pve-updates.manual-report','all',{totalUpdates,totalNodes,criticalTotal,securityTotal,importantTotal,cves,email:cfg.manualReportEmail!==false,discord:cfg.manualReportDiscord!==false,...(notifyFailures.length?{notifyFailures}:{})},notifyFailures.length?'error':'ok');
     }
     return state;
   })();
@@ -4814,11 +5096,20 @@ async function automationWaitUntil(server,auth,step){
   }while(Date.now()<deadline);
   throw new Error(`État ${wanted} non atteint avant le timeout.`);
 }
-async function automationMachineAction(server,auth,step){
+// Retrieves (creating if absent) the per-step map of vmid -> completed result row for
+// this run, so a retry of a multi-target step doesn't repeat an action (restart, backup)
+// on a target that already succeeded in an earlier attempt.
+function automationStepTargetProgress(ctx,stepId){
+  if(!ctx)return new Map();
+  if(!ctx.stepTargetProgress)ctx.stepTargetProgress=new Map();
+  if(!ctx.stepTargetProgress.has(stepId))ctx.stepTargetProgress.set(stepId,new Map());
+  return ctx.stepTargetProgress.get(stepId);
+}
+async function automationMachineAction(server,auth,step,ctx){
   const targets=await automationTargets(server,auth,step.target);
   if(!targets.length)throw new Error(`Aucune cible pour ${summarizeAutomationStep(step)}`);
-  const results=[];
-  for(const machine of targets){
+  const progress=automationStepTargetProgress(ctx,step.id);
+  for(const machine of targets.filter(m=>!progress.has(Number(m.vmid)))){
     const task=await executeMachineAction(server,auth,machine,step.action);
     const row={vmid:machine.vmid,name:machine.name||'',node:machine.node,task,status:'sent'};
     if(task&&String(task).startsWith('UPID:')){
@@ -4826,15 +5117,15 @@ async function automationMachineAction(server,auth,step){
       row.status=String(st.exitstatus||'OK').toUpperCase()==='OK'?'ok':'error';row.taskStatus=st;
       if(row.status==='error')throw new Error(`${step.action} en erreur sur ${machine.vmid}`);
     }else row.status='ok';
-    results.push(row);
+    progress.set(Number(machine.vmid),row);
   }
-  return {targets:results};
+  return {targets:targets.map(m=>progress.get(Number(m.vmid))).filter(Boolean)};
 }
-async function automationBackup(server,auth,step){
+async function automationBackup(server,auth,step,ctx){
   const targets=await automationTargets(server,auth,step.target);
   if(!targets.length)throw new Error(`Aucune cible pour ${summarizeAutomationStep(step)}`);
-  const results=[];
-  for(const machine of targets){
+  const progress=automationStepTargetProgress(ctx,step.id);
+  for(const machine of targets.filter(m=>!progress.has(Number(m.vmid)))){
     const body={vmid:machine.vmid,mode:step.mode||'snapshot',compress:step.compress||'zstd'};
     if(step.storage)body.storage=step.storage;
     const task=await proxmoxApi(server,`/nodes/${encodeURIComponent(machine.node)}/vzdump`,{method:'POST',auth,body});
@@ -4844,9 +5135,9 @@ async function automationBackup(server,auth,step){
       row.status=String(st.exitstatus||'OK').toUpperCase()==='OK'?'ok':'error';row.taskStatus=st;
       if(row.status==='error')throw new Error(`Backup en erreur sur ${machine.vmid}`);
     }else row.status='ok';
-    results.push(row);
+    progress.set(Number(machine.vmid),row);
   }
-  return {targets:results,storage:step.storage||'',mode:step.mode||'snapshot'};
+  return {targets:targets.map(m=>progress.get(Number(m.vmid))).filter(Boolean),storage:step.storage||'',mode:step.mode||'snapshot'};
 }
 async function automationDockerAction(step){
   const item=findPortainerIntegration(step.portainerId);if(!item)throw new Error('Intégration Portainer introuvable.');
@@ -4882,9 +5173,9 @@ async function automationCondition(server,auth,condition,ctx){
 }
 async function executeAutomationStep(server,auth,step,ctx){
   if(step.type==='wait'){await sleep(Math.max(0,Number(step.seconds||0))*1000);return {seconds:Number(step.seconds||0)};}
-  if(step.type==='machine-action')return automationMachineAction(server,auth,step);
+  if(step.type==='machine-action')return automationMachineAction(server,auth,step,ctx);
   if(step.type==='wait-until')return automationWaitUntil(server,auth,step);
-  if(step.type==='backup')return automationBackup(server,auth,step);
+  if(step.type==='backup')return automationBackup(server,auth,step,ctx);
   if(step.type==='docker-action')return automationDockerAction(step);
   if(step.type==='condition'){
     const matched=await automationCondition(server,auth,step.condition,ctx),branch=matched?(step.then||[]):(step.else||[]);
@@ -4895,6 +5186,12 @@ async function executeAutomationStep(server,auth,step,ctx){
 }
 async function runAutomationSteps(server,auth,steps,ctx){
   for(const step of steps||[]){
+    // A retry of an ancestor 'condition' step re-runs this whole branch from
+    // executeAutomationStep(). Step ids are unique across the entire scenario
+    // (enforced by validateAutomationSteps), so if this step already finished ok in an
+    // earlier pass through the same ctx, skip it instead of re-running it (and its
+    // real-world side effects: another VM restart, another backup, ...) a second time.
+    if(ctx.stepResults.get(step.id)?.status==='ok')continue;
     const unmet=(step.dependsOn||[]).filter(id=>ctx.stepResults.get(id)?.status!=='ok');
     if(unmet.length)throw new Error(`Dépendance(s) non satisfaite(s) pour ${step.id} : ${unmet.join(', ')}`);
     const record={id:step.id,type:step.type,label:step.label||summarizeAutomationStep(step),status:'running',startedAt:new Date().toISOString(),attempts:0,dependsOn:step.dependsOn||[]};
@@ -5059,6 +5356,7 @@ function handleConsoleUpgrade(req, clientSocket, head) {
       let tunnelEstablished=true;
       upstream.on('close',()=>{if(tunnelEstablished)rememberError('Le tunnel WebSocket Proxmox a été fermé après le handshake. Si l’écran reste noir, vérifie le mot de passe VNC retourné par vncproxy et les logs pveproxy/qemu-server.');});
       clientSocket.on('close',()=>{tunnelEstablished=false;});
+      setConsoleDiagnostic(token,'client','ok','Tunnel établi');
       upstream.pipe(clientSocket); clientSocket.pipe(upstream);}; upstream.on('data',onData);
   };
   if(base.protocol==='https:')upstream.once('secureConnect',onConnected);else upstream.once('connect',onConnected);
@@ -5096,18 +5394,19 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
+    if(!checkLoginAllowedByIp(req))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     if(!checkLoginAllowed(req,username))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     const all=panelUsers(config),user=all.find(u=>u.username.toLowerCase()===username.toLowerCase());
     const candidate=user?.salt?hashPassword(password,user.salt).hash:'';
-    if (!user || user.active===false || !safeEqualHex(candidate,user.hash||'')) { recordLoginFailure(req,username);addAuditSystem('auth.login.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'}); }
+    if (!user || user.active===false || !safeEqualHex(candidate,user.hash||'')) { recordLoginFailure(req,username);recordLoginFailureByIp(req);addAuditSystem('auth.login.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'}); }
     if(user.totpEnabled){
       const otp=String(body.otp||''),recoveryCode=String(body.recoveryCode||''),emailCode=String(body.emailCode||'');
       if(!otp&&!recoveryCode&&!emailCode){const er=emailRecoveryState(user);return sendJson(res,200,{ok:false,needTotp:true,username:user.username,emailRecoveryAvailable:er.available,emailMasked:er.emailMasked,mailConfigured:er.mailConfigured,recoveryCodesRemaining:Array.isArray(user.recoveryCodeHashes)?user.recoveryCodeHashes.length:0});}
       let factorOk=false,factor='';
-      if(otp){let secret='';try{secret=decryptText(user.totpSecretEnc||'')}catch{}factorOk=!!secret&&verifyTotp(secret,otp);factor='totp';}
+      if(otp){let secret='';try{secret=decryptText(user.totpSecretEnc||'')}catch{}factorOk=!!secret&&verifyTotp(secret,otp,1,`totp:${user.id}`);factor='totp';}
       else if(recoveryCode){const wanted=hashRecoveryCode(user.id,recoveryCode),idx=(user.recoveryCodeHashes||[]).findIndex(h=>safeEqualText(h,wanted));if(idx>=0){user.recoveryCodeHashes.splice(idx,1);factorOk=true;factor='recovery';savePanelUsers(all);}}
       else if(emailCode){const key=email2faKey(user.id),row=EMAIL_2FA_CODES.get(key),now=Date.now();if(row&&row.expiresAt>now&&row.ip===clientIp(req)&&row.attempts<5){const wanted=hashEmail2faCode(user.id,emailCode);if(safeEqualText(row.hash,wanted)){factorOk=true;factor='email';EMAIL_2FA_CODES.delete(key);}else{row.attempts+=1;EMAIL_2FA_CODES.set(key,row);}}}
-      if(!factorOk){recordLoginFailure(req,username);addAuditSystem('auth.2fa.failed',username,{ip:clientIp(req),factor:factor||'unknown'},'error');return sendJson(res,401,{error:factor==='recovery'?'Code de récupération invalide.':factor==='email'?'Code e-mail invalide ou expiré.':'Code TOTP incorrect.'});}
+      if(!factorOk){recordLoginFailure(req,username);recordLoginFailureByIp(req);addAuditSystem('auth.2fa.failed',username,{ip:clientIp(req),factor:factor||'unknown'},'error');return sendJson(res,401,{error:factor==='recovery'?'Code de récupération invalide.':factor==='email'?'Code e-mail invalide ou expiré.':'Code TOTP incorrect.'});}
       addAuditSystem('auth.2fa.success',username,{ip:clientIp(req),factor},'ok');
     }
     clearLoginFailures(req,username);user.lastLoginAt=new Date().toISOString();savePanelUsers(all);setSession(req,res,user);addAuditSystem('auth.login',username,{ip:clientIp(req),role:user.role},'ok');
@@ -5117,9 +5416,10 @@ async function handleApi(req, res, url) {
     if(!setupDone)return sendJson(res,409,{error:'Configuration initiale requise.'});
     if(!originAllowed(req))return sendJson(res,403,{error:'Origine de requête refusée.'});
     const body=await readBody(req),username=String(body.username||'').trim(),password=String(body.password||'');
+    if(!checkLoginAllowedByIp(req))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     if(!checkLoginAllowed(req,username))return sendJson(res,429,{error:'Trop de tentatives. Réessaie dans 15 minutes.'});
     const all=panelUsers(config),user=all.find(u=>u.username.toLowerCase()===username.toLowerCase()),candidate=user?.salt?hashPassword(password,user.salt).hash:'';
-    if(!user||user.active===false||!safeEqualHex(candidate,user.hash||'')){recordLoginFailure(req,username);addAuditSystem('auth.email2fa.request.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'});}
+    if(!user||user.active===false||!safeEqualHex(candidate,user.hash||'')){recordLoginFailure(req,username);recordLoginFailureByIp(req);addAuditSystem('auth.email2fa.request.failed',username,{ip:clientIp(req)},'error');return sendJson(res,401,{error:'Identifiants incorrects.'});}
     if(!user.totpEnabled)return sendJson(res,400,{error:'La double authentification n’est pas activée sur ce compte.'});
     if(!validAccountEmail(user.email))return sendJson(res,400,{error:'Aucune adresse e-mail valide n’est associée à ce compte.'});
     const mailCfg=getSettings().alerts?.smtp||{};if(!mailCfg.enabled)return sendJson(res,503,{error:'Le secours 2FA par e-mail est indisponible : la configuration e-mail ProxPanel n’est pas activée.'});
@@ -5181,7 +5481,7 @@ async function handleApi(req, res, url) {
     if(req.method==='PUT'&&!op){const body=await readBody(req);if(body.username&&String(body.username).toLowerCase()!==target.username.toLowerCase()&&rows.some(u=>u.username.toLowerCase()===String(body.username).toLowerCase()))return sendJson(res,409,{error:'Ce nom utilisateur existe déjà.'});if(body.username)target.username=String(body.username).trim();if(body.displayName!==undefined)target.displayName=String(body.displayName||target.username).slice(0,80);if(body.email!==undefined){const email=String(body.email||'').trim().toLowerCase();if(!validAccountEmail(email))return sendJson(res,400,{error:'Une adresse e-mail valide est obligatoire.'});target.email=email;}if(body.active!==undefined){if(target.id===currentPanelUser.id&&body.active===false)return sendJson(res,400,{error:'Tu ne peux pas désactiver ton propre compte.'});target.active=!!body.active;}if(body.role){target.role=['admin','operator','viewer','custom'].includes(body.role)?body.role:target.role;target.permissions=target.role==='custom'?(Array.isArray(body.permissions)?body.permissions.map(String):target.permissions):defaultPermissionsForRole(target.role);}if(body.password){if(String(body.password).length<12)return sendJson(res,400,{error:'Mot de passe : 12 caractères minimum.'});const pw=hashPassword(String(body.password));target.salt=pw.salt;target.hash=pw.hash;}rows[idx]=target;savePanelUsers(rows);audit(req,'user.update',target.username,{role:target.role,active:target.active});return sendJson(res,200,publicPanelUser(target));}
     if(req.method==='DELETE'&&!op){if(target.id===currentPanelUser.id)return sendJson(res,400,{error:'Tu ne peux pas supprimer ton propre compte.'});rows.splice(idx,1);savePanelUsers(rows);audit(req,'user.delete',target.username);return sendJson(res,200,{ok:true});}
     if(req.method==='POST'&&op==='totp-setup'){if(!validAccountEmail(target.email))return sendJson(res,400,{error:'Ajoute d’abord une adresse e-mail valide au compte. Elle sera utilisée comme méthode de secours 2FA.'});const secret=base32Encode(crypto.randomBytes(20));target.totpPendingEnc=encryptText(secret);rows[idx]=target;savePanelUsers(rows);const issuer=encodeURIComponent('ProxPanel'),label=encodeURIComponent(`ProxPanel:${target.username}`),otpauth=`otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`,er=emailRecoveryState(target);return sendJson(res,200,{secret,otpauth,qrSvg:makeQrSvg(otpauth),emailMasked:er.emailMasked,emailRecoveryAvailable:er.available,mailConfigured:er.mailConfigured});}
-    if(req.method==='POST'&&op==='totp-enable'){const body=await readBody(req);let secret='';try{secret=decryptText(target.totpPendingEnc||target.totpSecretEnc||'')}catch{}if(!secret||!verifyTotp(secret,body.code))return sendJson(res,400,{error:'Code TOTP invalide.'});const recoveryCodes=generateRecoveryCodes(10);target.totpSecretEnc=encryptText(secret);target.totpEnabled=true;target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));delete target.totpPendingEnc;rows[idx]=target;savePanelUsers(rows);audit(req,'user.totp.enable',target.username,{recoveryCodes:recoveryCodes.length,emailRecovery:emailRecoveryState(target).available});return sendJson(res,200,{ok:true,recoveryCodes,emailMasked:maskEmail(target.email),emailRecoveryAvailable:emailRecoveryState(target).available});}
+    if(req.method==='POST'&&op==='totp-enable'){const body=await readBody(req);let secret='';try{secret=decryptText(target.totpPendingEnc||target.totpSecretEnc||'')}catch{}if(!secret||!verifyTotp(secret,body.code,1,`totp:${target.id}`))return sendJson(res,400,{error:'Code TOTP invalide.'});const recoveryCodes=generateRecoveryCodes(10);target.totpSecretEnc=encryptText(secret);target.totpEnabled=true;target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));delete target.totpPendingEnc;rows[idx]=target;savePanelUsers(rows);audit(req,'user.totp.enable',target.username,{recoveryCodes:recoveryCodes.length,emailRecovery:emailRecoveryState(target).available});return sendJson(res,200,{ok:true,recoveryCodes,emailMasked:maskEmail(target.email),emailRecoveryAvailable:emailRecoveryState(target).available});}
     if(req.method==='POST'&&op==='totp-disable'){
       if(!target.totpEnabled)return sendJson(res,409,{error:'La double authentification est déjà désactivée pour ce compte.'});
       const body=await readBody(req),actor=currentPanelUser;
@@ -5203,7 +5503,7 @@ async function handleApi(req, res, url) {
       }
       return sendJson(res,200,{ok:true,notified:!!(mailCfg.enabled&&validAccountEmail(target.email))});
     }
-    if(req.method==='POST'&&op==='recovery-regenerate'){if(target.id!==currentPanelUser?.id)return sendJson(res,403,{error:'Les codes de récupération ne peuvent être régénérés que par leur propriétaire.'});const body=await readBody(req);let secret='';try{secret=decryptText(target.totpSecretEnc||'')}catch{}if(!target.totpEnabled||!secret||!verifyTotp(secret,body.code))return sendJson(res,400,{error:'Code TOTP actuel requis.'});const recoveryCodes=generateRecoveryCodes(10);target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));rows[idx]=target;savePanelUsers(rows);audit(req,'user.recovery.regenerate',target.username,{count:recoveryCodes.length});return sendJson(res,200,{ok:true,recoveryCodes});}
+    if(req.method==='POST'&&op==='recovery-regenerate'){if(target.id!==currentPanelUser?.id)return sendJson(res,403,{error:'Les codes de récupération ne peuvent être régénérés que par leur propriétaire.'});const body=await readBody(req);let secret='';try{secret=decryptText(target.totpSecretEnc||'')}catch{}if(!target.totpEnabled||!secret||!verifyTotp(secret,body.code,1,`totp:${target.id}`))return sendJson(res,400,{error:'Code TOTP actuel requis.'});const recoveryCodes=generateRecoveryCodes(10);target.recoveryCodeHashes=recoveryCodes.map(c=>hashRecoveryCode(target.id,c));rows[idx]=target;savePanelUsers(rows);audit(req,'user.recovery.regenerate',target.username,{count:recoveryCodes.length});return sendJson(res,200,{ok:true,recoveryCodes});}
   }
 
 
@@ -5315,9 +5615,10 @@ async function handleApi(req, res, url) {
   }
   if (url.pathname === '/api/notifications/test' && req.method === 'POST') {
     try {
-      await sendAlertChannels(getSettings(), 'Test ProxPanel', `Notification de test lancée par ${session.username}.`, { type:'system.test', severity:'info' });
-      audit(req, 'notifications.test', 'alert-channels');
-      return sendJson(res, 200, { ok: true });
+      const result = await sendAlertChannels(getSettings(), 'Test ProxPanel', `Notification de test lancée par ${session.username}.`, { type:'system.test', severity:'info' });
+      audit(req, 'notifications.test', 'alert-channels', { attempted: result.attempted, failed: result.failed });
+      if (result.failed > 0) return sendJson(res, 502, { ok: false, attempted: result.attempted, failed: result.failed, failures: result.failures, error: result.failures[0] || 'Envoi échoué.' });
+      return sendJson(res, 200, { ok: true, attempted: result.attempted });
     } catch (e) { return sendJson(res, 502, { error: e.message }); }
   }
   if (url.pathname === '/api/discord-channels' && req.method === 'GET') {
@@ -5578,6 +5879,9 @@ async function handleApi(req, res, url) {
       if (!body.apiTokenId || !body.apiTokenSecret) return sendJson(res, 400, { error: 'Token ID et secret requis.' });
       item.apiTokenId = String(body.apiTokenId).trim(); item.apiTokenSecretEnc = encryptText(String(body.apiTokenSecret));
     }
+    // Independent of authMode: lets a server using Token auth for the Proxmox API also get
+    // SSH-based node temperature monitoring, which authenticates separately over SSH.
+    if (authMode !== 'password' && body.sshPassword) item.sshPasswordEnc = encryptText(String(body.sshPassword));
     const servers = jsonRead(SERVERS_FILE, []); servers.push(item); jsonWrite(SERVERS_FILE, servers);
     audit(req, 'server.add', name, { url: serverUrl, authMode });
     return sendJson(res, 201, sanitizeServer(item));
@@ -5597,6 +5901,10 @@ async function handleApi(req, res, url) {
     if (body.password) { item.passwordEnc = encryptText(String(body.password)); delete item.apiTokenSecretEnc; delete item.apiTokenId; item.authMode='password'; }
     if (body.apiTokenSecret && body.apiTokenId) { item.apiTokenId=String(body.apiTokenId); item.apiTokenSecretEnc=encryptText(String(body.apiTokenSecret)); delete item.passwordEnc; item.authMode='token'; }
     if (item.authMode === 'interactive') { delete item.passwordEnc; delete item.apiTokenSecretEnc; delete item.apiTokenId; }
+    // Deliberately independent of the authMode switches above: this is the SSH credential
+    // used only for lm-sensors temperature reads, not the main Proxmox API, so it must
+    // survive switching the API auth method to Token or Interactive.
+    if (body.sshPassword) item.sshPasswordEnc = encryptText(String(body.sshPassword));
     if (body.wol) item.wol = body.wol.mac ? { mac:String(body.wol.mac),broadcast:String(body.wol.broadcast||'255.255.255.255'),port:Number(body.wol.port||9) } : null;
     jsonWrite(SERVERS_FILE, servers); audit(req,'server.update',item.name,{authMode:item.authMode}); return sendJson(res,200,sanitizeServer(item));
   }
@@ -5607,6 +5915,23 @@ async function handleApi(req, res, url) {
     PVE_USER_SESSIONS.delete(pveSessionKey(session, found.id));
     audit(req, 'server.delete', found.name);
     return sendJson(res, 200, { ok: true });
+  }
+  const sshKeyGenerateMatch = url.pathname.match(/^\/api\/servers\/([^/]+)\/ssh-key\/generate$/);
+  if (sshKeyGenerateMatch && req.method === 'POST') {
+    const servers = jsonRead(SERVERS_FILE, []); const item = servers.find(s => s.id === sshKeyGenerateMatch[1]);
+    if (!item) return sendJson(res, 404, { error: 'Serveur introuvable.' });
+    try {
+      const { privateKeyPem, publicKeyLine } = await generateNodeSshKeypair(item);
+      item.sshPrivateKeyEnc = encryptText(privateKeyPem); item.sshPublicKey = publicKeyLine;
+      jsonWrite(SERVERS_FILE, servers); audit(req, 'server.ssh-key.generate', item.name);
+      // Automatic install via Proxmox's termproxy (node "Shell") was tried and reverted:
+      // screen-scraping a raw PTY over that channel proved unreliable in practice (echo of
+      // our own typed input being mistaken for command output, more than one distinct false
+      // "installed" result confirmed live against a real cluster) with a real risk of
+      // reporting success without the key actually being usable. Manual copy-paste (the
+      // UI's copy button) is the only supported path — it's simple and always correct.
+      return sendJson(res, 200, sanitizeServer(item));
+    } catch (e) { return sendJson(res, 502, { error: e.message }); }
   }
 
   const pveLoginMatch = url.pathname.match(/^\/api\/servers\/([^/]+)\/pve-login$/);
@@ -5800,7 +6125,13 @@ async function handleApi(req, res, url) {
   const restoreBackup=url.pathname.match(/^\/api\/servers\/([^/]+)\/backups\/restore$/);
   if(restoreBackup&&req.method==='POST'){
     const server=findServer(restoreBackup[1]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});const body=await readBody(req);if(!body.volid||!body.node||!['qemu','lxc'].includes(body.type))return sendJson(res,400,{error:'volid, node et type requis.'});
-    try{const auth=await resolveProxmoxAuth(server,session);const vmid=safeInteger(body.vmid)||await getNextVmid(server,auth);let task;if(body.type==='qemu')task=await proxmoxApi(server,`/nodes/${encodeURIComponent(body.node)}/qemu`,{method:'POST',auth,body:{vmid,archive:body.volid,unique:body.unique===false?0:1,start:body.start?1:0,storage:body.storage||undefined}});else task=await proxmoxApi(server,`/nodes/${encodeURIComponent(body.node)}/lxc`,{method:'POST',auth,body:{vmid,ostemplate:body.volid,restore:1,start:body.start?1:0,storage:body.storage||undefined}});audit(req,'backup.restore',String(body.volid),{vmid,node:body.node,task});return sendJson(res,202,{ok:true,vmid,task});}catch(e){return sendJson(res,502,{error:e.message});}
+    try{const auth=await resolveProxmoxAuth(server,session);const explicitVmid=safeInteger(body.vmid);const vmid=explicitVmid||await getNextVmid(server,auth);
+      // Proxmox refuses to restore over an existing VM/LXC ("VM already exists") unless
+      // force=1 is set — required exactly when the user picked a specific target VMID
+      // (the UI's "VMID cible (vide = auto)" field), which is the whole point of a rollback
+      // restore. Auto-assigned VMIDs never collide, so force is left unset there.
+      const force=explicitVmid?1:undefined;
+      let task;if(body.type==='qemu')task=await proxmoxApi(server,`/nodes/${encodeURIComponent(body.node)}/qemu`,{method:'POST',auth,body:{vmid,archive:body.volid,unique:body.unique===false?0:1,start:body.start?1:0,storage:body.storage||undefined,force}});else task=await proxmoxApi(server,`/nodes/${encodeURIComponent(body.node)}/lxc`,{method:'POST',auth,body:{vmid,ostemplate:body.volid,restore:1,start:body.start?1:0,storage:body.storage||undefined,force}});audit(req,'backup.restore',String(body.volid),{vmid,node:body.node,force:!!force,task});return sendJson(res,202,{ok:true,vmid,task});}catch(e){return sendJson(res,502,{error:e.message});}
   }
 
   const cloneMatch=url.pathname.match(/^\/api\/servers\/([^/]+)\/machines\/(qemu|lxc)\/(\d+)\/clone$/);
@@ -5824,7 +6155,7 @@ async function handleApi(req, res, url) {
         if(body.bridge){payload.net0=`virtio,bridge=${body.bridge}${body.vlan?`,tag=${safeInteger(body.vlan,1,4094)}`:''}`;}
         if(body.iso)payload.ide2=`${body.iso},media=cdrom`;if(body.bios)payload.bios=String(body.bios);if(body.machine)payload.machine=String(body.machine);
       } else {
-        if(!body.ostemplate)return sendJson(res,400,{error:'Template LXC requis.'});payload={...payload,hostname:String(body.hostname||`ct-${vmid}`),cores:safeInteger(body.cores,1,512,2),memory:safeInteger(body.memory,64,1048576,1024),swap:safeInteger(body.swap,0,1048576,512),ostemplate:String(body.ostemplate),unprivileged:body.unprivileged===false?0:1,onboot:body.onboot?1:0};
+        if(!body.ostemplate)return sendJson(res,400,{error:'Template LXC requis.'});if(body.password&&String(body.password).length<12)return sendJson(res,400,{error:'Mot de passe root : 12 caractères minimum.'});payload={...payload,hostname:String(body.hostname||`ct-${vmid}`),cores:safeInteger(body.cores,1,512,2),memory:safeInteger(body.memory,64,1048576,1024),swap:safeInteger(body.swap,0,1048576,512),ostemplate:String(body.ostemplate),unprivileged:body.unprivileged===false?0:1,onboot:body.onboot?1:0};
         if(body.storage&&body.diskGb)payload.rootfs=`${body.storage}:${safeInteger(body.diskGb,1,1048576,8)}`;if(body.bridge)payload.net0=`name=eth0,bridge=${body.bridge},ip=${body.ip||'dhcp'}${body.vlan?`,tag=${safeInteger(body.vlan,1,4094)}`:''}`;if(body.password)payload.password=String(body.password);
       }
       const task=await proxmoxApi(server,`/nodes/${encodeURIComponent(node)}/${type}`,{method:'POST',auth,body:payload});audit(req,'machine.create',`${type}/${vmid}`,{node,task});return sendJson(res,202,{ok:true,vmid,task});
@@ -5848,6 +6179,99 @@ async function handleApi(req, res, url) {
   const nodesMatch=url.pathname.match(/^\/api\/servers\/([^/]+)\/nodes$/);
   if(nodesMatch&&req.method==='GET'){
     const server=findServer(nodesMatch[1]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});try{const auth=await resolveProxmoxAuth(server,session);const rows=await proxmoxApi(server,'/nodes',{auth});return sendJson(res,200,Array.isArray(rows)?rows:[]);}catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  const sensorsDetectMatch=url.pathname.match(/^\/api\/servers\/([^/]+)\/nodes\/([^/]+)\/sensors-detect$/);
+  if(sensorsDetectMatch&&req.method==='POST'){
+    const server=findServer(sensorsDetectMatch[1]),node=decodeURIComponent(sensorsDetectMatch[2]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
+    try{
+      const identity=sshSensorIdentity(server);if(!identity.ok)return sendJson(res,200,{ok:false,error:identity.error});
+      const auth=await resolveProxmoxAuth(server,session);const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
+      const host=map.get(node)||fallbackHost;if(!host)return sendJson(res,200,{ok:false,error:'Adresse du nœud introuvable.'});
+      const knownHosts=path.join(DATA_DIR,'ssh-known-hosts');
+      // Hardcoded, single well-known command — not a generic remote-exec endpoint. --auto
+      // answers every "load this driver?" prompt yes and appends detected modules to
+      // /etc/modules (Debian/Proxmox), so this is a real system-config write, not a probe.
+      const {stdout}=await runSshCommand(identity,host,knownHosts,'command -v sensors-detect >/dev/null 2>&1 && yes | sensors-detect --auto 2>&1 || echo "sensors-detect absent (paquet lm-sensors non installé sur ce nœud)"',{timeout:30000,maxBuffer:512*1024});
+      audit(req,'node.sensors-detect',node,{});
+      return sendJson(res,200,{ok:true,node,output:String(stdout||'')});
+    }catch(e){audit(req,'node.sensors-detect',node,{error:e.message},'error');return sendJson(res,502,{error:e.message});}
+  }
+  const loadDriverMatch=url.pathname.match(/^\/api\/servers\/([^/]+)\/nodes\/([^/]+)\/load-driver$/);
+  if(loadDriverMatch&&req.method==='POST'){
+    const server=findServer(loadDriverMatch[1]),node=decodeURIComponent(loadDriverMatch[2]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
+    const body=await readBody(req);
+    // Strict allowlist of hwmon Super I/O / chip drivers sensors-detect can identify — never
+    // modprobe a client-supplied string as-is. sensors-detect only detects, it doesn't
+    // modprobe+persist by itself in --auto mode (confirmed live: chip found, but pwm sysfs
+    // stayed empty until explicitly loaded here), so this is the deliberate follow-up step.
+    const KNOWN_HWMON_DRIVERS=['nct6775','nct6683','it87','w83627ehf','w83627hf','w83795','f71882fg','f71805f','pc87360','pc87427','smsc47m192','smsc47b397','vt1211','adm1275','lm78','lm79'];
+    const driver=String(body.driver||'');
+    if(!KNOWN_HWMON_DRIVERS.includes(driver))return sendJson(res,400,{error:`Pilote non reconnu (attendu : ${KNOWN_HWMON_DRIVERS.join(', ')}).`});
+    try{
+      const identity=sshSensorIdentity(server);if(!identity.ok)return sendJson(res,200,{ok:false,error:identity.error});
+      const auth=await resolveProxmoxAuth(server,session);const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
+      const host=map.get(node)||fallbackHost;if(!host)return sendJson(res,200,{ok:false,error:'Adresse du nœud introuvable.'});
+      const knownHosts=path.join(DATA_DIR,'ssh-known-hosts');
+      const cmd=`modprobe ${driver} 2>&1; echo '--modules--'; lsmod | grep -w ${driver} || echo absent; echo '--persist--'; grep -qxF '${driver}' /etc/modules 2>/dev/null && echo already-persisted || (echo '${driver}' >> /etc/modules && echo added-to-etc-modules)`;
+      const {stdout}=await runSshCommand(identity,host,knownHosts,cmd,{timeout:10000,maxBuffer:64*1024});
+      audit(req,'node.load-driver',node,{driver});
+      return sendJson(res,200,{ok:true,node,driver,output:String(stdout||'')});
+    }catch(e){audit(req,'node.load-driver',node,{driver,error:e.message},'error');return sendJson(res,502,{error:e.message});}
+  }
+  const fanMatch=url.pathname.match(/^\/api\/servers\/([^/]+)\/nodes\/([^/]+)\/fans$/);
+  if(fanMatch&&req.method==='GET'){
+    const server=findServer(fanMatch[1]),node=decodeURIComponent(fanMatch[2]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
+    try{
+      const auth=await resolveProxmoxAuth(server,session);const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
+      const host=map.get(node)||fallbackHost;
+      const result=await readFanControlOverSsh(server,node,host);
+      const originalModes=server.fanOriginalModes||{};
+      result.fans=(result.fans||[]).map(f=>({...f,hasOriginalMode:originalModes[f.pwmPath]!==undefined}));
+      return sendJson(res,200,{node,...result});
+    }catch(e){return sendJson(res,502,{error:e.message});}
+  }
+  if(fanMatch&&req.method==='POST'){
+    const server=findServer(fanMatch[1]),node=decodeURIComponent(fanMatch[2]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
+    const body=await readBody(req),pwmPath=String(body.pwmPath||'');
+    if(!pwmPath)return sendJson(res,400,{error:'pwmPath requis.'});
+    try{
+      const auth=await resolveProxmoxAuth(server,session);const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
+      const host=map.get(node)||fallbackHost;if(!host)return sendJson(res,502,{error:'Adresse du nœud introuvable.'});
+      // Per-fan "what automatic mode was this before ProxPanel ever touched it" memory,
+      // persisted on the server record itself (keyed by pwmPath, which encodes the node's
+      // hwmon index so it's stable across reads) so "Auto" restores the exact original value
+      // instead of a hardcoded guess — see setFanPwmOverSsh for why that matters.
+      if(body.mode==='auto'){
+        const restoreMode=server.fanOriginalModes?.[pwmPath];
+        if(restoreMode===undefined)return sendJson(res,400,{error:'Mode automatique d’origine inconnu pour ce ventilateur (jamais modifié depuis ProxPanel) — rien à restaurer.'});
+        await setFanPwmOverSsh(server,node,host,pwmPath,{restoreMode});
+        audit(req,'node.fan.set',node,{pwmPath,restoreMode});
+      }else{
+        const percent=safeInteger(body.percent,0,100,-1);
+        if(percent===-1)return sendJson(res,400,{error:'percent (0-100) ou mode:"auto" requis.'});
+        const result=await setFanPwmOverSsh(server,node,host,pwmPath,{percent});
+        if(result.previousEnable!=null&&server.fanOriginalModes?.[pwmPath]===undefined){
+          const servers=jsonRead(SERVERS_FILE,[]);const item=servers.find(s=>s.id===server.id);
+          if(item){item.fanOriginalModes={...(item.fanOriginalModes||{}),[pwmPath]:result.previousEnable};jsonWrite(SERVERS_FILE,servers);}
+        }
+        audit(req,'node.fan.set',node,{pwmPath,percent});
+      }
+      const result=await readFanControlOverSsh(server,node,host);
+      const originalModes=findServer(server.id)?.fanOriginalModes||{};
+      result.fans=(result.fans||[]).map(f=>({...f,hasOriginalMode:originalModes[f.pwmPath]!==undefined}));
+      return sendJson(res,200,{ok:true,node,...result});
+    }catch(e){audit(req,'node.fan.set',node,{pwmPath,error:e.message},'error');return sendJson(res,502,{error:e.message});}
+  }
+  const sshShellSessionMatch=url.pathname.match(/^\/api\/servers\/([^/]+)\/nodes\/([^/]+)\/ssh-shell\/session$/);
+  if(sshShellSessionMatch&&req.method==='POST'){
+    const server=findServer(sshShellSessionMatch[1]),node=decodeURIComponent(sshShellSessionMatch[2]);if(!server)return sendJson(res,404,{error:'Serveur introuvable.'});
+    try{
+      const auth=await resolveProxmoxAuth(server,session);const {map,fallbackHost}=await clusterNodeIpMap(server,auth);
+      const host=map.get(node)||fallbackHost;
+      const out=await createSshShellSession(server,node,host,session);
+      audit(req,'node.ssh-shell.open',node,{});
+      return sendJson(res,201,out);
+    }catch(e){audit(req,'node.ssh-shell.open',node,{error:e.message},'error');return sendJson(res,502,{error:e.message});}
   }
   const nodeDetail=url.pathname.match(/^\/api\/servers\/([^/]+)\/nodes\/([^/]+)\/detail$/);
   if(nodeDetail&&req.method==='GET'){
@@ -6226,7 +6650,7 @@ async function handleApi(req, res, url) {
         const r=await portainerDockerBuffer(item,endpointId,`/exec/${encodeURIComponent(execId)}/start`,{
           method:'POST',body:JSON.stringify({Detach:false,Tty:false}),headers:{'Content-Type':'application/json'}
         });
-        audit(req,'docker.container.exec',containerId,{portainer:item.name,endpointId,commandLength:command.length});
+        audit(req,'docker.container.exec',containerId,{portainer:item.name,endpointId,commandLength:command.length,command:command.slice(0,500)});
         return sendJson(res,200,{ok:true,output:dockerStreamText(r.data)});
       }
     }catch(e){return sendJson(res,502,{error:e.message});}
@@ -6361,6 +6785,12 @@ async function buildBackgroundDashboard(server, auth) {
   const [tasks,jobs] = await Promise.all([optional('/cluster/tasks',[]),optional('/cluster/backup',[])]);
   let dashboard=calcDashboard(Array.isArray(resources)?resources:[],Array.isArray(tasks)?tasks:[],Array.isArray(jobs)?jobs:[],[]);
   try { dashboard=enrichBackupState(dashboard,await fetchBackupInventory(server,auth,dashboard)); } catch {}
+  // Without this, dashboard.nodes[].temperatureC stays undefined on this code path, so
+  // computeProblems() can never raise temperature-warning/temperature-critical here —
+  // the background alert poller would silently never send a Discord/e-mail/panel
+  // notification for an overheating node, even though the dashboard UI shows it fine
+  // (the /dashboard and /live routes do call enrichNodeTemperatures).
+  try { await enrichNodeTemperatures(server, auth, dashboard); } catch {}
   return dashboard;
 }
 async function runBackgroundAlerts() {
@@ -6466,22 +6896,33 @@ async function runBackgroundAlerts() {
   if(changed)jsonWrite(ALERT_STATE_FILE,alertState);
 }
 
+let SCHEDULER_TICK_RUNNING=false;
 async function runScheduledAutomations() {
-  const settings=getSettings(),tz=settings.timezone||'UTC',now=new Date();
-  let parts;try{parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));}catch{parts={year:now.getFullYear(),month:String(now.getMonth()+1).padStart(2,'0'),day:String(now.getDate()).padStart(2,'0'),weekday:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][now.getDay()],hour:String(now.getHours()).padStart(2,'0'),minute:String(now.getMinutes()).padStart(2,'0')}}
-  const time=`${parts.hour}:${parts.minute}`,day={Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6}[parts.weekday]??0;
-  const dateKey=`${parts.year}-${parts.month}-${parts.day} ${time}`;
-  const rows=jsonRead(AUTOMATIONS_FILE,[]);let save=false;
-  for(const scenario of rows){
-    if(scenario.enabled===false||!scenario.scheduleTime||scenario.scheduleTime!==time||scenario.lastScheduledRunKey===dateKey)continue;
-    if(Array.isArray(scenario.scheduleDays)&&scenario.scheduleDays.length&&!scenario.scheduleDays.includes(day))continue;
-    const server=findServer(scenario.serverId);scenario.lastScheduledRunKey=dateKey;save=true;
-    if(!server){addAuditSystem('automation.schedule',scenario.name,{error:'Serveur planifié introuvable'},'error');continue;}
-    const owner=panelUsers().find(u=>String(u.id)===String(scenario.createdByUserId||'')||(scenario.createdBy&&u.username===scenario.createdBy));
-    if(!owner||owner.active===false||!userHasPermission(owner,'automations.run')){addAuditSystem('automation.schedule.denied',scenario.name,{error:'Propriétaire absent/désactivé ou permission automations.run manquante'},'error');continue;}
-    try{assertAutomationStepPermissions(owner,scenario.steps);const auth=await proxmoxLogin(server);await runAutomation(server,auth,scenario,null,owner);addAuditSystem('automation.schedule',scenario.name,{server:server.name,time,owner:owner.username});}catch(e){addAuditSystem('automation.schedule',scenario.name,{error:e.message,owner:owner.username},'error');}
-  }
-  if(save)jsonWrite(AUTOMATIONS_FILE,rows);
+  // Reentrancy guard: this runs on a 30s setInterval, and a scenario run can await
+  // slow network calls (proxmoxLogin, runAutomation) well past that. Without this,
+  // an overlapping tick would re-read the not-yet-persisted lastScheduledRunKey from
+  // disk and re-trigger the same scenario a second time in the same minute.
+  if(SCHEDULER_TICK_RUNNING)return;
+  SCHEDULER_TICK_RUNNING=true;
+  try{
+    const settings=getSettings(),tz=settings.timezone||'UTC',now=new Date();
+    let parts;try{parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));}catch{parts={year:now.getFullYear(),month:String(now.getMonth()+1).padStart(2,'0'),day:String(now.getDate()).padStart(2,'0'),weekday:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][now.getDay()],hour:String(now.getHours()).padStart(2,'0'),minute:String(now.getMinutes()).padStart(2,'0')}}
+    const time=`${parts.hour}:${parts.minute}`,day={Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6}[parts.weekday]??0;
+    const dateKey=`${parts.year}-${parts.month}-${parts.day} ${time}`;
+    const rows=jsonRead(AUTOMATIONS_FILE,[]);
+    for(const scenario of rows){
+      if(scenario.enabled===false||!scenario.scheduleTime||scenario.scheduleTime!==time||scenario.lastScheduledRunKey===dateKey)continue;
+      if(Array.isArray(scenario.scheduleDays)&&scenario.scheduleDays.length&&!scenario.scheduleDays.includes(day))continue;
+      const server=findServer(scenario.serverId);
+      // Persist the dedup lock immediately, before any await below, so a concurrent
+      // tick (or a slow scenario delaying this loop) sees it on its next disk read.
+      scenario.lastScheduledRunKey=dateKey;jsonWrite(AUTOMATIONS_FILE,rows);
+      if(!server){addAuditSystem('automation.schedule',scenario.name,{error:'Serveur planifié introuvable'},'error');continue;}
+      const owner=panelUsers().find(u=>String(u.id)===String(scenario.createdByUserId||'')||(scenario.createdBy&&u.username===scenario.createdBy));
+      if(!owner||owner.active===false||!userHasPermission(owner,'automations.run')){addAuditSystem('automation.schedule.denied',scenario.name,{error:'Propriétaire absent/désactivé ou permission automations.run manquante'},'error');continue;}
+      try{assertAutomationStepPermissions(owner,scenario.steps);const auth=await proxmoxLogin(server);await runAutomation(server,auth,scenario,null,owner);addAuditSystem('automation.schedule',scenario.name,{server:server.name,time,owner:owner.username});}catch(e){addAuditSystem('automation.schedule',scenario.name,{error:e.message,owner:owner.username},'error');}
+    }
+  }finally{SCHEDULER_TICK_RUNNING=false;}
 }
 
 const mime = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.svg':'image/svg+xml', '.json':'application/json; charset=utf-8', '.webmanifest':'application/manifest+json; charset=utf-8', '.png':'image/png', '.ico':'image/x-icon' };
@@ -6489,7 +6930,7 @@ function serveStatic(req, res, url) {
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/') pathname = '/index.html';
   const candidate = path.normalize(path.join(PUBLIC_DIR, pathname));
-  if (!candidate.startsWith(PUBLIC_DIR)) return sendText(res, 403, 'Forbidden');
+  if (candidate !== PUBLIC_DIR && !candidate.startsWith(PUBLIC_DIR + path.sep)) return sendText(res, 403, 'Forbidden');
   fs.stat(candidate, (err, stat) => {
     if (err || !stat.isFile()) {
       const index = path.join(PUBLIC_DIR, 'index.html');
@@ -6529,7 +6970,11 @@ function serveStatic(req, res, url) {
 
 function setSecurityHeaders(req,res){
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=(), payment=(), usb=()');res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Resource-Policy','same-origin');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  // script-src/style-src allow cdn.jsdelivr.net: the console/shell terminal (xterm.js +
+  // fit addon) and the VNC client (noVNC) are loaded from there via dynamic import()/<link>,
+  // the same as before the CSP was introduced — without this the browser silently blocks
+  // those loads and every console/shell feature breaks with no server-side error at all.
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   if(effectiveRequestHttps(req))res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
 }
 
@@ -6545,7 +6990,11 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) sendJson(res, 500, { error: e.message || 'Erreur serveur' }); else res.end();
   }
 });
-server.on('upgrade', handleConsoleUpgrade);
+server.on('upgrade', (req, socket, head) => {
+  let pathname='';try{pathname=new URL(req.url,`http://${req.headers.host||'localhost'}`).pathname;}catch{return socket.destroy();}
+  if(pathname==='/ws/ssh-shell')return handleSshShellUpgrade(req, socket, head);
+  return handleConsoleUpgrade(req, socket, head);
+});
 server.listen(PORT, '0.0.0.0', () => console.log(`ProxPanel listening on :${PORT}`));
 setTimeout(()=>runBackgroundAlerts().catch(()=>{}),8000).unref();
 setInterval(()=>runBackgroundAlerts().catch(()=>{}),60000).unref();

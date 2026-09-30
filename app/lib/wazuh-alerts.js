@@ -84,8 +84,11 @@ function evaluateWazuhTransitions(previous={},overview={},config={}){
   }
   if(prev.baseline){
     for(const [key,v] of Object.entries(prevVulnerabilities)){
-      if(v.severity!=='critical'||currentVulnerabilities[key])continue;
-      events.push({type:'wazuh.vulnerability.solved',severity:'info',title:`Vulnérabilité critique résolue · ${v.id||'CVE'}`,message:`${v.agentName||'Endpoint'} ne présente plus cette vulnérabilité active dans la dernière collecte Wazuh.`,target:v.agentName||v.agentId||v.id,source:'Wazuh Vulnerability Detection / Indexer',details:commonVulnerabilityDetails(v),technicalDetails:vulnerabilityTechnical(v),recommendation:'Confirme la stabilité lors des prochaines collectes et conserve la trace du correctif appliqué.'});
+      // Mirror the exact gate used above for a *new* vulnerability, so a "high" that
+      // was notified (because notifyHigh was on) also gets its resolution notified -
+      // previously only 'critical' ever got a solved event here, regardless of notifyHigh.
+      if(!(v.severity==='critical'||(v.severity==='high'&&config.notifyHigh===true))||currentVulnerabilities[key])continue;
+      events.push({type:'wazuh.vulnerability.solved',severity:'info',title:`Vulnérabilité ${v.severity==='critical'?'critique':'élevée'} résolue · ${v.id||'CVE'}`,message:`${v.agentName||'Endpoint'} ne présente plus cette vulnérabilité active dans la dernière collecte Wazuh.`,target:v.agentName||v.agentId||v.id,source:'Wazuh Vulnerability Detection / Indexer',details:commonVulnerabilityDetails(v),technicalDetails:vulnerabilityTechnical(v),recommendation:'Confirme la stabilité lors des prochaines collectes et conserve la trace du correctif appliqué.'});
     }
   }
 
@@ -111,9 +114,16 @@ function evaluateWazuhTransitions(previous={},overview={},config={}){
     events.push({type:'wazuh.vulnerability.spike',severity:'critical',title:'Hausse soudaine des vulnérabilités critiques',message:`Le nombre de vulnérabilités critiques actives est passé de ${previousCritical} à ${currentCritical}.`,target:config.name||'Wazuh',source:'ProxPanel Wazuh Security',details:[`Avant: ${previousCritical}`,`Maintenant: ${currentCritical}`,`Machines concernées: ${Number(overview.summary?.affectedEndpoints||0)}`],recommendation:'Priorise les nouvelles CVE critiques et vérifie si une mise à jour récente de l’inventaire ou des flux de vulnérabilités explique cette hausse.'});
   }
 
+  // A total collection failure reports overview.agents as [], which would otherwise wipe
+  // the last known agent list from state on every outage tick. Keep showing the last
+  // known agents while offline instead (disconnect confirmations/notifications above are
+  // already tracked separately by agentConfirmations/agentNotified, so this doesn't affect
+  // those).
+  const agentsForState=(!online&&!Object.keys(nextAgents).length&&Object.keys(prevAgents).length)?prevAgents:nextAgents;
+
   return {
     events,
-    state:{baseline:true,checkedAt:now,failureCount,outageNotified,agents:keepObjectEntries(nextAgents,1000),agentConfirmations:keepObjectEntries(agentConfirmations,1000),agentNotified:keepObjectEntries(agentNotified,1000),vulnerabilities:keepObjectEntries(currentVulnerabilities,4000),newVulnerabilityKeys:newVulnerabilityKeys.slice(0,1000),alertKeys:[...new Set(nextAlertKeys)].slice(0,1500),fimKeys:[...new Set(nextFimKeys)].slice(0,1500),criticalCount:currentCritical}
+    state:{baseline:true,checkedAt:now,failureCount,outageNotified,agents:keepObjectEntries(agentsForState,1000),agentConfirmations:keepObjectEntries(agentConfirmations,1000),agentNotified:keepObjectEntries(agentNotified,1000),vulnerabilities:keepObjectEntries(currentVulnerabilities,4000),newVulnerabilityKeys:newVulnerabilityKeys.slice(0,1000),alertKeys:[...new Set(nextAlertKeys)].slice(0,1500),fimKeys:[...new Set(nextFimKeys)].slice(0,1500),criticalCount:currentCritical}
   };
 }
 

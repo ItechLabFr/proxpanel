@@ -54,3 +54,12 @@ test('PBS public demo provides deterministic operational data',()=>{
   assert.ok(o.jobs.sync.length>=1);
   assert.ok(o.latestByGuest.length>=3);
 });
+
+test('PBS demo "latest restore point" picks the most recent snapshot per guest, like the real collector',()=>{
+  const o=demoPbsOverview();
+  const vm100Snapshots=o.snapshots.filter(s=>s.backupType==='vm'&&s.backupId==='100');
+  assert.ok(vm100Snapshots.length>=2,'fixture should still have more than one snapshot for the same guest to make this test meaningful');
+  const mostRecent=vm100Snapshots.reduce((a,b)=>b.backupTime>a.backupTime?b:a);
+  const latest=o.latestByGuest.find(x=>x.guest==='vm/100');
+  assert.equal(latest.backupTime,mostRecent.backupTime,'latestByGuest must pick the snapshot with the highest backupTime, not the first one in the array');
+});

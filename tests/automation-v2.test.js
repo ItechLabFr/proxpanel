@@ -43,3 +43,15 @@ test('Automation templates expose reusable scenarios',()=>{
   assert.ok(templates.some(x=>x.id==='lab-maintenance'));
   assert.match(summarizeAutomationStep(templates[0].steps[0]),/start/i);
 });
+
+test('Automation 2.0 caps deeply nested conditions instead of overflowing the call stack',()=>{
+  let deepest={id:'leaf',type:'wait',seconds:1};
+  for(let i=0;i<5000;i++){
+    deepest={id:`cond-${i}`,type:'condition',condition:{kind:'always'},then:[deepest],else:[]};
+  }
+  const scenario=normalizeAutomationScenario({name:'deep',steps:[deepest]});
+  assert.equal(validateAutomationSteps(scenario.steps).ok,true);
+  let node=scenario.steps[0],depth=0;
+  while(node?.type==='condition'&&node.then.length){node=node.then[0];depth++;}
+  assert.ok(depth<=20,`nesting should be capped, got depth ${depth}`);
+});

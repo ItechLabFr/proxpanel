@@ -174,8 +174,12 @@ function buildWazuhOverview({manager={},indexerHealth={},agents=[],vulnerabiliti
 
   const affectedEndpoints=new Set(activeVulnerabilities.map(v=>v.agentId||v.agentName).filter(Boolean));
   const vulnerablePackages=new Set(activeVulnerabilities.map(v=>v.packageName).filter(Boolean));
-  const managerOk=!errors.some(e=>String(e.component||'').toLowerCase()==='manager');
-  const indexerOk=!errors.some(e=>String(e.component||'').toLowerCase()==='indexer');
+  const managerOk=!errors.some(e=>String(e.component||'').toLowerCase().startsWith('manager'));
+  // collectWazuh() reports the Indexer health check as 'indexer' but its 3 separate data
+  // queries as 'indexer-vulnerabilities'/'indexer-alerts'/'indexer-fim' — matching only
+  // the exact 'indexer' string let this badge show "Indexer OK" while every actual data
+  // fetch was failing (wrong index name, missing permission, etc).
+  const indexerOk=!errors.some(e=>String(e.component||'').toLowerCase().startsWith('indexer'));
   const status=errors.length?(managerOk||indexerOk?'degraded':'offline'):'online';
 
   return {

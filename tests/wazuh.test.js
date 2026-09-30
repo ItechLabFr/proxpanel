@@ -83,6 +83,34 @@ test('Demo includes essential FIM and security category data',()=>{
   const o=demoWazuhOverview('24h');assert.ok(o.fim.length>=1);assert.ok(o.categories.integrity>=1);assert.ok(o.categories.authentication>=1);
 });
 
+test('Indexer badge reflects data-query failures, not just the health-check component',()=>{
+  const healthCheckOnly=buildWazuhOverview({agents:[],vulnerabilities:[],alerts:[],errors:[{component:'indexer',message:'timeout'}]});
+  assert.equal(healthCheckOnly.indexer.ok,false);
+  const dataQueryFailure=buildWazuhOverview({agents:[],vulnerabilities:[],alerts:[],errors:[{component:'indexer-vulnerabilities',message:'no such index'}]});
+  assert.equal(dataQueryFailure.indexer.ok,false,'a failed data query must not leave the Indexer badge green');
+  const managerOnlyFailure=buildWazuhOverview({agents:[],vulnerabilities:[],alerts:[],errors:[{component:'manager',message:'unreachable'}]});
+  assert.equal(managerOnlyFailure.indexer.ok,true);assert.equal(managerOnlyFailure.manager.ok,false);
+});
+
+test('Resolved high vulnerability emits a solved event when high-severity notifications are enabled',()=>{
+  const withVuln=buildWazuhOverview({agents:[{id:'001',name:'srv01',status:'active'}],vulnerabilities:[vuln('CVE-HIGH-SOLVED','High','001','openssh-server')],alerts:[]});
+  const baseline=evaluateWazuhTransitions({},withVuln,{notifyHigh:true});
+  const clean=buildWazuhOverview({agents:[{id:'001',name:'srv01',status:'active'}],vulnerabilities:[],alerts:[]});
+  const withPolicyOff=evaluateWazuhTransitions(baseline.state,clean,{notifyHigh:false});
+  assert.equal(withPolicyOff.events.filter(e=>e.type==='wazuh.vulnerability.solved').length,0,'no solved event without notifyHigh, matching the new-vulnerability gate');
+  const withPolicyOn=evaluateWazuhTransitions(baseline.state,clean,{notifyHigh:true});
+  assert.equal(withPolicyOn.events.filter(e=>e.type==='wazuh.vulnerability.solved').length,1);
+});
+
+test('Last known agent list survives a total collection failure instead of going blank',()=>{
+  const healthy=buildWazuhOverview({agents:[{id:'001',name:'srv01',status:'active'}],vulnerabilities:[],alerts:[]});
+  const baseline=evaluateWazuhTransitions({},healthy,{});
+  assert.equal(Object.keys(baseline.state.agents).length,1);
+  const totalFailure={...healthy,status:'offline',agents:[]};
+  const afterOutage=evaluateWazuhTransitions(baseline.state,totalFailure,{});
+  assert.equal(Object.keys(afterOutage.state.agents).length,1,'agents list should be retained, not wiped, during a total outage');
+});
+
 test('Sensitive FIM notification is opt-in and deduplicated',()=>{
   const base=buildWazuhOverview({agents:[{id:'001',name:'srv01',status:'active'}],vulnerabilities:[],alerts:[],fim:[]});
   const baseline=evaluateWazuhTransitions({},base,{notifyFim:true});
