@@ -6484,7 +6484,7 @@ async function runScheduledAutomations() {
   if(save)jsonWrite(AUTOMATIONS_FILE,rows);
 }
 
-const mime = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.svg':'image/svg+xml', '.json':'application/json; charset=utf-8', '.webmanifest':'application/manifest+json; charset=utf-8', '.png':'image/png', '.ico':'image/x-icon' };
+const mime = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.mjs':'text/javascript; charset=utf-8', '.svg':'image/svg+xml', '.json':'application/json; charset=utf-8', '.webmanifest':'application/manifest+json; charset=utf-8', '.png':'image/png', '.ico':'image/x-icon' };
 function serveStatic(req, res, url) {
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/') pathname = '/index.html';
@@ -6497,13 +6497,13 @@ function serveStatic(req, res, url) {
     }
     const ext = path.extname(candidate).toLowerCase();
     const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
-    const isVersionedStatic = url.searchParams.has('v') && ['.js','.css'].includes(ext);
+    const isVersionedStatic = url.searchParams.has('v') && ['.js','.mjs','.css'].includes(ext);
     const criticalFresh = pathname === '/index.html' || pathname === '/sw.js' || pathname === '/manifest.webmanifest';
     const cacheControl = criticalFresh
       ? 'no-store, max-age=0'
       : isVersionedStatic
         ? 'public, max-age=31536000, immutable'
-        : ['.html','.webmanifest','.json','.js','.css'].includes(ext)
+        : ['.html','.webmanifest','.json','.js','.mjs','.css'].includes(ext)
           ? 'no-cache'
           : 'public, max-age=86400';
     if (String(req.headers['if-none-match'] || '') === etag) {
@@ -6515,7 +6515,7 @@ function serveStatic(req, res, url) {
       'Cache-Control': cacheControl,
       'ETag': etag
     };
-    const compressible = ['.html','.js','.css','.svg','.json','.webmanifest'].includes(ext);
+    const compressible = ['.html','.js','.mjs','.css','.svg','.json','.webmanifest'].includes(ext);
     if (compressible && /(?:^|[,\s])gzip(?:[,\s]|$)/i.test(String(req.headers['accept-encoding'] || ''))) {
       headers['Content-Encoding']='gzip'; headers['Vary']='Accept-Encoding';
       res.writeHead(200, headers);
@@ -6529,7 +6529,7 @@ function serveStatic(req, res, url) {
 
 function setSecurityHeaders(req,res){
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=(), payment=(), usb=()');res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Resource-Policy','same-origin');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   if(effectiveRequestHttps(req))res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
 }
 
