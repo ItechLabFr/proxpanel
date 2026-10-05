@@ -1,52 +1,38 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.9.1",
-  "title": "ProxPanel 1.7.2-beta.9.1 — Security & RBAC hotfix",
-  "title_en": "ProxPanel 1.7.2-beta.9.1 — Security & RBAC hotfix",
-  "summary": "Correctif de sécurité prioritaire : RBAC centralisé et fail-closed, correction des contournements Change Center/PBS/Automatisations, rôle Operator réparé, trusted proxies et CSP.",
-  "summary_en": "Priority security hotfix: centralized fail-closed RBAC, Change Center/PBS/Automation authorization fixes, repaired Operator role, trusted proxies and CSP.",
+  "version": "1.7.2-beta.9.2",
+  "title": "ProxPanel 1.7.2-beta.9.2 — Console CSP hotfix",
+  "title_en": "ProxPanel 1.7.2-beta.9.2 — Console CSP hotfix",
+  "summary": "Correctif console : la CSP autorise désormais explicitement les dépendances noVNC/xterm.js sur jsDelivr, ce qui rétablit shell nœud, terminaux LXC/QEMU et consoles noVNC sans retirer le durcissement sécurité.",
+  "summary_en": "Console hotfix: CSP now explicitly allows noVNC/xterm.js dependencies from jsDelivr, restoring node shells, LXC/QEMU terminals and noVNC consoles without removing security hardening.",
   "improvements": [
-    "Autorisation centralisée de toutes les routes API mutatives avec comportement fail-closed pour les nouvelles routes non classées.",
-    "Nouvelles permissions changes.manage, pbs.control, automations.view/manage/run, dependencies.manage, groups.manage et wazuh.manage.",
-    "Contrôle des permissions de chaque étape d’automatisation au moment réel de l’exécution, y compris les scénarios planifiés.",
-    "Prise en charge explicite des reverse proxies de confiance via PROXPANEL_TRUSTED_PROXIES (IP ou CIDR IPv4).",
-    "Ajout d’une Content-Security-Policy pour réduire l’impact d’une éventuelle injection frontend."
+    "Conserve la Content-Security-Policy tout en autorisant explicitement le CDN déjà utilisé par les composants console.",
+    "Maintient le RBAC fail-closed, la gestion des trusted proxies et les protections de la 1.7.2-beta.9.1."
   ],
   "improvements_en": [
-    "Centralized authorization for every mutating API route with fail-closed behavior for unclassified future routes.",
-    "New changes.manage, pbs.control, automations.view/manage/run, dependencies.manage, groups.manage and wazuh.manage permissions.",
-    "Per-step automation authorization at actual execution time, including scheduled scenarios.",
-    "Explicit trusted reverse proxy support through PROXPANEL_TRUSTED_PROXIES (IP or IPv4 CIDR).",
-    "Content-Security-Policy added to reduce the impact of a potential frontend injection."
+    "Keeps the Content-Security-Policy while explicitly allowing the CDN already used by console components.",
+    "Preserves fail-closed RBAC, trusted proxy handling and the protections from 1.7.2-beta.9.1."
   ],
   "fixes": [
-    "Corrige l’élévation de privilèges permettant à un viewer de créer/appliquer des changements de configuration VM/LXC via /api/changes.",
-    "Corrige l’accès non autorisé aux actions PBS verify/prune/sync/gc.",
-    "Corrige l’élévation de privilèges via les automatisations machine/Docker/backups.",
-    "Corrige les modifications non autorisées des dépendances, groupes, mappings Wazuh et autres routes mutatives secondaires.",
-    "Corrige le regex admin trop large qui bloquait les opérations légitimes du rôle Operator sous /api/servers/:id/*.",
-    "Ignore X-Forwarded-For/Proto/Host lorsque la connexion ne vient pas d’un proxy explicitement approuvé.",
-    "Restreint Change Center à la même liste de clés de configuration VM/LXC autorisées que l’éditeur direct."
+    "Corrige le shell des nœuds Proxmox qui pouvait échouer avec « failed waiting for client: timed out ».",
+    "Corrige le chargement de xterm.js bloqué par script-src/style-src 'self'.",
+    "Corrige les terminaux LXC et consoles série QEMU utilisant xterm.js.",
+    "Corrige les consoles graphiques noVNC bloquées par la même CSP."
   ],
   "fixes_en": [
-    "Fixes privilege escalation allowing a viewer to create/apply VM/LXC configuration changes through /api/changes.",
-    "Fixes unauthorized PBS verify/prune/sync/gc actions.",
-    "Fixes privilege escalation through machine/Docker/backup automations.",
-    "Fixes unauthorized mutation of dependencies, groups, Wazuh mappings and other secondary mutating routes.",
-    "Fixes the overly broad admin regex that blocked legitimate Operator actions below /api/servers/:id/*.",
-    "Ignores X-Forwarded-For/Proto/Host unless the connection comes from an explicitly trusted proxy.",
-    "Restricts Change Center to the same VM/LXC configuration allowlist as the direct configuration editor."
+    "Fixes Proxmox node shells that could fail with “failed waiting for client: timed out”.",
+    "Fixes xterm.js loading blocked by script-src/style-src 'self'.",
+    "Fixes LXC terminals and QEMU serial consoles using xterm.js.",
+    "Fixes graphical noVNC consoles blocked by the same CSP."
   ],
   "notes": [
-    "Correctif de sécurité recommandé pour toutes les installations 1.7.2-beta.9.",
-    "Les scénarios planifiés existants sans propriétaire enregistré sont refusés par sécurité ; les enregistrer à nouveau avec un compte autorisé rétablit leur exécution planifiée.",
-    "Si un reverse proxy termine TLS devant ProxPanel, définir PROXPANEL_TRUSTED_PROXIES avec son IP ou CIDR afin d’accepter X-Forwarded-For/Proto/Host.",
+    "Hotfix recommandé pour les installations 1.7.2-beta.9.1 utilisant les consoles intégrées.",
+    "La CSP reste activée ; seuls les scripts et styles https://cdn.jsdelivr.net nécessaires au frontend console sont ajoutés à l’allowlist.",
     "Docker Hub reste publié manuellement et séparément du workflow GitHub."
   ],
   "notes_en": [
-    "Security hotfix recommended for all 1.7.2-beta.9 installations.",
-    "Existing scheduled scenarios without a recorded owner are denied for safety; saving them again with an authorized account restores scheduled execution.",
-    "If a reverse proxy terminates TLS in front of ProxPanel, set PROXPANEL_TRUSTED_PROXIES to its IP or CIDR so X-Forwarded-For/Proto/Host are accepted.",
+    "Recommended hotfix for 1.7.2-beta.9.1 installations using integrated consoles.",
+    "CSP remains enabled; only the https://cdn.jsdelivr.net scripts and styles required by the console frontend are added to the allowlist.",
     "Docker Hub remains published manually and separately from the GitHub workflow."
   ],
   "breaking_changes": [],
