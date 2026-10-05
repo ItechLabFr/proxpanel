@@ -30,6 +30,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Resolve and validate version
         id: version
         shell: bash
@@ -88,6 +93,14 @@ jobs:
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
+      - name: Vendor console assets
+        run: |
+          bash tools-vendor-console.sh
+          test -s app/public/vendor/xterm/xterm.mjs
+          test -s app/public/vendor/xterm/xterm.css
+          test -s app/public/vendor/xterm-addon-fit/addon-fit.mjs
+          test -s app/public/vendor/novnc/core/rfb.js
+
       - name: Validate source
         run: |
           node --check launcher.js
@@ -123,11 +136,16 @@ jobs:
           version="${{ steps.version.outputs.version }}"
           mkdir -p dist
 
-          git archive \
-            --format=zip \
-            --prefix="proxpanel-v${version}/" \
-            --output="dist/proxpanel-v${version}.zip" \
-            HEAD
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          git archive --format=tar --prefix="proxpanel-v${version}/" HEAD | tar -xf - -C "$stage"
+          mkdir -p "$stage/proxpanel-v${version}/app/public"
+          rm -rf "$stage/proxpanel-v${version}/app/public/vendor"
+          cp -R app/public/vendor "$stage/proxpanel-v${version}/app/public/vendor"
+          (
+            cd "$stage"
+            zip -qr "$GITHUB_WORKSPACE/dist/proxpanel-v${version}.zip" "proxpanel-v${version}"
+          )
 
           chmod +x tools-build-update.sh tools-build-lxc.sh
           ./tools-build-update.sh ./app ./dist
