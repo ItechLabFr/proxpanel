@@ -1,6 +1,8 @@
 'use strict';
 const net=require('net');
 const SAFE_METHODS=new Set(['GET','HEAD','OPTIONS']);
+// 'docker.exec' (arbitrary shell in a container) is intentionally absent from every
+// built-in role, including operator: grant it only via a 'custom' role permission list.
 const ROLE_PERMISSIONS={
   admin:['*'],
   operator:['dashboard.view','machines.view','machines.control','console.use','backups.run','tasks.manage','pve.updates','audit.view','health.manage','changes.manage','pbs.control','automations.view','automations.manage','automations.run','dependencies.manage','groups.manage','wazuh.manage'],
@@ -17,6 +19,7 @@ function requiredPermissionForMutation(pathname,method='GET'){
   if(/^\/api\/pbs\/actions\/(verify|prune|sync|gc)$/.test(p))return'pbs.control';
   if(p==='/api/wazuh/panel-notifications/read')return'dashboard.view';
   if(p==='/api/wazuh/topology-mappings'||p==='/api/wazuh/test-notification')return'wazuh.manage';
+  if(/^\/api\/docker\/portainers\/[^/]+\/environments\/\d+\/containers\/[^/]+\/exec$/.test(p))return'docker.exec';
   if(/^\/api\/docker(?:\/|$)/.test(p))return'machines.control';
   if(/^\/api\/dependencies\/manual(?:\/|$)/.test(p))return'dependencies.manage';
   if(p==='/api/automations/preview'||/^\/api\/automations\/[^/]+\/preview$/.test(p))return'automations.view';
@@ -50,4 +53,23 @@ function effectiveClientIp(req,rawSpecs){
 }
 function effectiveRequestHttps(req,rawSpecs){return!!req?.socket?.encrypted||firstForwarded(req,'x-forwarded-proto',rawSpecs).toLowerCase()==='https';}
 function effectiveRequestHost(req,rawSpecs){return firstForwarded(req,'x-forwarded-host',rawSpecs)||String(req?.headers?.host||'').split(',')[0].trim();}
-module.exports={ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,normalizeIp,trustedProxySpecs,isTrustedProxyAddress,isTrustedProxyRequest,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost};
+// Only blocks loopback, link-local (incl. 169.254.169.254 cloud metadata) and 0.0.0.0 — NOT
+// RFC1918 private ranges (10/8, 172.16/12, 192.168/16), because ProxPanel's whole purpose is
+// reaching Portainer/PBS/Wazuh on the user's own LAN, which is almost always a private IP.
+// This stops an integration URL from reaching the ProxPanel host itself or a cloud metadata
+// endpoint, without breaking the normal HomeLab deployment this product is built for.
+function isBlockedSsrfIp(ip){
+  const kind=net.isIP(ip);
+  if(kind===4){
+    const p=ip.split('.').map(Number);
+    return p[0]===127||p[0]===0||(p[0]===169&&p[1]===254);
+  }
+  if(kind===6){
+    const low=ip.toLowerCase();
+    if(low==='::1'||low==='::')return true;
+    if(low.startsWith('::ffff:'))return isBlockedSsrfIp(low.slice(7));
+    return low.startsWith('fe80:');
+  }
+  return false;
+}
+module.exports={ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,normalizeIp,trustedProxySpecs,isTrustedProxyAddress,isTrustedProxyRequest,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost,isBlockedSsrfIp};

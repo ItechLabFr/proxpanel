@@ -41,7 +41,8 @@ function normalizeCondition(condition={}){
   if(kind==='always')return {kind};
   return {kind:'machine-state',target:normalizeTarget(condition),state:String(condition.state||'running').toLowerCase()};
 }
-function normalizeAutomationStep(row={},index=0){
+const MAX_CONDITION_DEPTH=20;
+function normalizeAutomationStep(row={},index=0,depth=0){
   const type=String(row.type||'').toLowerCase();
   const base={
     id:cleanId(row.id,`step-${index+1}`),
@@ -56,12 +57,15 @@ function normalizeAutomationStep(row={},index=0){
   if(type==='wait-until')return {...base,target:normalizeTarget(row),state:String(row.state||'stopped').toLowerCase(),pollSeconds:clampNumber(row.pollSeconds,2,60,5)};
   if(type==='backup')return {...base,target:normalizeTarget(row),storage:String(row.storage||'').trim().slice(0,120),mode:BACKUP_MODES.has(String(row.mode||'snapshot'))?String(row.mode||'snapshot'):'snapshot',compress:String(row.compress||'zstd').trim().slice(0,20)};
   if(type==='docker-action')return {...base,scope:String(row.scope||'container').toLowerCase(),portainerId:String(row.portainerId||'').trim(),endpointId:Number(row.endpointId||0),targetId:String(row.targetId||row.containerId||row.stackId||'').trim(),action:String(row.action||'').toLowerCase()};
-  if(type==='condition')return {...base,condition:normalizeCondition(row.condition||{}),then:normalizeAutomationSteps(row.then||[],`${base.id}-then`),else:normalizeAutomationSteps(row.else||[],`${base.id}-else`)};
+  if(type==='condition'){
+    const atMaxDepth=depth>=MAX_CONDITION_DEPTH;
+    return {...base,condition:normalizeCondition(row.condition||{}),then:atMaxDepth?[]:normalizeAutomationSteps(row.then||[],`${base.id}-then`,depth+1),else:atMaxDepth?[]:normalizeAutomationSteps(row.else||[],`${base.id}-else`,depth+1)};
+  }
   return {...base};
 }
-function normalizeAutomationSteps(steps=[],prefix='step'){
+function normalizeAutomationSteps(steps=[],prefix='step',depth=0){
   return (Array.isArray(steps)?steps:[]).slice(0,100).map((row,index)=>{
-    const normalized=normalizeAutomationStep(row,index);
+    const normalized=normalizeAutomationStep(row,index,depth);
     if(!row?.id)normalized.id=`${prefix}-${index+1}`;
     return normalized;
   });

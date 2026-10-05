@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
-const {ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost}=require('../app/lib/security-policy');
+const {ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost,isBlockedSsrfIp}=require('../app/lib/security-policy');
 const allowed=(role,path,method)=>{const r=requiredPermissionForMutation(path,method),p=ROLE_PERMISSIONS[role]||[];return !r||p.includes('*')||p.includes(r)};
 const req=(remoteAddress,headers={},encrypted=false)=>({socket:{remoteAddress,encrypted},headers});
 test('viewer denied critical mutations',()=>{for(const [p,m] of [['/api/changes','POST'],['/api/changes/id/apply','POST'],['/api/pbs/actions/prune','POST'],['/api/pbs/actions/gc','POST'],['/api/automations','POST'],['/api/automations/id/run','POST'],['/api/dependencies/manual','POST']])assert.equal(allowed('viewer',p,m),false,p);});
@@ -10,3 +10,15 @@ test('automation nested permissions',()=>assert.deepEqual(automationStepPermissi
 test('untrusted forwarded headers ignored',()=>{const r=req('203.0.113.10',{'x-forwarded-for':'198.51.100.7','x-forwarded-proto':'https','x-forwarded-host':'evil','host':'panel.local'});assert.equal(effectiveClientIp(r,''),'203.0.113.10');assert.equal(effectiveRequestHttps(r,''),false);assert.equal(effectiveRequestHost(r,''),'panel.local');});
 test('trusted forwarded headers accepted',()=>{const r=req('172.18.0.12',{'x-forwarded-for':'198.51.100.8','x-forwarded-proto':'https','x-forwarded-host':'panel.example'});assert.equal(effectiveClientIp(r,'172.18.0.0/16'),'198.51.100.8');assert.equal(effectiveRequestHttps(r,'172.18.0.0/16'),true);assert.equal(effectiveRequestHost(r,'172.18.0.0/16'),'panel.example');});
 test('trusted proxy chain ignores a spoofed left-most XFF value',()=>{const r=req('172.18.0.12',{'x-forwarded-for':'203.0.113.99, 198.51.100.8'});assert.equal(effectiveClientIp(r,'172.18.0.0/16'),'198.51.100.8');});
+test('docker exec requires a dedicated permission, not granted to operator by default',()=>{
+  assert.equal(requiredPermissionForMutation('/api/docker/portainers/p1/environments/2/containers/abc123/exec','POST'),'docker.exec');
+  assert.equal(allowed('operator','/api/docker/portainers/p1/environments/2/containers/abc123/exec','POST'),false);
+  assert.equal(allowed('admin','/api/docker/portainers/p1/environments/2/containers/abc123/exec','POST'),true);
+  assert.equal(allowed('operator','/api/docker/portainers/p1/environments/2/containers/abc123/action','POST'),true);
+});
+test('isBlockedSsrfIp blocks loopback/link-local/metadata but allows private LAN ranges',()=>{
+  for(const ip of ['127.0.0.1','0.0.0.0','169.254.169.254','169.254.0.1','::1','fe80::1'])
+    assert.equal(isBlockedSsrfIp(ip),true,ip);
+  for(const ip of ['10.0.0.5','172.16.0.5','192.168.1.10','8.8.8.8','2001:db8::1'])
+    assert.equal(isBlockedSsrfIp(ip),false,ip);
+});
