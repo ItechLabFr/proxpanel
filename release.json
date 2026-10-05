@@ -1,38 +1,42 @@
 {
   "product": "ProxPanel",
-  "version": "1.7.2-beta.9.2",
-  "title": "ProxPanel 1.7.2-beta.9.2 — Console CSP hotfix",
-  "title_en": "ProxPanel 1.7.2-beta.9.2 — Console CSP hotfix",
-  "summary": "Correctif console : la CSP autorise désormais explicitement les dépendances noVNC/xterm.js sur jsDelivr, ce qui rétablit shell nœud, terminaux LXC/QEMU et consoles noVNC sans retirer le durcissement sécurité.",
-  "summary_en": "Console hotfix: CSP now explicitly allows noVNC/xterm.js dependencies from jsDelivr, restoring node shells, LXC/QEMU terminals and noVNC consoles without removing security hardening.",
+  "version": "1.7.2-beta.9.3",
+  "title": "ProxPanel 1.7.2-beta.9.3 — Console assets self-hosted",
+  "title_en": "ProxPanel 1.7.2-beta.9.3 — Console assets self-hosted",
+  "summary": "Correctif console définitif : xterm.js, addon-fit et noVNC sont désormais embarqués et servis localement par ProxPanel. Les shells et consoles ne dépendent plus de jsDelivr.",
+  "summary_en": "Definitive console hotfix: xterm.js, addon-fit and noVNC are now bundled and served locally by ProxPanel. Shells and consoles no longer depend on jsDelivr.",
   "improvements": [
-    "Conserve la Content-Security-Policy tout en autorisant explicitement le CDN déjà utilisé par les composants console.",
-    "Maintient le RBAC fail-closed, la gestion des trusted proxies et les protections de la 1.7.2-beta.9.1."
+    "Assets console xterm.js 6.0.0, addon-fit 0.11.0 et noVNC 1.7.0 embarqués automatiquement dans les builds.",
+    "Serveur statique compatible avec les modules .mjs et leur type MIME JavaScript.",
+    "CSP resserrée de nouveau à script-src 'self' grâce à la suppression des imports CDN."
   ],
   "improvements_en": [
-    "Keeps the Content-Security-Policy while explicitly allowing the CDN already used by console components.",
-    "Preserves fail-closed RBAC, trusted proxy handling and the protections from 1.7.2-beta.9.1."
+    "Console assets xterm.js 6.0.0, addon-fit 0.11.0 and noVNC 1.7.0 are automatically bundled into builds.",
+    "Static server now supports .mjs modules with the correct JavaScript MIME type.",
+    "CSP is tightened back to script-src 'self' after removing CDN imports."
   ],
   "fixes": [
-    "Corrige le shell des nœuds Proxmox qui pouvait échouer avec « failed waiting for client: timed out ».",
-    "Corrige le chargement de xterm.js bloqué par script-src/style-src 'self'.",
-    "Corrige les terminaux LXC et consoles série QEMU utilisant xterm.js.",
-    "Corrige les consoles graphiques noVNC bloquées par la même CSP."
+    "Corrige « xterm.js indisponible : Failed to fetch dynamically imported module ».",
+    "Corrige les shells de nœuds Proxmox qui restaient en attente après création du termproxy.",
+    "Corrige les terminaux LXC, consoles série QEMU et consoles graphiques noVNC lorsque jsDelivr est bloqué ou inaccessible.",
+    "Corrige le packaging OTA/complet/LXC afin d'inclure les dépendances console locales."
   ],
   "fixes_en": [
-    "Fixes Proxmox node shells that could fail with “failed waiting for client: timed out”.",
-    "Fixes xterm.js loading blocked by script-src/style-src 'self'.",
-    "Fixes LXC terminals and QEMU serial consoles using xterm.js.",
-    "Fixes graphical noVNC consoles blocked by the same CSP."
+    "Fixes “xterm.js unavailable: Failed to fetch dynamically imported module”.",
+    "Fixes Proxmox node shells remaining pending after termproxy creation.",
+    "Fixes LXC terminals, QEMU serial consoles and graphical noVNC consoles when jsDelivr is blocked or unavailable.",
+    "Fixes OTA/full/LXC packaging so local console dependencies are included."
   ],
   "notes": [
-    "Hotfix recommandé pour les installations 1.7.2-beta.9.1 utilisant les consoles intégrées.",
-    "La CSP reste activée ; seuls les scripts et styles https://cdn.jsdelivr.net nécessaires au frontend console sont ajoutés à l’allowlist.",
+    "Mise à jour recommandée pour toutes les installations 1.7.2-beta.9.2 utilisant les consoles intégrées.",
+    "Après mise à jour, aucun accès navigateur à cdn.jsdelivr.net n'est requis pour xterm/noVNC.",
+    "Un rechargement forcé du navigateur peut être utile après l'installation pour vider un ancien cache frontend.",
     "Docker Hub reste publié manuellement et séparément du workflow GitHub."
   ],
   "notes_en": [
-    "Recommended hotfix for 1.7.2-beta.9.1 installations using integrated consoles.",
-    "CSP remains enabled; only the https://cdn.jsdelivr.net scripts and styles required by the console frontend are added to the allowlist.",
+    "Recommended update for all 1.7.2-beta.9.2 installations using integrated consoles.",
+    "After updating, browser access to cdn.jsdelivr.net is no longer required for xterm/noVNC.",
+    "A hard browser reload can be useful after installation to clear stale frontend cache.",
     "Docker Hub remains published manually and separately from the GitHub workflow."
   ],
   "breaking_changes": [],
