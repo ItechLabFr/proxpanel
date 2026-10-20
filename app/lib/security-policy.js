@@ -6,6 +6,21 @@ const ROLE_PERMISSIONS={
   operator:['dashboard.view','machines.view','machines.control','console.use','backups.run','tasks.manage','pve.updates','audit.view','health.manage','changes.manage','pbs.control','automations.view','automations.manage','automations.run','dependencies.manage','groups.manage','wazuh.manage'],
   viewer:['dashboard.view','machines.view']
 };
+function effectivePermissionsForUser(user){
+  const role=user?.role||'viewer';
+  if(role!=='custom')return [...(ROLE_PERMISSIONS[role]||ROLE_PERMISSIONS.viewer)];
+  return Array.isArray(user?.permissions)?user.permissions:[];
+}
+function userHasPermission(user,permission){
+  if(!user||user.active===false)return false;
+  const permissions=effectivePermissionsForUser(user);
+  return permissions.includes('*')||permissions.includes(permission);
+}
+function findSessionUser(users,session){
+  const userId=String(session?.userId||'');
+  if(!userId||!Array.isArray(users))return null;
+  return users.find(u=>u.id===userId)||null;
+}
 function requiredPermissionForMutation(pathname,method='GET'){
   const verb=String(method||'GET').toUpperCase();if(SAFE_METHODS.has(verb))return null;const p=String(pathname||'');
   if(/^\/api\/sessions\/[^/]+$/.test(p))return'admin.users';
@@ -50,4 +65,4 @@ function effectiveClientIp(req,rawSpecs){
 }
 function effectiveRequestHttps(req,rawSpecs){return!!req?.socket?.encrypted||firstForwarded(req,'x-forwarded-proto',rawSpecs).toLowerCase()==='https';}
 function effectiveRequestHost(req,rawSpecs){return firstForwarded(req,'x-forwarded-host',rawSpecs)||String(req?.headers?.host||'').split(',')[0].trim();}
-module.exports={ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,normalizeIp,trustedProxySpecs,isTrustedProxyAddress,isTrustedProxyRequest,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost};
+module.exports={findSessionUser,ROLE_PERMISSIONS,effectivePermissionsForUser,userHasPermission,requiredPermissionForMutation,automationStepPermissions,normalizeIp,trustedProxySpecs,isTrustedProxyAddress,isTrustedProxyRequest,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost};

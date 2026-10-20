@@ -29,7 +29,7 @@ const {
 const {
   normalizeReauthCode,strongReauthAllowed,nextSensitiveAttempt,sensitiveAttemptBlocked
 } = require('./lib/auth-security');
-const { ROLE_PERMISSIONS,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost } = require('./lib/security-policy');
+const { findSessionUser,ROLE_PERMISSIONS,effectivePermissionsForUser,userHasPermission,requiredPermissionForMutation,automationStepPermissions,effectiveClientIp,effectiveRequestHttps,effectiveRequestHost } = require('./lib/security-policy');
 const {
   collectWazuh,testWazuhConnection,period:wazuhPeriod,alertThreshold:wazuhAlertThreshold
 } = require('./lib/wazuh-client');
@@ -901,9 +901,7 @@ function panelUsers(config=jsonRead(CONFIG_FILE,{})) {
   return Array.isArray(rows)?rows:[];
 }
 function savePanelUsers(rows){jsonWrite(USERS_FILE,(rows||[]).slice(0,200));}
-function effectivePermissionsForUser(user){const role=user?.role||'viewer';if(role!=='custom')return defaultPermissionsForRole(role);return Array.isArray(user?.permissions)?user.permissions:[];}
 function publicPanelUser(u){return {id:u.id,username:u.username,displayName:u.displayName||u.username,email:String(u.email||''),role:u.role||'viewer',permissions:effectivePermissionsForUser(u),active:u.active!==false,totpEnabled:!!u.totpEnabled,recoveryCodesRemaining:Array.isArray(u.recoveryCodeHashes)?u.recoveryCodeHashes.length:0,createdAt:u.createdAt||'',lastLoginAt:u.lastLoginAt||''};}
-function userHasPermission(user,perm){if(!user||user.active===false)return false;const perms=effectivePermissionsForUser(user);return perms.includes('*')||perms.includes(perm);}
 function base32Encode(buf){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0,out='';for(const byte of buf){value=(value<<8)|byte;bits+=8;while(bits>=5){out+=alphabet[(value>>>(bits-5))&31];bits-=5;}}if(bits>0)out+=alphabet[(value<<(5-bits))&31];return out;}
 function base32Decode(str){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,value=0,out=[];for(const ch of String(str||'').toUpperCase().replace(/[^A-Z2-7]/g,'')){const idx=alphabet.indexOf(ch);if(idx<0)continue;value=(value<<5)|idx;bits+=5;if(bits>=8){out.push((value>>>(bits-8))&255);bits-=8;}}return Buffer.from(out);}
 function totpCode(secret,counter){const key=base32Decode(secret);const b=Buffer.alloc(8);let n=BigInt(counter);for(let i=7;i>=0;i--){b[i]=Number(n&255n);n>>=8n;}const h=crypto.createHmac('sha1',key).update(b).digest();const o=h[h.length-1]&15;const bin=((h[o]&127)<<24)|((h[o+1]&255)<<16)|((h[o+2]&255)<<8)|(h[o+3]&255);return String(bin%1000000).padStart(6,'0');}
@@ -1011,7 +1009,7 @@ function getSession(req) {
     if (A.length !== B.length || !crypto.timingSafeEqual(A, B)) return null;
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (!data?.username || Number(data.expires || 0) < Date.now()) return null;
-    const user=panelUsers().find(u=>u.id===data.userId||u.username===data.username);
+    const user=findSessionUser(panelUsers(),data);
     if(!user||user.active===false)return null;
     const registry=touchPanelSession({...data,userId:user.id},req);
     if(registry?.revokedAt)return null;
@@ -5150,7 +5148,7 @@ async function handleApi(req, res, url) {
   if (!session) return sendJson(res, 401, { error: 'Authentification requise.' });
   if(!originAllowed(req))return sendJson(res,403,{error:'Origine de requête refusée.'});
 
-  const currentPanelUser=panelUsers(config).find(u=>u.id===session.userId||u.username===session.username);
+  const currentPanelUser=findSessionUser(panelUsers(config),session);
   if (url.pathname === '/api/me' && req.method === 'GET') return sendJson(res, 200, publicPanelUser(currentPanelUser||session));
   if (DEMO_MODE && !['GET','HEAD','OPTIONS'].includes(String(req.method||'GET').toUpperCase())) {
     return sendJson(res,403,{error:'Mode démo public : les modifications et actions sont désactivées.'});
@@ -5207,10 +5205,9 @@ async function handleApi(req, res, url) {
   }
 
 
-  // Centralized fail-closed RBAC. UI hiding is convenience only.
-  const isAdmin=userHasPermission(currentPanelUser,'*')||userHasPermission(currentPanelUser,'admin.manage');
+  const isAdmin=userHasPermission(currentPanelUser,'*');
   const requiredPermission=requiredPermissionForMutation(url.pathname,req.method);
-  if(requiredPermission&&!isAdmin&&!userHasPermission(currentPanelUser,requiredPermission)){audit(req,'rbac.denied',url.pathname,{method:req.method,requiredPermission},'error');return sendJson(res,403,{error:`Permission ${requiredPermission} requise.`});}
+  if(requiredPermission&&!userHasPermission(currentPanelUser,requiredPermission)){audit(req,'rbac.denied',url.pathname,{method:req.method,requiredPermission},'error');return sendJson(res,403,{error:`Permission ${requiredPermission} requise.`});}
   if(/^\/api\/audit/.test(url.pathname) && !userHasPermission(currentPanelUser,'audit.view') && !isAdmin) return sendJson(res,403,{error:'Permission audit requise.'});
 
   // ----- Dynamic settings / branding / alerts / dashboard -----
